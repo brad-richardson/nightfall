@@ -11,12 +11,11 @@ Working list to build the core loop and UI in a sensible order. Keep PRs small b
 ## Core Loop (Week 2)
 - [x] Cycle state store + helper (phase/progress) backed by `world_meta`.
 - [x] SSE phase_change event (ticker NOTIFY + API stream endpoint).
-- [x] Initial rust spread + road decay tick (distance-based rust, rust-weighted decay).
-- [ ] Rust mechanics: neighbor-driven spread, pushback, caps, day/night tuning.
-- [ ] Road decay + degraded status thresholds; task auto-spawn for degraded roads without active tasks.
-- [ ] Resource generation per building type; region pools accumulate per tick with phase multipliers.
-- [ ] Crew dispatch + task completion: respect repair speed multiplier by phase; update road state and rust pushback.
-- [ ] Vote decay and task priority calculation.
+- [x] Rust mechanics: neighbor-driven spread, pushback, caps, day/night tuning.
+- [x] Road decay + degraded status thresholds; task auto-spawn for degraded roads without active tasks.
+- [x] Resource generation per building type; region pools accumulate per tick with phase multipliers.
+- [x] Crew dispatch + task completion: respect repair speed multiplier by phase; update road state and rust pushback.
+- [x] Vote decay and task priority calculation.
 
 ## World Data (Week 2-3)
 - [ ] Ingest pipeline for Boston: download Overture layers, curate regions list, generate H3 cells, load roads/buildings/places with joins, initialize state. Script + docs to rerun.

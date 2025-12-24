@@ -1,0 +1,21 @@
+import { describe, expect, it, vi } from "vitest";
+import { generateRegionResources } from "./resources";
+
+const multipliers = {
+  rust_spread: 1,
+  decay: 1,
+  generation: 1.5,
+  repair_speed: 1
+};
+
+describe("generateRegionResources", () => {
+  it("updates regional pools based on building output", async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [] });
+
+    await generateRegionResources({ query }, multipliers);
+
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(String(query.mock.calls[0][0])).toContain("generates_labor");
+    expect(query.mock.calls[0][1]).toEqual([1.5]);
+  });
+});

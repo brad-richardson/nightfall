@@ -4,6 +4,8 @@ import { syncCycleState } from "./cycle-store";
 import { getPhaseMultipliers } from "./multipliers";
 import { applyRustSpread } from "./rust";
 import { applyRoadDecay } from "./decay";
+import { generateRegionResources } from "./resources";
+import { dispatchCrews, completeFinishedTasks } from "./crews";
 import { spawnDegradedRoadTasks, updateTaskPriorities } from "./tasks";
 
 const intervalMs = Number(process.env.TICK_INTERVAL_MS ?? 10_000);
@@ -24,8 +26,11 @@ async function runTick() {
 
   await applyRustSpread(pool, multipliers);
   await applyRoadDecay(pool, multipliers);
+  await generateRegionResources(pool, multipliers);
   await spawnDegradedRoadTasks(pool);
   await updateTaskPriorities(pool);
+  await dispatchCrews(pool, multipliers);
+  await completeFinishedTasks(pool, multipliers);
 }
 
 let running = true;
