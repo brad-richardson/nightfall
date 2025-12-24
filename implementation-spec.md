@@ -1,12 +1,16 @@
-# Overture: Nightfall — Implementation Spec
+# Nightfall — Implementation Spec
 
 ## One-sentence pitch
 
-A persistent, shared, city-scale infrastructure sim where Overture/GERS features are the game objects, and players collaborate via a vector map UI to maintain roads and buildings against The Rust — a creeping decay that spreads faster when night falls.
+A persistent, shared, city-scale infrastructure sim where real-world GERS infrastructure features (powered by Overture data) are the game objects, and players collaborate via a vector map UI to maintain roads and buildings against The Rust — a creeping decay that spreads faster when night falls.
 
 ## Tagline
 
 *"The nights are getting longer."*
+
+## Attribution
+
+Nightfall uses Overture Maps data (and its upstream sources); ensure proper in-product and documentation attribution for Overture and contributors when shipping.
 
 ---
 

@@ -1,0 +1,19 @@
+{
+  "name": "nightfall",
+  "version": "0.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev -w @nightfall/web",
+    "dev:api": "npm run dev -w @nightfall/api",
+    "build": "npm run build -ws",
+    "lint": "npm run lint -ws",
+    "format": "npm run format -ws",
+    "start": "npm run start -w @nightfall/web"
+  },
+  "engines": {
+    "node": ">=18.17.0"
+  }
+}
