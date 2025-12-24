@@ -22,9 +22,9 @@ Working list to build the core loop and UI in a sensible order. Keep PRs small b
 - [ ] Seed/demo data for dev: lightweight fixture load to let frontend run without full ingest.
 
 ## API & Realtime (Week 3)
-- [ ] REST endpoints: world summary, region detail, features by bbox, hexes by bbox, contribute, vote, tasks detail, set-home.
-- [ ] SSE stream: world_delta, feature_delta, task_delta, feed_item, reset warnings.
-- [ ] Admin endpoints: demo mode toggle, set-phase, reset trigger; auth guard.
+- [x] REST endpoints: world summary, region detail, features by bbox, hexes by bbox, contribute, vote, tasks detail, set-home.
+- [x] SSE stream: world_delta, feature_delta, task_delta, feed_item, reset warnings.
+- [x] Admin endpoints: demo mode toggle, set-phase, reset trigger; auth guard.
 
 ## Frontend (Week 3-4)
 - [ ] State/store setup (Zustand) + shared client for API/SSE; environment config.

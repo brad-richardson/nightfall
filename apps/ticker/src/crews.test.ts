@@ -12,8 +12,9 @@ describe("dispatchCrews", () => {
   it("returns when there are no idle crews", async () => {
     const query = vi.fn().mockResolvedValueOnce({ rows: [] });
 
-    await dispatchCrews({ query }, multipliers);
+    const result = await dispatchCrews({ query }, multipliers);
 
+    expect(result).toEqual({ taskDeltas: [], featureDeltas: [], regionIds: [] });
     expect(query).toHaveBeenCalledTimes(1);
   });
 
@@ -34,16 +35,25 @@ describe("dispatchCrews", () => {
           }
         ]
       })
-      .mockResolvedValue({ rows: [] });
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [{ task_id: "task-1", status: "active", priority_score: 10 }]
+      })
+      .mockResolvedValueOnce({
+        rows: [{ gers_id: "road-1", health: 50, status: "repairing" }]
+      })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
 
-    await dispatchCrews({ query }, multipliers);
+    const result = await dispatchCrews({ query }, multipliers);
 
-    const updateCrewsCall = query.mock.calls.find((call) =>
-      String(call[0]).includes("UPDATE crews")
-    );
-
-    expect(updateCrewsCall).toBeTruthy();
-    expect(updateCrewsCall?.[1]).toEqual(["crew-1", "task-1", 20]);
+    expect(result.taskDeltas).toEqual([
+      { task_id: "task-1", status: "active", priority_score: 10 }
+    ]);
+    expect(result.featureDeltas).toEqual([
+      { gers_id: "road-1", health: 50, status: "repairing" }
+    ]);
+    expect(result.regionIds).toEqual(["region-1"]);
 
     const commitCall = query.mock.calls.find((call) => call[0] === "COMMIT");
     expect(commitCall).toBeTruthy();
@@ -58,7 +68,9 @@ describe("dispatchCrews", () => {
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] });
 
-    await dispatchCrews({ query }, multipliers);
+    const result = await dispatchCrews({ query }, multipliers);
+
+    expect(result).toEqual({ taskDeltas: [], featureDeltas: [], regionIds: [] });
 
     const rollbackCall = query.mock.calls.find((call) => call[0] === "ROLLBACK");
     expect(rollbackCall).toBeTruthy();
@@ -67,13 +79,36 @@ describe("dispatchCrews", () => {
 
 describe("completeFinishedTasks", () => {
   it("updates tasks, crews, and rust with pushback", async () => {
-    const query = vi.fn().mockResolvedValue({ rows: [] });
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            tasks: [
+              {
+                task_id: "task-1",
+                status: "done",
+                priority_score: 10,
+                region_id: "region-1"
+              }
+            ],
+            features: [{ gers_id: "road-1", health: 80, status: "normal" }],
+            hexes: ["hex-1"]
+          }
+        ]
+      })
+      .mockResolvedValueOnce({ rows: [] });
 
-    await completeFinishedTasks({ query }, multipliers);
+    const result = await completeFinishedTasks({ query }, multipliers);
 
-    expect(query).toHaveBeenCalledTimes(1);
-    expect(String(query.mock.calls[0][0])).toContain("UPDATE tasks");
-    expect(String(query.mock.calls[0][0])).toContain("UPDATE hex_cells");
-    expect(query.mock.calls[0][1][0]).toBeCloseTo(0.02);
+    expect(result.taskDeltas).toEqual([
+      { task_id: "task-1", status: "done", priority_score: 10 }
+    ]);
+    expect(result.featureDeltas).toEqual([
+      { gers_id: "road-1", health: 80, status: "normal" }
+    ]);
+    expect(result.rustHexes).toEqual(["hex-1"]);
+    expect(result.regionIds).toEqual(["region-1"]);
+    expect(result.feedItems[0]?.event_type).toBe("task_complete");
   });
 });

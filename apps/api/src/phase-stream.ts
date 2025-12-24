@@ -1,10 +1,10 @@
 import { EventEmitter } from "node:events";
 import type { Pool, PoolClient } from "pg";
-import type { PhaseName } from "./cycle";
+import type { Phase } from "./utils/phase";
 
 export type PhaseChangePayload = {
-  phase: PhaseName;
-  next_phase: PhaseName;
+  phase: Phase;
+  next_phase: Phase;
   next_phase_in_seconds: number;
 };
 

@@ -1,5 +1,6 @@
 import type { Logger, PoolLike } from "./ticker";
 import { computeCycleSnapshot } from "./cycle";
+import { notifyEvent } from "./notify";
 
 type CycleRow = {
   cycle_start: string | null;
@@ -36,13 +37,11 @@ export async function syncCycleState(pool: PoolLike, logger: Logger, now = new D
   if (storedPhase && storedPhase !== snapshot.phase) {
     logger.info("[ticker] phase change", { from: storedPhase, to: snapshot.phase });
 
-    await pool.query("NOTIFY phase_change, $1", [
-      JSON.stringify({
-        phase: snapshot.phase,
-        next_phase: snapshot.nextPhase,
-        next_phase_in_seconds: Math.round(snapshot.nextPhaseInMs / 1000)
-      })
-    ]);
+    await notifyEvent(pool, "phase_change", {
+      phase: snapshot.phase,
+      next_phase: snapshot.nextPhase,
+      next_phase_in_seconds: Math.round(snapshot.nextPhaseInMs / 1000)
+    });
   }
 
   if (shouldUpdate) {

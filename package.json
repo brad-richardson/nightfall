@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
+    "ci": "pnpm run lint && pnpm run test:unit && pnpm run build",
     "dev:web": "pnpm --filter @nightfall/web dev",
     "dev:api": "pnpm --filter @nightfall/api dev",
     "dev:ticker": "pnpm --filter @nightfall/ticker dev",

@@ -1,9 +1,36 @@
+import type { FeatureDelta, FeedItem, TaskDelta } from "./deltas";
 import type { PoolLike } from "./ticker";
 import type { PhaseMultipliers } from "./multipliers";
 
 const MIN_REPAIR_THRESHOLD = 30;
 
+type CompletedTask = TaskDelta & { region_id: string };
+
+type CompletedRow = {
+  tasks: CompletedTask[];
+  features: FeatureDelta[];
+  hexes: string[];
+};
+
+export type DispatchResult = {
+  taskDeltas: TaskDelta[];
+  featureDeltas: FeatureDelta[];
+  regionIds: string[];
+};
+
+export type CompletionResult = {
+  taskDeltas: TaskDelta[];
+  featureDeltas: FeatureDelta[];
+  rustHexes: string[];
+  regionIds: string[];
+  feedItems: FeedItem[];
+};
+
 export async function dispatchCrews(pool: PoolLike, multipliers: PhaseMultipliers) {
+  const taskDeltas: TaskDelta[] = [];
+  const featureDeltas: FeatureDelta[] = [];
+  const regionIds: string[] = [];
+
   const idleResult = await pool.query<{ crew_id: string; region_id: string }>(
     "SELECT crew_id, region_id FROM crews WHERE status = 'idle'"
   );
@@ -68,12 +95,13 @@ export async function dispatchCrews(pool: PoolLike, multipliers: PhaseMultiplier
         [crew.region_id, task.cost_labor, task.cost_materials]
       );
 
-      await pool.query("UPDATE tasks SET status = 'active' WHERE task_id = $1", [
-        task.task_id
-      ]);
+      const taskUpdate = await pool.query<TaskDelta>(
+        "UPDATE tasks SET status = 'active' WHERE task_id = $1 RETURNING task_id, status, priority_score",
+        [task.task_id]
+      );
 
-      await pool.query(
-        "UPDATE feature_state SET status = 'repairing', updated_at = now() WHERE gers_id = $1",
+      const featureUpdate = await pool.query<FeatureDelta>(
+        "UPDATE feature_state SET status = 'repairing', updated_at = now() WHERE gers_id = $1 RETURNING gers_id, health, status",
         [task.target_gers_id]
       );
 
@@ -83,17 +111,34 @@ export async function dispatchCrews(pool: PoolLike, multipliers: PhaseMultiplier
       );
 
       await pool.query("COMMIT");
+
+      const taskDelta = taskUpdate.rows[0];
+      if (taskDelta) {
+        taskDeltas.push(taskDelta);
+      }
+
+      const featureDelta = featureUpdate.rows[0];
+      if (featureDelta) {
+        featureDeltas.push(featureDelta);
+      }
+
+      regionIds.push(crew.region_id);
     } catch (error) {
       await pool.query("ROLLBACK");
       throw error;
     }
   }
+
+  return { taskDeltas, featureDeltas, regionIds } satisfies DispatchResult;
 }
 
-export async function completeFinishedTasks(pool: PoolLike, multipliers: PhaseMultipliers) {
+export async function completeFinishedTasks(
+  pool: PoolLike,
+  multipliers: PhaseMultipliers
+): Promise<CompletionResult> {
   const pushback = 0.02 * Math.max(0, 1.5 - multipliers.rust_spread);
 
-  await pool.query(
+  const result = await pool.query<CompletedRow>(
     `
     WITH due AS (
       SELECT
@@ -101,6 +146,7 @@ export async function completeFinishedTasks(pool: PoolLike, multipliers: PhaseMu
         c.active_task_id,
         t.target_gers_id,
         t.repair_amount,
+        t.region_id,
         wf.h3_index
       FROM crews AS c
       JOIN tasks AS t ON t.task_id = c.active_task_id
@@ -114,7 +160,7 @@ export async function completeFinishedTasks(pool: PoolLike, multipliers: PhaseMu
       SET status = 'done', completed_at = now()
       FROM due
       WHERE t.task_id = due.active_task_id
-      RETURNING t.task_id
+      RETURNING t.task_id, t.status, t.priority_score, t.region_id
     ),
     updated_features AS (
       UPDATE feature_state AS fs
@@ -127,7 +173,7 @@ export async function completeFinishedTasks(pool: PoolLike, multipliers: PhaseMu
         updated_at = now()
       FROM due
       WHERE fs.gers_id = due.target_gers_id
-      RETURNING due.h3_index
+      RETURNING fs.gers_id, fs.health, fs.status, due.h3_index
     ),
     updated_crews AS (
       UPDATE crews AS c
@@ -135,14 +181,76 @@ export async function completeFinishedTasks(pool: PoolLike, multipliers: PhaseMu
       FROM due
       WHERE c.crew_id = due.crew_id
       RETURNING c.crew_id
+    ),
+    updated_hex AS (
+      UPDATE hex_cells AS h
+      SET
+        rust_level = GREATEST(0, h.rust_level - $1),
+        updated_at = now()
+      FROM (SELECT DISTINCT h3_index FROM due) AS d
+      WHERE h.h3_index = d.h3_index
+      RETURNING h.h3_index
     )
-    UPDATE hex_cells AS h
-    SET
-      rust_level = GREATEST(0, h.rust_level - $1),
-      updated_at = now()
-    FROM (SELECT DISTINCT h3_index FROM due) AS d
-    WHERE h.h3_index = d.h3_index
+    SELECT
+      COALESCE(
+        jsonb_agg(DISTINCT jsonb_build_object(
+          'task_id', updated_tasks.task_id,
+          'status', updated_tasks.status,
+          'priority_score', updated_tasks.priority_score,
+          'region_id', updated_tasks.region_id
+        )) FILTER (WHERE updated_tasks.task_id IS NOT NULL),
+        '[]'::jsonb
+      ) AS tasks,
+      COALESCE(
+        jsonb_agg(DISTINCT jsonb_build_object(
+          'gers_id', updated_features.gers_id,
+          'health', updated_features.health,
+          'status', updated_features.status
+        )) FILTER (WHERE updated_features.gers_id IS NOT NULL),
+        '[]'::jsonb
+      ) AS features,
+      COALESCE(
+        jsonb_agg(DISTINCT updated_hex.h3_index) FILTER (WHERE updated_hex.h3_index IS NOT NULL),
+        '[]'::jsonb
+      ) AS hexes
+    FROM updated_tasks
+    FULL JOIN updated_features ON TRUE
+    FULL JOIN updated_hex ON TRUE
     `,
     [pushback, MIN_REPAIR_THRESHOLD]
   );
+
+  const row = result.rows[0];
+  const completedTasks = (row?.tasks ?? []) as CompletedTask[];
+  const taskDeltas = completedTasks.map(({ task_id, status, priority_score }) => ({
+    task_id,
+    status,
+    priority_score
+  }));
+  const featureDeltas = (row?.features ?? []) as FeatureDelta[];
+  const rustHexes = (row?.hexes ?? []) as string[];
+  const regionIds = completedTasks.map((task) => task.region_id);
+
+  for (const task of completedTasks) {
+    await pool.query(
+      "INSERT INTO events (event_type, region_id, payload) VALUES ('task_complete', $1, $2::jsonb)",
+      [task.region_id, JSON.stringify({ task_id: task.task_id, status: task.status })]
+    );
+  }
+
+  const now = new Date().toISOString();
+  const feedItems: FeedItem[] = completedTasks.map((task) => ({
+    event_type: "task_complete",
+    region_id: task.region_id,
+    message: "Task completed",
+    ts: now
+  }));
+
+  return {
+    taskDeltas,
+    featureDeltas,
+    rustHexes,
+    regionIds,
+    feedItems
+  };
 }

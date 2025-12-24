@@ -24,6 +24,11 @@ type ComputeArgs = {
   getNeighbors: (index: string) => string[];
 };
 
+type RustUpdate = {
+  h3_index: string;
+  rust_level: number;
+};
+
 export function computeRustUpdates({
   cells,
   roadStats,
@@ -32,7 +37,7 @@ export function computeRustUpdates({
   getNeighbors
 }: ComputeArgs) {
   const rustByIndex = new Map(cells.map((cell) => [cell.h3_index, cell.rust_level]));
-  const updates: Array<{ h3_index: string; rust_level: number }> = [];
+  const updates: RustUpdate[] = [];
   const pushbackMult = Math.max(0, 1.5 - multipliers.rust_spread);
 
   for (const cell of cells) {
@@ -92,7 +97,7 @@ export async function applyRustSpread(pool: PoolLike, multipliers: PhaseMultipli
   const cells = cellsResult.rows;
 
   if (cells.length === 0) {
-    return;
+    return [];
   }
 
   const roadStatsResult = await pool.query<{
@@ -130,7 +135,7 @@ export async function applyRustSpread(pool: PoolLike, multipliers: PhaseMultipli
   });
 
   if (updates.length === 0) {
-    return;
+    return [];
   }
 
   const indices = updates.map((update) => update.h3_index);
@@ -151,4 +156,6 @@ export async function applyRustSpread(pool: PoolLike, multipliers: PhaseMultipli
     `,
     [indices, rustLevels]
   );
+
+  return indices;
 }

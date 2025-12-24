@@ -19,11 +19,4 @@ jobs:
           cache: pnpm
 
       - run: pnpm install
-      - run: pnpm run lint
-      - run: pnpm run build
-
-      # Install Playwright browsers with system dependencies
-      - run: pnpm exec playwright install --with-deps chromium
-
-      # Run all tests (db requires Docker, which is pre-installed on ubuntu-latest)
-      - run: pnpm run test
+      - run: npm run ci

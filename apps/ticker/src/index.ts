@@ -7,6 +7,8 @@ import { applyRoadDecay } from "./decay";
 import { generateRegionResources } from "./resources";
 import { dispatchCrews, completeFinishedTasks } from "./crews";
 import { spawnDegradedRoadTasks, updateTaskPriorities } from "./tasks";
+import type { FeatureDelta, TaskDelta } from "./deltas";
+import { notifyEvent } from "./notify";
 
 const intervalMs = Number(process.env.TICK_INTERVAL_MS ?? 10_000);
 const lockId = Number(process.env.TICK_LOCK_ID ?? 424242);
@@ -20,17 +22,69 @@ const logger = {
   error: console.error
 };
 
+async function publishWorldDelta(rustHexes: string[], regionIds: string[]) {
+  const rustChanged = Array.from(new Set(rustHexes));
+  const regionsChanged = Array.from(new Set(regionIds));
+
+  if (rustChanged.length === 0 && regionsChanged.length === 0) {
+    return;
+  }
+
+  await notifyEvent(pool, "world_delta", {
+    rust_changed: rustChanged,
+    regions_changed: regionsChanged
+  });
+}
+
+async function publishFeatureDeltas(deltas: FeatureDelta[]) {
+  for (const delta of deltas) {
+    await notifyEvent(pool, "feature_delta", delta);
+  }
+}
+
+async function publishTaskDeltas(deltas: TaskDelta[]) {
+  for (const delta of deltas) {
+    await notifyEvent(pool, "task_delta", delta);
+  }
+}
+
+async function publishFeedItems(items: { event_type: string; region_id: string | null; message: string; ts: string }[]) {
+  for (const item of items) {
+    await notifyEvent(pool, "feed_item", item);
+  }
+}
+
 async function runTick() {
   const cycle = await syncCycleState(pool, logger);
   const multipliers = getPhaseMultipliers(cycle.phase);
 
-  await applyRustSpread(pool, multipliers);
-  await applyRoadDecay(pool, multipliers);
-  await generateRegionResources(pool, multipliers);
-  await spawnDegradedRoadTasks(pool);
-  await updateTaskPriorities(pool);
-  await dispatchCrews(pool, multipliers);
-  await completeFinishedTasks(pool, multipliers);
+  const rustHexes = await applyRustSpread(pool, multipliers);
+  const decayFeatureDeltas = await applyRoadDecay(pool, multipliers);
+  const regionIds = await generateRegionResources(pool, multipliers);
+  const spawnedTasks = await spawnDegradedRoadTasks(pool);
+  const priorityUpdates = await updateTaskPriorities(pool);
+  const dispatchResult = await dispatchCrews(pool, multipliers);
+  const completionResult = await completeFinishedTasks(pool, multipliers);
+
+  await publishWorldDelta(
+    [...rustHexes, ...completionResult.rustHexes],
+    [...regionIds, ...dispatchResult.regionIds, ...completionResult.regionIds]
+  );
+
+  await publishFeatureDeltas([
+    ...decayFeatureDeltas,
+    ...dispatchResult.featureDeltas,
+    ...completionResult.featureDeltas
+  ]);
+
+  await publishTaskDeltas([
+    ...spawnedTasks,
+    ...priorityUpdates,
+    ...dispatchResult.taskDeltas,
+    ...completionResult.taskDeltas
+  ]);
+
+  await publishFeedItems(completionResult.feedItems);
 }
 
 let running = true;

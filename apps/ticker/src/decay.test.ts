@@ -12,10 +12,11 @@ describe("applyRoadDecay", () => {
   it("issues a decay update", async () => {
     const query = vi.fn().mockResolvedValue({ rows: [] });
 
-    await applyRoadDecay({ query }, multipliers);
+    const result = await applyRoadDecay({ query }, multipliers);
 
+    expect(result).toEqual([]);
     expect(query).toHaveBeenCalledTimes(1);
-    expect(query.mock.calls[0][0]).toContain("UPDATE feature_state");
+    expect(String(query.mock.calls[0][0])).toContain("UPDATE feature_state");
     expect(query.mock.calls[0][1]).toEqual([0.2]);
   });
 });

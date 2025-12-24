@@ -1,9 +1,10 @@
+import type { TaskDelta } from "./deltas";
 import type { PoolLike } from "./ticker";
 
 const DEFAULT_LAMBDA = 0.1;
 
 export async function spawnDegradedRoadTasks(pool: PoolLike) {
-  await pool.query(
+  const result = await pool.query<TaskDelta>(
     `
     INSERT INTO tasks (
       region_id,
@@ -74,12 +75,15 @@ export async function spawnDegradedRoadTasks(pool: PoolLike) {
         WHERE t.target_gers_id = wf.gers_id
           AND t.status IN ('queued', 'active')
       )
+    RETURNING task_id, status, priority_score
     `
   );
+
+  return result.rows;
 }
 
 export async function updateTaskPriorities(pool: PoolLike, lambda = DEFAULT_LAMBDA) {
-  await pool.query(
+  const result = await pool.query<TaskDelta>(
     `
     WITH vote_scores AS (
       SELECT
@@ -117,7 +121,10 @@ export async function updateTaskPriorities(pool: PoolLike, lambda = DEFAULT_LAMB
       ) + task_info.vote_score
     FROM task_info
     WHERE t.task_id = task_info.task_id
+    RETURNING t.task_id, t.status, t.priority_score
     `,
     [lambda]
   );
+
+  return result.rows;
 }

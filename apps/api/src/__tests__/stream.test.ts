@@ -1,23 +1,26 @@
 import { describe, expect, it } from "vitest";
 import { buildServer } from "../server";
-import type { PhaseStream } from "../phase-stream";
+import type { EventStream } from "../event-stream";
 
-const phasePayload = {
-  phase: "night",
-  next_phase: "dawn",
-  next_phase_in_seconds: 120
+const eventPayload = {
+  event: "phase_change",
+  data: {
+    phase: "night",
+    next_phase: "dawn",
+    next_phase_in_seconds: 120
+  }
 } as const;
 
-describe("phase stream", () => {
-  it("streams phase_change events over SSE", async () => {
-    const phaseStream: PhaseStream = {
+describe("event stream", () => {
+  it("streams events over SSE", async () => {
+    const eventStream: EventStream = {
       subscribe: (handler) => {
-        handler(phasePayload);
+        handler(eventPayload);
         return () => {};
       }
     };
 
-    const app = buildServer({ phaseStream });
+    const app = buildServer({ eventStream });
     const response = await app.inject({
       method: "GET",
       url: "/api/stream",

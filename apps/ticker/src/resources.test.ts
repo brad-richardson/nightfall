@@ -10,10 +10,11 @@ const multipliers = {
 
 describe("generateRegionResources", () => {
   it("updates regional pools based on building output", async () => {
-    const query = vi.fn().mockResolvedValue({ rows: [] });
+    const query = vi.fn().mockResolvedValue({ rows: [{ region_id: "region-1" }] });
 
-    await generateRegionResources({ query }, multipliers);
+    const result = await generateRegionResources({ query }, multipliers);
 
+    expect(result).toEqual(["region-1"]);
     expect(query).toHaveBeenCalledTimes(1);
     expect(String(query.mock.calls[0][0])).toContain("generates_labor");
     expect(query.mock.calls[0][1]).toEqual([1.5]);

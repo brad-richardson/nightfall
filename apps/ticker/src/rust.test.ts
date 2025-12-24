@@ -2,6 +2,9 @@ import * as h3 from "h3-js";
 import { describe, expect, it, vi } from "vitest";
 import { applyRustSpread, computeRustUpdates } from "./rust";
 
+type LatLngToCell = (lat: number, lng: number, res: number) => string;
+type GridDisk = (index: string, k: number) => string[];
+
 const multipliers = {
   rust_spread: 1,
   decay: 1,
@@ -51,17 +54,19 @@ describe("applyRustSpread", () => {
   it("skips update when there are no cells", async () => {
     const query = vi.fn().mockResolvedValueOnce({ rows: [] });
 
-    await applyRustSpread({ query }, multipliers);
+    const result = await applyRustSpread({ query }, multipliers);
 
+    expect(result).toEqual([]);
     expect(query).toHaveBeenCalledTimes(1);
   });
 
   it("issues update when rust changes", async () => {
-    const latLngToCell = (h3 as { latLngToCell?: Function; geoToH3?: Function })
-      .latLngToCell ??
-      (h3 as { geoToH3?: Function }).geoToH3;
-    const gridDisk = (h3 as { gridDisk?: Function; kRing?: Function }).gridDisk ??
-      (h3 as { kRing?: Function }).kRing;
+    const latLngToCell =
+      (h3 as { latLngToCell?: LatLngToCell; geoToH3?: LatLngToCell })
+        .latLngToCell ?? (h3 as { geoToH3?: LatLngToCell }).geoToH3;
+    const gridDisk =
+      (h3 as { gridDisk?: GridDisk; kRing?: GridDisk }).gridDisk ??
+      (h3 as { kRing?: GridDisk }).kRing;
 
     if (!latLngToCell || !gridDisk) {
       throw new Error("h3-js helpers missing");
@@ -86,8 +91,9 @@ describe("applyRustSpread", () => {
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] });
 
-    await applyRustSpread({ query }, multipliers);
+    const result = await applyRustSpread({ query }, multipliers);
 
+    expect(result).toContain(baseCell);
     expect(query).toHaveBeenCalledTimes(3);
     expect(String(query.mock.calls[2][0])).toContain("UPDATE hex_cells");
   });

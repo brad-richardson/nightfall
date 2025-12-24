@@ -1,8 +1,9 @@
+import type { FeatureDelta } from "./deltas";
 import type { PoolLike } from "./ticker";
 import type { PhaseMultipliers } from "./multipliers";
 
 export async function applyRoadDecay(pool: PoolLike, multipliers: PhaseMultipliers) {
-  await pool.query(
+  const result = await pool.query<FeatureDelta>(
     `
     UPDATE feature_state AS fs
     SET
@@ -32,7 +33,10 @@ export async function applyRoadDecay(pool: PoolLike, multipliers: PhaseMultiplie
       WHERE wf.feature_type = 'road'
     ) AS decay
     WHERE fs.gers_id = decay.gers_id
+    RETURNING fs.gers_id, fs.health, fs.status
     `,
     [multipliers.decay]
   );
+
+  return result.rows;
 }

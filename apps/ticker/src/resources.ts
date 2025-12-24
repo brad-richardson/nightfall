@@ -2,7 +2,7 @@ import type { PoolLike } from "./ticker";
 import type { PhaseMultipliers } from "./multipliers";
 
 export async function generateRegionResources(pool: PoolLike, multipliers: PhaseMultipliers) {
-  await pool.query(
+  const result = await pool.query<{ region_id: string }>(
     `
     WITH totals AS (
       SELECT
@@ -31,7 +31,10 @@ export async function generateRegionResources(pool: PoolLike, multipliers: Phase
       updated_at = now()
     FROM totals
     WHERE r.region_id = totals.region_id
+    RETURNING r.region_id
     `,
     [multipliers.generation]
   );
+
+  return result.rows.map((row) => row.region_id);
 }
