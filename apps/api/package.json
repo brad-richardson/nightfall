@@ -1,0 +1,22 @@
+{
+  "name": "@nightfall/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "lint": "echo \"no lint configured\"",
+    "format": "echo \"no format configured\""
+  },
+  "dependencies": {
+    "fastify": "^4.28.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.4.5",
+    "@types/node": "^20.14.10"
+  }
+}
