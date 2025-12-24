@@ -46,16 +46,22 @@ describe("api server", () => {
     const response = await app.inject({ method: "POST", url: "/api/hello", payload: {} });
 
     expect(response.statusCode).toBe(400);
-    expect(response.json()).toEqual({ ok: false, error: "client_id_required" });
+    const json = response.json();
+    expect(json.ok).toBe(false);
+    expect(json.error).toBe("missing_field");
+    expect(json.field).toBe("client_id");
 
     await app.close();
   });
 
   it("returns hello payload with seeded values", async () => {
+    // Mock cycle_start to be exactly at the start of a cycle
+    const cycleStart = new Date();
+
     queryMock
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ home_region_id: null }] })
-      .mockResolvedValueOnce({ rows: [{ version: "7" }] })
+      .mockResolvedValueOnce({ rows: [] }) // upsert player
+      .mockResolvedValueOnce({ rows: [{ home_region_id: null }] }) // get player
+      .mockResolvedValueOnce({ rows: [{ version: "7" }] }) // world version
       .mockResolvedValueOnce({
         rows: [
           {
@@ -64,7 +70,8 @@ describe("api server", () => {
             center: { type: "Point", coordinates: [0, 0] }
           }
         ]
-      });
+      }) // regions
+      .mockResolvedValueOnce({ rows: [{ cycle_start: cycleStart }] }); // cycle state
 
     const app = buildServer();
     const response = await app.inject({
@@ -74,25 +81,24 @@ describe("api server", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({
-      ok: true,
-      world_version: 7,
-      home_region_id: null,
-      regions: [
-        {
-          region_id: "region-1",
-          name: "Alpha",
-          center: { type: "Point", coordinates: [0, 0] }
-        }
-      ],
-      cycle: {
-        phase: "day",
-        phase_progress: 0,
-        next_phase_in_seconds: 0
+    const json = response.json();
+    expect(json.ok).toBe(true);
+    expect(json.world_version).toBe(7);
+    expect(json.home_region_id).toBe(null);
+    expect(json.regions).toEqual([
+      {
+        region_id: "region-1",
+        name: "Alpha",
+        center: { type: "Point", coordinates: [0, 0] }
       }
-    });
+    ]);
+    // Cycle state is computed dynamically, so just check structure
+    expect(json.cycle).toHaveProperty("phase");
+    expect(json.cycle).toHaveProperty("phase_progress");
+    expect(json.cycle).toHaveProperty("next_phase_in_seconds");
+    expect(["dawn", "day", "dusk", "night"]).toContain(json.cycle.phase);
 
-    expect(queryMock).toHaveBeenCalledTimes(4);
+    expect(queryMock).toHaveBeenCalledTimes(5);
 
     await app.close();
   });

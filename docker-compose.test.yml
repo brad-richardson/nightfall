@@ -1,6 +1,7 @@
 services:
   db:
-    image: postgis/postgis:16-3.4
+    image: postgis/postgis:16-3.4-alpine
+    platform: linux/amd64
     ports:
       - "5433:5432"
     environment:
@@ -12,3 +13,4 @@ services:
       interval: 2s
       timeout: 5s
       retries: 15
+      start_period: 10s

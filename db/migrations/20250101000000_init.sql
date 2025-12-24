@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS hex_cells (
 
 CREATE INDEX IF NOT EXISTS hex_cells_region_idx ON hex_cells(region_id);
 CREATE INDEX IF NOT EXISTS hex_cells_rust_idx ON hex_cells(rust_level);
+CREATE INDEX IF NOT EXISTS hex_cells_distance_idx ON hex_cells(distance_from_center DESC);
 
 CREATE TABLE IF NOT EXISTS world_features (
   gers_id TEXT PRIMARY KEY,
@@ -74,6 +75,7 @@ CREATE TABLE IF NOT EXISTS tasks (
 
 CREATE INDEX IF NOT EXISTS tasks_region_status_idx ON tasks(region_id, status);
 CREATE INDEX IF NOT EXISTS tasks_priority_idx ON tasks(priority_score DESC);
+CREATE INDEX IF NOT EXISTS tasks_region_priority_idx ON tasks(region_id, priority_score DESC) WHERE status = 'queued';
 
 CREATE TABLE IF NOT EXISTS task_votes (
   vote_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -96,6 +98,7 @@ CREATE TABLE IF NOT EXISTS crews (
 
 CREATE INDEX IF NOT EXISTS crews_region_idx ON crews(region_id);
 CREATE INDEX IF NOT EXISTS crews_status_idx ON crews(status);
+CREATE INDEX IF NOT EXISTS crews_busy_until_idx ON crews(busy_until) WHERE status = 'working';
 
 CREATE TABLE IF NOT EXISTS players (
   client_id TEXT PRIMARY KEY,

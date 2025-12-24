@@ -10,12 +10,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
           cache: npm
+
       - run: npm ci
       - run: npm run lint
       - run: npm run build
-      - run: npx playwright install --with-deps
+
+      # Install Playwright browsers with system dependencies
+      - run: npx playwright install --with-deps chromium
+
+      # Run all tests (db requires Docker, which is pre-installed on ubuntu-latest)
       - run: npm run test

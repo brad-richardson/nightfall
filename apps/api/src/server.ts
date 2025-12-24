@@ -1,11 +1,46 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import Fastify from "fastify";
 import { closePool, getPool } from "./db";
+import { calculatePhase } from "./utils/phase";
+
+// Error codes for client handling
+export const ErrorCode = {
+  INTERNAL_ERROR: "internal_error",
+  MISSING_FIELD: "missing_field",
+  INVALID_FIELD: "invalid_field",
+  DB_ERROR: "db_error",
+  NOT_FOUND: "not_found"
+} as const;
+
+export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
+
+type ErrorResponse = {
+  ok: false;
+  error: ErrorCode;
+  message: string;
+  field?: string;
+  request_id?: string;
+};
 
 type DbHealth = {
   ok: boolean;
   checked: boolean;
 };
+
+function createErrorResponse(
+  code: ErrorCode,
+  message: string,
+  request?: FastifyRequest,
+  field?: string
+): ErrorResponse {
+  return {
+    ok: false,
+    error: code,
+    message,
+    ...(field && { field }),
+    ...(request && { request_id: request.id })
+  };
+}
 
 function getAppVersion() {
   return process.env.APP_VERSION ?? "dev";
@@ -28,9 +63,21 @@ async function checkDb(): Promise<DbHealth> {
 export function buildServer(): FastifyInstance {
   const app = Fastify({ logger: true });
 
-  app.setErrorHandler((error, _request, reply) => {
-    app.log.error({ err: error }, "request failed");
-    reply.status(500).send({ ok: false, error: "internal_error" });
+  app.setErrorHandler((error, request, reply) => {
+    app.log.error({ err: error, requestId: request.id }, "request failed");
+
+    // Check for database errors
+    const isDbError =
+      error.message?.includes("ECONNREFUSED") ||
+      error.message?.includes("connection") ||
+      error.message?.includes("timeout");
+
+    const code = isDbError ? ErrorCode.DB_ERROR : ErrorCode.INTERNAL_ERROR;
+    const message = isDbError
+      ? "Database connection error"
+      : "An unexpected error occurred";
+
+    reply.status(500).send(createErrorResponse(code, message, request));
   });
 
   app.get("/health", async () => {
@@ -56,7 +103,12 @@ export function buildServer(): FastifyInstance {
 
     if (!clientId) {
       reply.status(400);
-      return { ok: false, error: "client_id_required" };
+      return createErrorResponse(
+        ErrorCode.MISSING_FIELD,
+        "client_id is required",
+        request,
+        "client_id"
+      );
     }
 
     const pool = getPool();
@@ -91,15 +143,22 @@ export function buildServer(): FastifyInstance {
       "SELECT region_id, name, ST_AsGeoJSON(center)::json as center FROM regions ORDER BY name"
     );
 
+    // Get cycle state from world_meta
+    const cycleResult = await pool.query<{ cycle_start: Date | null }>(
+      "SELECT (value->>'cycle_start')::timestamptz as cycle_start FROM world_meta WHERE key = 'cycle_state'"
+    );
+    const cycleStartedAt = cycleResult.rows[0]?.cycle_start ?? new Date();
+    const cycleState = calculatePhase(cycleStartedAt);
+
     return {
       ok: true,
       world_version: worldVersion,
       home_region_id: playerResult.rows[0]?.home_region_id ?? null,
       regions: regionsResult.rows,
       cycle: {
-        phase: "day",
-        phase_progress: 0,
-        next_phase_in_seconds: 0
+        phase: cycleState.phase,
+        phase_progress: cycleState.phase_progress,
+        next_phase_in_seconds: cycleState.next_phase_in_seconds
       }
     };
   });

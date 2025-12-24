@@ -3,8 +3,8 @@ export type PoolLike = {
 };
 
 export type Logger = {
-  info: (...args: unknown[]) => void;
-  error: (...args: unknown[]) => void;
+  info: (obj: object | string, msg?: string) => void;
+  error: (obj: object | string, msg?: string) => void;
 };
 
 type RunWithLockArgs = {
@@ -32,7 +32,7 @@ export async function runWithAdvisoryLock({
   const locked = lockResult.rows[0]?.locked === true;
 
   if (!locked) {
-    logger.info("[ticker] lock held by another worker");
+    logger.info("lock held by another worker");
     return;
   }
 
@@ -42,7 +42,7 @@ export async function runWithAdvisoryLock({
   } finally {
     await pool.query("SELECT pg_advisory_unlock($1)", [lockId]);
     const durationMs = Date.now() - startedAt;
-    logger.info("[ticker] tick complete", { durationMs });
+    logger.info({ durationMs }, "tick complete");
   }
 }
 
@@ -61,7 +61,7 @@ export async function loopTicker({
     try {
       await runWithAdvisoryLock(lockArgs);
     } catch (error) {
-      lockArgs.logger.error("[ticker] tick failed", error);
+      lockArgs.logger.error({ err: error }, "tick failed");
     }
 
     const elapsedMs = Date.now() - startedAt;

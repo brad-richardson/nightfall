@@ -23,6 +23,9 @@ if ! docker compose -f "$compose_file" exec -T db pg_isready -U nightfall -d nig
   exit 1
 fi
 
+# Additional wait for PostGIS extensions to fully initialize
+sleep 2
+
 export DATABASE_URL="postgresql://nightfall:nightfall@localhost:5433/nightfall?sslmode=disable"
 
 npm run db:up
