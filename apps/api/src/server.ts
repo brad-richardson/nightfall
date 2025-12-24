@@ -1,46 +1,18 @@
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { FastifyInstance } from "fastify";
 import Fastify from "fastify";
 import { closePool, getPool } from "./db";
-import { calculatePhase } from "./utils/phase";
-
-// Error codes for client handling
-export const ErrorCode = {
-  INTERNAL_ERROR: "internal_error",
-  MISSING_FIELD: "missing_field",
-  INVALID_FIELD: "invalid_field",
-  DB_ERROR: "db_error",
-  NOT_FOUND: "not_found"
-} as const;
-
-export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
-
-type ErrorResponse = {
-  ok: false;
-  error: ErrorCode;
-  message: string;
-  field?: string;
-  request_id?: string;
-};
+import { loadCycleSummary } from "./cycle";
+import { createDbPhaseStream } from "./phase-stream";
+import type { PhaseStream } from "./phase-stream";
 
 type DbHealth = {
   ok: boolean;
   checked: boolean;
 };
 
-function createErrorResponse(
-  code: ErrorCode,
-  message: string,
-  request?: FastifyRequest,
-  field?: string
-): ErrorResponse {
-  return {
-    ok: false,
-    error: code,
-    message,
-    ...(field && { field }),
-    ...(request && { request_id: request.id })
-  };
-}
+type ServerOptions = {
+  phaseStream?: PhaseStream;
+};
 
 function getAppVersion() {
   return process.env.APP_VERSION ?? "dev";
@@ -60,24 +32,22 @@ async function checkDb(): Promise<DbHealth> {
   }
 }
 
-export function buildServer(): FastifyInstance {
+function writeSseEvent(
+  stream: NodeJS.WritableStream,
+  event: string,
+  payload: unknown
+) {
+  stream.write(`event: ${event}\n`);
+  stream.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+export function buildServer(options: ServerOptions = {}): FastifyInstance {
   const app = Fastify({ logger: true });
+  const phaseStream = options.phaseStream ?? createDbPhaseStream(getPool(), app.log);
 
-  app.setErrorHandler((error, request, reply) => {
-    app.log.error({ err: error, requestId: request.id }, "request failed");
-
-    // Check for database errors
-    const isDbError =
-      error.message?.includes("ECONNREFUSED") ||
-      error.message?.includes("connection") ||
-      error.message?.includes("timeout");
-
-    const code = isDbError ? ErrorCode.DB_ERROR : ErrorCode.INTERNAL_ERROR;
-    const message = isDbError
-      ? "Database connection error"
-      : "An unexpected error occurred";
-
-    reply.status(500).send(createErrorResponse(code, message, request));
+  app.setErrorHandler((error, _request, reply) => {
+    app.log.error({ err: error }, "request failed");
+    reply.status(500).send({ ok: false, error: "internal_error" });
   });
 
   app.get("/health", async () => {
@@ -97,18 +67,47 @@ export function buildServer(): FastifyInstance {
     return { ok: true, service: "api", version: getAppVersion() };
   });
 
+  app.get("/api/stream", async (request, reply) => {
+    const once = request.headers["x-sse-once"] === "1";
+
+    reply.raw.setHeader("Content-Type", "text/event-stream");
+    reply.raw.setHeader("Cache-Control", "no-cache");
+    reply.raw.setHeader("Connection", "keep-alive");
+    reply.raw.flushHeaders?.();
+    reply.hijack();
+
+    let unsubscribe = () => {};
+
+    try {
+      await phaseStream.start?.();
+    } catch (error) {
+      app.log.error({ err: error }, "phase stream unavailable");
+      reply.raw.writeHead(503, { "Content-Type": "application/json" });
+      reply.raw.end(JSON.stringify({ ok: false, error: "phase_stream_unavailable" }));
+      return;
+    }
+
+    unsubscribe = phaseStream.subscribe((payload) => {
+      writeSseEvent(reply.raw, "phase_change", payload);
+
+      if (once) {
+        unsubscribe();
+        reply.raw.end();
+      }
+    });
+
+    request.raw.on("close", () => {
+      unsubscribe();
+    });
+  });
+
   app.post("/api/hello", async (request, reply) => {
     const body = request.body as { client_id?: string; display_name?: string } | undefined;
     const clientId = body?.client_id?.trim();
 
     if (!clientId) {
       reply.status(400);
-      return createErrorResponse(
-        ErrorCode.MISSING_FIELD,
-        "client_id is required",
-        request,
-        "client_id"
-      );
+      return { ok: false, error: "client_id_required" };
     }
 
     const pool = getPool();
@@ -143,23 +142,14 @@ export function buildServer(): FastifyInstance {
       "SELECT region_id, name, ST_AsGeoJSON(center)::json as center FROM regions ORDER BY name"
     );
 
-    // Get cycle state from world_meta
-    const cycleResult = await pool.query<{ cycle_start: Date | null }>(
-      "SELECT (value->>'cycle_start')::timestamptz as cycle_start FROM world_meta WHERE key = 'cycle_state'"
-    );
-    const cycleStartedAt = cycleResult.rows[0]?.cycle_start ?? new Date();
-    const cycleState = calculatePhase(cycleStartedAt);
+    const cycle = await loadCycleSummary(pool);
 
     return {
       ok: true,
       world_version: worldVersion,
       home_region_id: playerResult.rows[0]?.home_region_id ?? null,
       regions: regionsResult.rows,
-      cycle: {
-        phase: cycleState.phase,
-        phase_progress: cycleState.phase_progress,
-        next_phase_in_seconds: cycleState.next_phase_in_seconds
-      }
+      cycle
     };
   });
 

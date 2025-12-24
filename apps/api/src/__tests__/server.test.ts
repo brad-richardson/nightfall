@@ -1,11 +1,11 @@
-import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildServer } from "../server";
 
 let queryMock = vi.fn();
 const closePoolMock = vi.fn();
 
 vi.mock("../db", () => ({
-  getPool: () => ({ query: queryMock }),
+  getPool: () => ({ query: (...args: unknown[]) => queryMock(...args) }),
   closePool: () => closePoolMock()
 }));
 
@@ -46,32 +46,41 @@ describe("api server", () => {
     const response = await app.inject({ method: "POST", url: "/api/hello", payload: {} });
 
     expect(response.statusCode).toBe(400);
-    const json = response.json();
-    expect(json.ok).toBe(false);
-    expect(json.error).toBe("missing_field");
-    expect(json.field).toBe("client_id");
+    expect(response.json()).toEqual({ ok: false, error: "client_id_required" });
 
     await app.close();
   });
 
   it("returns hello payload with seeded values", async () => {
-    // Mock cycle_start to be exactly at the start of a cycle
-    const cycleStart = new Date();
+    const now = new Date();
+    const cycleStart = new Date(now.getTime() - 3 * 60 * 1000).toISOString();
 
-    queryMock
-      .mockResolvedValueOnce({ rows: [] }) // upsert player
-      .mockResolvedValueOnce({ rows: [{ home_region_id: null }] }) // get player
-      .mockResolvedValueOnce({ rows: [{ version: "7" }] }) // world version
-      .mockResolvedValueOnce({
-        rows: [
-          {
-            region_id: "region-1",
-            name: "Alpha",
-            center: { type: "Point", coordinates: [0, 0] }
-          }
-        ]
-      }) // regions
-      .mockResolvedValueOnce({ rows: [{ cycle_start: cycleStart }] }); // cycle state
+    queryMock.mockImplementation((text: string) => {
+      if (text.includes("INSERT INTO players")) {
+        return Promise.resolve({ rows: [] });
+      }
+      if (text.includes("SELECT home_region_id")) {
+        return Promise.resolve({ rows: [{ home_region_id: null }] });
+      }
+      if (text.includes("value->>'version'")) {
+        return Promise.resolve({ rows: [{ version: "7" }] });
+      }
+      if (text.includes("FROM regions")) {
+        return Promise.resolve({
+          rows: [
+            {
+              region_id: "region-1",
+              name: "Alpha",
+              center: { type: "Point", coordinates: [0, 0] }
+            }
+          ]
+        });
+      }
+      if (text.includes("cycle_state")) {
+        return Promise.resolve({ rows: [{ cycle_start: cycleStart }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
 
     const app = buildServer();
     const response = await app.inject({
@@ -80,25 +89,26 @@ describe("api server", () => {
       payload: { client_id: "client-1" }
     });
 
+    const payload = response.json();
+
     expect(response.statusCode).toBe(200);
-    const json = response.json();
-    expect(json.ok).toBe(true);
-    expect(json.world_version).toBe(7);
-    expect(json.home_region_id).toBe(null);
-    expect(json.regions).toEqual([
+    expect(payload.ok).toBe(true);
+    expect(payload.world_version).toBe(7);
+    expect(payload.home_region_id).toBeNull();
+    expect(payload.regions).toEqual([
       {
         region_id: "region-1",
         name: "Alpha",
         center: { type: "Point", coordinates: [0, 0] }
       }
     ]);
-    // Cycle state is computed dynamically, so just check structure
-    expect(json.cycle).toHaveProperty("phase");
-    expect(json.cycle).toHaveProperty("phase_progress");
-    expect(json.cycle).toHaveProperty("next_phase_in_seconds");
-    expect(["dawn", "day", "dusk", "night"]).toContain(json.cycle.phase);
+    expect(payload.cycle.phase).toBe("day");
+    expect(payload.cycle.phase_progress).toBeGreaterThan(0.1);
+    expect(payload.cycle.phase_progress).toBeLessThan(0.2);
+    expect(payload.cycle.next_phase_in_seconds).toBeGreaterThan(300);
+    expect(payload.cycle.next_phase_in_seconds).toBeLessThan(480);
 
-    expect(queryMock).toHaveBeenCalledTimes(5);
+    expect(queryMock).toHaveBeenCalled();
 
     await app.close();
   });

@@ -1,23 +1,37 @@
 import { Pool } from "pg";
-import { getConfig } from "./config";
-import { logger } from "./logger";
 import { loopTicker } from "./ticker";
+import { syncCycleState } from "./cycle-store";
+import { getPhaseMultipliers } from "./multipliers";
+import { applyRustSpread } from "./rust";
+import { applyRoadDecay } from "./decay";
+import { spawnDegradedRoadTasks, updateTaskPriorities } from "./tasks";
 
-const config = getConfig();
+const intervalMs = Number(process.env.TICK_INTERVAL_MS ?? 10_000);
+const lockId = Number(process.env.TICK_LOCK_ID ?? 424242);
 
 const pool = new Pool({
-  connectionString: config.DATABASE_URL
+  connectionString: process.env.DATABASE_URL
 });
 
+const logger = {
+  info: console.info,
+  error: console.error
+};
+
 async function runTick() {
-  // Placeholder for week 2 tick steps.
-  return;
+  const cycle = await syncCycleState(pool, logger);
+  const multipliers = getPhaseMultipliers(cycle.phase);
+
+  await applyRustSpread(pool, multipliers);
+  await applyRoadDecay(pool, multipliers);
+  await spawnDegradedRoadTasks(pool);
+  await updateTaskPriorities(pool);
 }
 
 let running = true;
 
 async function shutdown(signal: string) {
-  logger.info({ signal }, "shutting down");
+  logger.info(`[ticker] received ${signal}, shutting down`);
   running = false;
   await pool.end();
 }
@@ -26,13 +40,13 @@ process.on("SIGINT", () => void shutdown("SIGINT"));
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
 loopTicker({
-  intervalMs: config.TICK_INTERVAL_MS,
-  lockId: config.TICK_LOCK_ID,
+  intervalMs,
+  lockId,
   pool,
   runTick,
   logger,
   shouldContinue: () => running
 }).catch((error) => {
-  logger.error({ err: error }, "fatal error");
+  logger.error("[ticker] fatal error", error);
   process.exit(1);
 });

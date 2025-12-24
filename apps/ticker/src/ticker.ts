@@ -3,8 +3,8 @@ export type PoolLike = {
 };
 
 export type Logger = {
-  info: (obj: object | string, msg?: string) => void;
-  error: (obj: object | string, msg?: string) => void;
+  info: (...args: unknown[]) => void;
+  error: (...args: unknown[]) => void;
 };
 
 type RunWithLockArgs = {
