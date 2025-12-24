@@ -28,5 +28,5 @@ sleep 2
 
 export DATABASE_URL="postgresql://nightfall:nightfall@localhost:5433/nightfall?sslmode=disable"
 
-npm run db:up
+pnpm run db:up
 node scripts/check-db.mjs

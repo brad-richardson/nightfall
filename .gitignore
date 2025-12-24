@@ -9,6 +9,10 @@ pnpm-debug.log*
 # Node modules
 node_modules/
 
+# Lock files (using pnpm)
+package-lock.json
+yarn.lock
+
 # TypeScript
 *.tsbuildinfo
 

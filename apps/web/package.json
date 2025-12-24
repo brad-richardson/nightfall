@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "ESLINT_USE_FLAT_CONFIG=true eslint \"app/**/*.{ts,tsx}\"",
+    "lint": "eslint \"app/**/*.{ts,tsx}\"",
     "format": "echo \"no format configured\""
   },
   "dependencies": {

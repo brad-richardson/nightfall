@@ -2,39 +2,38 @@
   "name": "nightfall",
   "version": "0.0.0",
   "private": true,
-  "workspaces": [
-    "apps/*"
-  ],
   "scripts": {
-    "dev:web": "npm run dev -w @nightfall/web",
-    "dev:api": "npm run dev -w @nightfall/api",
-    "dev:ticker": "npm run dev -w @nightfall/ticker",
-    "build": "npm run build --workspaces",
-    "lint": "npm run lint --workspaces",
+    "dev:web": "pnpm --filter @nightfall/web dev",
+    "dev:api": "pnpm --filter @nightfall/api dev",
+    "dev:ticker": "pnpm --filter @nightfall/ticker dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
     "format": "prettier -w .",
-    "start": "npm run start -w @nightfall/web",
-    "start:ticker": "npm run start -w @nightfall/ticker",
+    "start": "pnpm --filter @nightfall/web start",
+    "start:ticker": "pnpm --filter @nightfall/ticker start",
     "db:up": "dbmate up",
     "db:down": "dbmate down",
     "db:status": "dbmate status",
     "db:new": "dbmate new",
-    "test": "npm run test:db && npm run test:unit && npm run test:ui",
+    "test": "pnpm run test:db && pnpm run test:unit && pnpm run test:ui",
     "test:db": "bash scripts/test-db.sh",
     "test:unit": "vitest run",
     "test:ui": "playwright test"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "^3.1.0",
-    "@eslint/js": "^8.57.0",
+    "@eslint/eslintrc": "^3.3.3",
+    "@eslint/js": "^9.39.2",
     "@playwright/test": "^1.47.2",
     "dbmate": "^2.28.0",
-    "eslint": "^8.57.0",
-    "eslint-config-next": "^14.2.5",
+    "eslint": "^9.39.2",
+    "eslint-config-next": "^15.5.9",
+    "pg": "^8.16.3",
     "prettier": "^3.3.3",
-    "typescript-eslint": "^7.18.0",
+    "typescript-eslint": "^8.50.1",
     "vitest": "^2.1.1"
   },
   "engines": {
     "node": ">=18.17.0"
-  }
+  },
+  "packageManager": "pnpm@10.12.1"
 }
