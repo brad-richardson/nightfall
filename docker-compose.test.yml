@@ -1,0 +1,14 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: nightfall
+      POSTGRES_PASSWORD: nightfall
+      POSTGRES_DB: nightfall
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nightfall -d nightfall"]
+      interval: 2s
+      timeout: 5s
+      retries: 15

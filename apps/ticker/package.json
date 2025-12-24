@@ -1,5 +1,5 @@
 {
-  "name": "@nightfall/api",
+  "name": "@nightfall/ticker",
   "version": "0.0.0",
   "private": true,
   "type": "commonjs",
@@ -12,7 +12,6 @@
     "format": "echo \"no format configured\""
   },
   "dependencies": {
-    "fastify": "^4.28.0",
     "pg": "^8.12.0"
   },
   "devDependencies": {

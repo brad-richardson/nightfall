@@ -7,6 +7,12 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "esModuleInterop": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@nightfall/api/*": ["apps/api/src/*"],
+      "@nightfall/ticker/*": ["apps/ticker/src/*"],
+      "@nightfall/web/*": ["apps/web/*"]
+    }
   }
 }

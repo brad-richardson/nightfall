@@ -8,17 +8,31 @@
   "scripts": {
     "dev:web": "npm run dev -w @nightfall/web",
     "dev:api": "npm run dev -w @nightfall/api",
-    "build": "npm run build -ws",
-    "lint": "npm run lint -ws",
-    "format": "npm run format -ws",
-    "start": "npm run start -w @nightfall/web"
+    "dev:ticker": "npm run dev -w @nightfall/ticker",
+    "build": "npm run build --workspaces",
+    "lint": "npm run lint --workspaces",
+    "format": "prettier -w .",
+    "start": "npm run start -w @nightfall/web",
+    "start:ticker": "npm run start -w @nightfall/ticker",
+    "db:up": "dbmate up",
+    "db:down": "dbmate down",
+    "db:status": "dbmate status",
+    "db:new": "dbmate new",
+    "test": "npm run test:db && npm run test:unit && npm run test:ui",
+    "test:db": "bash scripts/test-db.sh",
+    "test:unit": "vitest run",
+    "test:ui": "playwright test"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.1.0",
     "@eslint/js": "^8.57.0",
+    "@playwright/test": "^1.47.2",
+    "dbmate": "^2.28.0",
     "eslint": "^8.57.0",
     "eslint-config-next": "^14.2.5",
-    "typescript-eslint": "^7.18.0"
+    "prettier": "^3.3.3",
+    "typescript-eslint": "^7.18.0",
+    "vitest": "^2.1.1"
   },
   "engines": {
     "node": ">=18.17.0"

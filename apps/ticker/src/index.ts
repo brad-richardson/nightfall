@@ -1,0 +1,42 @@
+import { Pool } from "pg";
+import { loopTicker } from "./ticker";
+
+const intervalMs = Number(process.env.TICK_INTERVAL_MS ?? 10_000);
+const lockId = Number(process.env.TICK_LOCK_ID ?? 424242);
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL
+});
+
+const logger = {
+  info: console.info,
+  error: console.error
+};
+
+async function runTick() {
+  // Placeholder for week 2 tick steps.
+  return;
+}
+
+let running = true;
+
+async function shutdown(signal: string) {
+  logger.info(`[ticker] received ${signal}, shutting down`);
+  running = false;
+  await pool.end();
+}
+
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+
+loopTicker({
+  intervalMs,
+  lockId,
+  pool,
+  runTick,
+  logger,
+  shouldContinue: () => running
+}).catch((error) => {
+  logger.error("[ticker] fatal error", error);
+  process.exit(1);
+});

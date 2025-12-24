@@ -12,6 +12,14 @@ async function start() {
     app.log.error(error);
     process.exit(1);
   }
+
+  const shutdown = async (signal: string) => {
+    app.log.info({ signal }, "shutting down");
+    await app.close();
+  };
+
+  process.on("SIGINT", () => void shutdown("SIGINT"));
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
 }
 
 start();

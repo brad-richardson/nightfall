@@ -8,6 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const compat = new FlatCompat({ baseDirectory: __dirname });
 const tsProjects = [
   path.join(__dirname, "apps/api/tsconfig.json"),
+  path.join(__dirname, "apps/ticker/tsconfig.json"),
   path.join(__dirname, "apps/web/tsconfig.json")
 ];
 const nextConfigs = compat.extends("next/core-web-vitals").map((config) => ({
