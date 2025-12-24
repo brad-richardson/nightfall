@@ -2,6 +2,7 @@
   "name": "nightfall",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "ci": "pnpm run lint && pnpm run test:unit && pnpm run build",
     "dev:web": "pnpm --filter @nightfall/web dev",

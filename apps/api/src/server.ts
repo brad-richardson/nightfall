@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyServerOptions } from "fastify";
 import Fastify from "fastify";
 import { closePool, getPool } from "./db";
 import { loadCycleState, loadCycleSummary } from "./cycle";
@@ -18,10 +18,23 @@ type DbHealth = {
 
 type ServerOptions = {
   eventStream?: EventStream;
+  logger?: FastifyServerOptions["logger"];
 };
 
 function getAppVersion() {
   return process.env.APP_VERSION ?? "dev";
+}
+
+function resolveLogger(optionsLogger?: FastifyServerOptions["logger"]) {
+  if (optionsLogger !== undefined) {
+    return optionsLogger;
+  }
+
+  if (process.env.NODE_ENV === "test") {
+    return { level: "silent" };
+  }
+
+  return true;
 }
 
 async function checkDb(): Promise<DbHealth> {
@@ -81,7 +94,7 @@ function getNextReset(now: Date) {
 }
 
 export function buildServer(options: ServerOptions = {}): FastifyInstance {
-  const app = Fastify({ logger: true });
+  const app = Fastify({ logger: resolveLogger(options.logger) });
   const eventStream = options.eventStream ?? createDbEventStream(getPool(), app.log);
 
   app.setErrorHandler((error, _request, reply) => {
