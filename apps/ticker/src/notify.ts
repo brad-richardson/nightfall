@@ -15,5 +15,5 @@ export async function notifyEvent(pool: PoolLike, channel: string, payload: unkn
     throw new Error(`unsupported channel: ${channel}`);
   }
 
-  await pool.query(`NOTIFY ${channel}, $1`, [JSON.stringify(payload)]);
+  await pool.query("SELECT pg_notify($1, $2)", [channel, JSON.stringify(payload)]);
 }

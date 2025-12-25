@@ -146,14 +146,17 @@ export async function completeFinishedTasks(
         c.active_task_id,
         t.target_gers_id,
         t.repair_amount,
-        t.region_id,
-        wf.h3_index
+        t.region_id
       FROM crews AS c
       JOIN tasks AS t ON t.task_id = c.active_task_id
-      JOIN world_features AS wf ON wf.gers_id = t.target_gers_id
       WHERE c.status = 'working'
         AND c.busy_until <= now()
       FOR UPDATE SKIP LOCKED
+    ),
+    due_hexes AS (
+      SELECT DISTINCT wfhc.h3_index
+      FROM due
+      JOIN world_feature_hex_cells AS wfhc ON wfhc.gers_id = due.target_gers_id
     ),
     updated_tasks AS (
       UPDATE tasks AS t
@@ -173,7 +176,7 @@ export async function completeFinishedTasks(
         updated_at = now()
       FROM due
       WHERE fs.gers_id = due.target_gers_id
-      RETURNING fs.gers_id, fs.health, fs.status, due.h3_index
+      RETURNING fs.gers_id, fs.health, fs.status
     ),
     updated_crews AS (
       UPDATE crews AS c
@@ -187,7 +190,7 @@ export async function completeFinishedTasks(
       SET
         rust_level = GREATEST(0, h.rust_level - $1),
         updated_at = now()
-      FROM (SELECT DISTINCT h3_index FROM due) AS d
+      FROM due_hexes AS d
       WHERE h.h3_index = d.h3_index
       RETURNING h.h3_index
     )

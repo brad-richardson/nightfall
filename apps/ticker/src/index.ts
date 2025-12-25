@@ -1,5 +1,6 @@
 import { Pool } from "pg";
 import { loopTicker } from "./ticker";
+import type { PoolLike } from "./ticker";
 import { syncCycleState } from "./cycle-store";
 import { getPhaseMultipliers } from "./multipliers";
 import { applyRustSpread } from "./rust";
@@ -22,7 +23,11 @@ const logger = {
   error: console.error
 };
 
-async function publishWorldDelta(rustHexes: string[], regionIds: string[]) {
+async function publishWorldDelta(
+  client: PoolLike,
+  rustHexes: string[],
+  regionIds: string[]
+) {
   const rustChanged = Array.from(new Set(rustHexes));
   const regionsChanged = Array.from(new Set(regionIds));
 
@@ -30,61 +35,65 @@ async function publishWorldDelta(rustHexes: string[], regionIds: string[]) {
     return;
   }
 
-  await notifyEvent(pool, "world_delta", {
+  await notifyEvent(client, "world_delta", {
     rust_changed: rustChanged,
     regions_changed: regionsChanged
   });
 }
 
-async function publishFeatureDeltas(deltas: FeatureDelta[]) {
+async function publishFeatureDeltas(client: PoolLike, deltas: FeatureDelta[]) {
   for (const delta of deltas) {
-    await notifyEvent(pool, "feature_delta", delta);
+    await notifyEvent(client, "feature_delta", delta);
   }
 }
 
-async function publishTaskDeltas(deltas: TaskDelta[]) {
+async function publishTaskDeltas(client: PoolLike, deltas: TaskDelta[]) {
   for (const delta of deltas) {
-    await notifyEvent(pool, "task_delta", delta);
+    await notifyEvent(client, "task_delta", delta);
   }
 }
 
-async function publishFeedItems(items: { event_type: string; region_id: string | null; message: string; ts: string }[]) {
+async function publishFeedItems(
+  client: PoolLike,
+  items: { event_type: string; region_id: string | null; message: string; ts: string }[]
+) {
   for (const item of items) {
-    await notifyEvent(pool, "feed_item", item);
+    await notifyEvent(client, "feed_item", item);
   }
 }
 
-async function runTick() {
-  const cycle = await syncCycleState(pool, logger);
+async function runTick(client: PoolLike) {
+  const cycle = await syncCycleState(client, logger);
   const multipliers = getPhaseMultipliers(cycle.phase);
 
-  const rustHexes = await applyRustSpread(pool, multipliers);
-  const decayFeatureDeltas = await applyRoadDecay(pool, multipliers);
-  const regionIds = await generateRegionResources(pool, multipliers);
-  const spawnedTasks = await spawnDegradedRoadTasks(pool);
-  const priorityUpdates = await updateTaskPriorities(pool);
-  const dispatchResult = await dispatchCrews(pool, multipliers);
-  const completionResult = await completeFinishedTasks(pool, multipliers);
+  const rustHexes = await applyRustSpread(client, multipliers);
+  const decayFeatureDeltas = await applyRoadDecay(client, multipliers);
+  const regionIds = await generateRegionResources(client, multipliers);
+  const spawnedTasks = await spawnDegradedRoadTasks(client);
+  const priorityUpdates = await updateTaskPriorities(client);
+  const dispatchResult = await dispatchCrews(client, multipliers);
+  const completionResult = await completeFinishedTasks(client, multipliers);
 
   await publishWorldDelta(
+    client,
     [...rustHexes, ...completionResult.rustHexes],
     [...regionIds, ...dispatchResult.regionIds, ...completionResult.regionIds]
   );
 
-  await publishFeatureDeltas([
+  await publishFeatureDeltas(client, [
     ...decayFeatureDeltas,
     ...dispatchResult.featureDeltas,
     ...completionResult.featureDeltas
   ]);
 
-  await publishTaskDeltas([
+  await publishTaskDeltas(client, [
     ...spawnedTasks,
     ...priorityUpdates,
     ...dispatchResult.taskDeltas,
     ...completionResult.taskDeltas
   ]);
 
-  await publishFeedItems(completionResult.feedItems);
+  await publishFeedItems(client, completionResult.feedItems);
 }
 
 let running = true;

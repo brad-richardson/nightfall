@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4-alpine
+    platform: linux/amd64
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: nightfall
+      POSTGRES_PASSWORD: nightfall
+      POSTGRES_DB: nightfall
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nightfall -d nightfall"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 10s
+
+volumes:
+  pgdata:

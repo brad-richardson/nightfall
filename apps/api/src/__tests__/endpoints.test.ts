@@ -120,7 +120,7 @@ describe("api endpoints", () => {
         {
           gers_id: "road-1",
           feature_type: "road",
-          geom: { type: "LineString", coordinates: [] },
+          bbox: [-71, 42, -70, 43],
           health: 80,
           status: "normal",
           road_class: "primary",
@@ -140,6 +140,7 @@ describe("api endpoints", () => {
     expect(response.statusCode).toBe(200);
     const payload = response.json();
     expect(payload.features).toHaveLength(1);
+    expect(payload.features[0].bbox).toEqual([-71, 42, -70, 43]);
 
     await app.close();
   });

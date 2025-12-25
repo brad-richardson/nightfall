@@ -17,6 +17,7 @@ describe("generateRegionResources", () => {
     expect(result).toEqual(["region-1"]);
     expect(query).toHaveBeenCalledTimes(1);
     expect(String(query.mock.calls[0][0])).toContain("generates_labor");
+    expect(String(query.mock.calls[0][0])).toContain("world_feature_hex_cells");
     expect(query.mock.calls[0][1]).toEqual([1.5]);
   });
 });

@@ -11,6 +11,7 @@ const tables = [
   "regions",
   "hex_cells",
   "world_features",
+  "world_feature_hex_cells",
   "feature_state",
   "tasks",
   "task_votes",

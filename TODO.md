@@ -18,7 +18,7 @@ Working list to build the core loop and UI in a sensible order. Keep PRs small b
 - [x] Vote decay and task priority calculation.
 
 ## World Data (Week 2-3)
-- [ ] Ingest pipeline for Boston: download Overture layers, curate regions list, generate H3 cells, load roads/buildings/places with joins, initialize state. Script + docs to rerun.
+- [x] Ingest pipeline for Boston: download Overture layers, curate regions list, generate H3 cells, load roads/buildings/places with joins, initialize state. Script + docs to rerun.
 - [ ] Seed/demo data for dev: lightweight fixture load to let frontend run without full ingest.
 
 ## API & Realtime (Week 3)
@@ -47,3 +47,15 @@ Working list to build the core loop and UI in a sensible order. Keep PRs small b
 ## Attribution & Compliance
 - [ ] Add in-product attribution for Overture Maps and upstream sources; include in docs/landing page.
 - [ ] License/NOTICE updates as needed for data and dependencies.
+
+## Code Review Follow-ups
+- [x] Fix NOTIFY payloads to use pg_notify(channel, payload).
+- [ ] Add auth/verification for client_id (prevent impersonation on all endpoints).
+- [ ] Wrap tick loop in a transaction/locking strategy to avoid multi-ticker races.
+- [x] Make vote score updates atomic (lock row or update in one statement).
+- [ ] Close contribution limit bypass with row locks or constraints.
+- [ ] Prevent rust spread lost updates (transaction or update-in-DB strategy).
+- [ ] Guard task spawn with locking to avoid duplicate degraded-road tasks.
+- [ ] Clean up SSE listeners and add reconnect handling/backpressure strategy.
+- [x] Add input validation limits (string lengths, bbox ranges).
+- [ ] Ensure consistent phase multipliers within a tick (snapshot once per tick).

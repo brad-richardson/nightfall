@@ -1,5 +1,11 @@
 export type PoolLike = {
   query: <T = unknown>(text: string, params?: unknown[]) => Promise<{ rows: T[] }>;
+  connect?: () => Promise<PoolClientLike>;
+};
+
+export type PoolClientLike = {
+  query: <T = unknown>(text: string, params?: unknown[]) => Promise<{ rows: T[] }>;
+  release?: () => void | Promise<void>;
 };
 
 export type Logger = {
@@ -10,7 +16,7 @@ export type Logger = {
 type RunWithLockArgs = {
   pool: PoolLike;
   lockId: number;
-  runTick: () => Promise<void>;
+  runTick: (client: PoolLike) => Promise<void>;
   logger: Logger;
 };
 
@@ -25,24 +31,46 @@ export async function runWithAdvisoryLock({
   runTick,
   logger
 }: RunWithLockArgs) {
-  const lockResult = await pool.query<{ locked: boolean }>(
-    "SELECT pg_try_advisory_lock($1) AS locked",
-    [lockId]
-  );
-  const locked = lockResult.rows[0]?.locked === true;
+  const client = pool.connect ? await pool.connect() : null;
 
-  if (!locked) {
-    logger.info("lock held by another worker");
+  if (!client) {
+    logger.error("[ticker] pool.connect() required for advisory locks");
     return;
   }
 
+  let locked = false;
   const startedAt = Date.now();
+
   try {
-    await runTick();
+    const lockResult = await client.query<{ locked: boolean }>(
+      "SELECT pg_try_advisory_lock($1) AS locked",
+      [lockId]
+    );
+    locked = lockResult.rows[0]?.locked === true;
+
+    if (!locked) {
+      logger.info("lock held by another worker");
+      return;
+    }
+
+    try {
+      await client.query("BEGIN");
+      await runTick(client);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    }
   } finally {
-    await pool.query("SELECT pg_advisory_unlock($1)", [lockId]);
-    const durationMs = Date.now() - startedAt;
-    logger.info({ durationMs }, "tick complete");
+    if (locked) {
+      await client.query("SELECT pg_advisory_unlock($1)", [lockId]);
+      const durationMs = Date.now() - startedAt;
+      logger.info({ durationMs }, "tick complete");
+    }
+
+    if (typeof client.release === "function") {
+      await client.release();
+    }
   }
 }
 

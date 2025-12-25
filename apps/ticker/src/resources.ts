@@ -4,25 +4,36 @@ import type { PhaseMultipliers } from "./multipliers";
 export async function generateRegionResources(pool: PoolLike, multipliers: PhaseMultipliers) {
   const result = await pool.query<{ region_id: string }>(
     `
-    WITH totals AS (
+    WITH feature_rust AS (
       SELECT
+        wf.gers_id,
         wf.region_id,
+        wf.generates_labor,
+        wf.generates_materials,
+        AVG(h.rust_level) AS rust_level
+      FROM world_features AS wf
+      JOIN world_feature_hex_cells AS wfhc ON wfhc.gers_id = wf.gers_id
+      JOIN hex_cells AS h ON h.h3_index = wfhc.h3_index
+      WHERE wf.feature_type = 'building'
+      GROUP BY wf.gers_id, wf.region_id, wf.generates_labor, wf.generates_materials
+    ),
+    totals AS (
+      SELECT
+        feature_rust.region_id,
         SUM(
           CASE
-            WHEN wf.generates_labor THEN (1 - h.rust_level) * $1
+            WHEN feature_rust.generates_labor THEN (1 - feature_rust.rust_level) * $1
             ELSE 0
           END
         ) AS labor,
         SUM(
           CASE
-            WHEN wf.generates_materials THEN (1 - h.rust_level) * $1
+            WHEN feature_rust.generates_materials THEN (1 - feature_rust.rust_level) * $1
             ELSE 0
           END
         ) AS materials
-      FROM world_features AS wf
-      JOIN hex_cells AS h ON h.h3_index = wf.h3_index
-      WHERE wf.feature_type = 'building'
-      GROUP BY wf.region_id
+      FROM feature_rust
+      GROUP BY feature_rust.region_id
     )
     UPDATE regions AS r
     SET

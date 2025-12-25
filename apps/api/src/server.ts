@@ -8,6 +8,9 @@ import type { EventStream } from "./event-stream";
 const LAMBDA = 0.1;
 const CONTRIBUTION_LIMIT = 100;
 const TAX_MULTIPLIER = 0.8;
+const MAX_CLIENT_ID_LENGTH = 64;
+const MAX_DISPLAY_NAME_LENGTH = 32;
+const MAX_REGION_ID_LENGTH = 64;
 
 const FEATURE_TYPES = new Set(["road", "building", "park", "water", "intersection"]);
 
@@ -156,10 +159,21 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   app.post("/api/hello", async (request, reply) => {
     const body = request.body as { client_id?: string; display_name?: string } | undefined;
     const clientId = body?.client_id?.trim();
+    const displayName = body?.display_name?.trim();
 
     if (!clientId) {
       reply.status(400);
       return { ok: false, error: "client_id_required" };
+    }
+
+    if (clientId.length > MAX_CLIENT_ID_LENGTH) {
+      reply.status(400);
+      return { ok: false, error: "client_id_too_long" };
+    }
+
+    if (displayName && displayName.length > MAX_DISPLAY_NAME_LENGTH) {
+      reply.status(400);
+      return { ok: false, error: "display_name_too_long" };
     }
 
     const pool = getPool();
@@ -173,7 +187,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         display_name = COALESCE(EXCLUDED.display_name, players.display_name),
         last_seen = now()
       `,
-      [clientId, body?.display_name ?? null]
+      [clientId, displayName ?? null]
     );
 
     const playerResult = await pool.query<{ home_region_id: string | null }>(
@@ -402,7 +416,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     const featuresResult = await pool.query<{
       gers_id: string;
       feature_type: string;
-      geom: unknown;
+      bbox: number[] | null;
       health: number | null;
       status: string | null;
       road_class: string | null;
@@ -414,7 +428,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       SELECT
         wf.gers_id,
         wf.feature_type,
-        ST_AsGeoJSON(wf.geom)::json as geom,
+        json_build_array(wf.bbox_xmin, wf.bbox_ymin, wf.bbox_xmax, wf.bbox_ymax) as bbox,
         fs.health,
         fs.status,
         wf.road_class,
@@ -423,7 +437,10 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         wf.generates_materials
       FROM world_features AS wf
       LEFT JOIN feature_state AS fs ON fs.gers_id = wf.gers_id
-      WHERE ST_Intersects(wf.geom, ST_MakeEnvelope($1, $2, $3, $4, 4326))
+      WHERE wf.bbox_xmin <= $3
+        AND wf.bbox_xmax >= $1
+        AND wf.bbox_ymin <= $4
+        AND wf.bbox_ymax >= $2
       ${typesClause}
       `,
       values
@@ -470,6 +487,16 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       return { ok: false, error: "client_id_and_region_required" };
     }
 
+    if (clientId.length > MAX_CLIENT_ID_LENGTH) {
+      reply.status(400);
+      return { ok: false, error: "client_id_too_long" };
+    }
+
+    if (regionId.length > MAX_REGION_ID_LENGTH) {
+      reply.status(400);
+      return { ok: false, error: "region_id_too_long" };
+    }
+
     const pool = getPool();
     const updateResult = await pool.query<{ home_region_id: string }>(
       "UPDATE players SET home_region_id = $2 WHERE client_id = $1 AND home_region_id IS NULL RETURNING home_region_id",
@@ -507,6 +534,16 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     if (!clientId || !regionId) {
       reply.status(400);
       return { ok: false, error: "client_id_and_region_required" };
+    }
+
+    if (clientId.length > MAX_CLIENT_ID_LENGTH) {
+      reply.status(400);
+      return { ok: false, error: "client_id_too_long" };
+    }
+
+    if (regionId.length > MAX_REGION_ID_LENGTH) {
+      reply.status(400);
+      return { ok: false, error: "region_id_too_long" };
     }
 
     if (!Number.isFinite(labor) || !Number.isFinite(materials) || labor < 0 || materials < 0) {
@@ -631,33 +668,57 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       return { ok: false, error: "invalid_vote" };
     }
 
+    if (clientId.length > MAX_CLIENT_ID_LENGTH) {
+      reply.status(400);
+      return { ok: false, error: "client_id_too_long" };
+    }
+
     const pool = getPool();
 
-    await pool.query(
-      `
-      INSERT INTO task_votes (task_id, client_id, weight, created_at)
-      VALUES ($1, $2, $3, now())
-      ON CONFLICT (task_id, client_id)
-      DO UPDATE SET weight = EXCLUDED.weight, created_at = now()
-      `,
-      [taskId, clientId, weight]
-    );
+    await pool.query("BEGIN");
 
-    const scoreResult = await pool.query<{ vote_score: number }>(
-      `
-      SELECT
-        COALESCE(SUM(weight * EXP(-$2 * EXTRACT(EPOCH FROM (now() - created_at)) / 3600.0)), 0) AS vote_score
-      FROM task_votes
-      WHERE task_id = $1
-      `,
-      [taskId, LAMBDA]
-    );
+    try {
+      const taskResult = await pool.query("SELECT 1 FROM tasks WHERE task_id = $1 FOR UPDATE", [
+        taskId
+      ]);
 
-    const voteScore = Number(scoreResult.rows[0]?.vote_score ?? 0);
+      if (taskResult.rowCount === 0) {
+        await pool.query("ROLLBACK");
+        reply.status(404);
+        return { ok: false, error: "task_not_found" };
+      }
 
-    await pool.query("UPDATE tasks SET vote_score = $2 WHERE task_id = $1", [taskId, voteScore]);
+      await pool.query(
+        `
+        INSERT INTO task_votes (task_id, client_id, weight, created_at)
+        VALUES ($1, $2, $3, now())
+        ON CONFLICT (task_id, client_id)
+        DO UPDATE SET weight = EXCLUDED.weight, created_at = now()
+        `,
+        [taskId, clientId, weight]
+      );
 
-    return { ok: true, new_vote_score: voteScore };
+      const scoreResult = await pool.query<{ vote_score: number }>(
+        `
+        SELECT
+          COALESCE(SUM(weight * EXP(-$2 * EXTRACT(EPOCH FROM (now() - created_at)) / 3600.0)), 0) AS vote_score
+        FROM task_votes
+        WHERE task_id = $1
+        `,
+        [taskId, LAMBDA]
+      );
+
+      const voteScore = Number(scoreResult.rows[0]?.vote_score ?? 0);
+
+      await pool.query("UPDATE tasks SET vote_score = $2 WHERE task_id = $1", [taskId, voteScore]);
+
+      await pool.query("COMMIT");
+
+      return { ok: true, new_vote_score: voteScore };
+    } catch (error) {
+      await pool.query("ROLLBACK");
+      throw error;
+    }
   });
 
   app.get("/api/tasks/:task_id", async (request, reply) => {

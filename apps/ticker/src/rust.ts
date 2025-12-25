@@ -107,13 +107,14 @@ export async function applyRustSpread(pool: PoolLike, multipliers: PhaseMultipli
   }>(
     `
     SELECT
-      wf.h3_index,
+      wfhc.h3_index,
       COUNT(*) FILTER (WHERE fs.health > 80) AS healthy_count,
       COUNT(*) AS total_count
-    FROM world_features AS wf
+    FROM world_feature_hex_cells AS wfhc
+    JOIN world_features AS wf ON wf.gers_id = wfhc.gers_id
     JOIN feature_state AS fs ON fs.gers_id = wf.gers_id
     WHERE wf.feature_type = 'road'
-    GROUP BY wf.h3_index
+    GROUP BY wfhc.h3_index
     `
   );
 

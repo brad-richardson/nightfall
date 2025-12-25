@@ -49,7 +49,7 @@ describe("syncCycleState", () => {
     await syncCycleState({ query }, logger, now);
 
     const notifyCall = query.mock.calls.find((call) =>
-      String(call[0]).includes("NOTIFY phase_change")
+      String(call[0]).includes("pg_notify") && call[1]?.[0] === "phase_change"
     );
     expect(notifyCall).toBeTruthy();
   });

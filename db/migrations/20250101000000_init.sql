@@ -32,8 +32,12 @@ CREATE TABLE IF NOT EXISTS world_features (
   gers_id TEXT PRIMARY KEY,
   feature_type TEXT NOT NULL,
   region_id TEXT NOT NULL REFERENCES regions(region_id),
-  h3_index TEXT NOT NULL REFERENCES hex_cells(h3_index),
-  geom GEOMETRY NOT NULL,
+  h3_index TEXT REFERENCES hex_cells(h3_index),
+  geom GEOMETRY,
+  bbox_xmin DOUBLE PRECISION,
+  bbox_ymin DOUBLE PRECISION,
+  bbox_xmax DOUBLE PRECISION,
+  bbox_ymax DOUBLE PRECISION,
   properties JSONB NOT NULL DEFAULT '{}',
   road_class TEXT,
   place_category TEXT,
@@ -46,6 +50,16 @@ CREATE INDEX IF NOT EXISTS world_features_region_idx ON world_features(region_id
 CREATE INDEX IF NOT EXISTS world_features_h3_idx ON world_features(h3_index);
 CREATE INDEX IF NOT EXISTS world_features_type_idx ON world_features(feature_type);
 CREATE INDEX IF NOT EXISTS world_features_geom_idx ON world_features USING GIST(geom);
+CREATE INDEX IF NOT EXISTS world_features_bbox_idx ON world_features (bbox_xmin, bbox_ymin, bbox_xmax, bbox_ymax);
+
+CREATE TABLE IF NOT EXISTS world_feature_hex_cells (
+  gers_id TEXT NOT NULL REFERENCES world_features(gers_id) ON DELETE CASCADE,
+  h3_index TEXT NOT NULL REFERENCES hex_cells(h3_index),
+  PRIMARY KEY (gers_id, h3_index)
+);
+
+CREATE INDEX IF NOT EXISTS world_feature_hex_cells_h3_idx ON world_feature_hex_cells(h3_index);
+CREATE INDEX IF NOT EXISTS world_feature_hex_cells_gers_idx ON world_feature_hex_cells(gers_id);
 
 CREATE TABLE IF NOT EXISTS feature_state (
   gers_id TEXT PRIMARY KEY REFERENCES world_features(gers_id),
@@ -141,6 +155,7 @@ DROP TABLE IF EXISTS crews;
 DROP TABLE IF EXISTS task_votes;
 DROP TABLE IF EXISTS tasks;
 DROP TABLE IF EXISTS feature_state;
+DROP TABLE IF EXISTS world_feature_hex_cells;
 DROP TABLE IF EXISTS world_features;
 DROP TABLE IF EXISTS hex_cells;
 DROP TABLE IF EXISTS regions;

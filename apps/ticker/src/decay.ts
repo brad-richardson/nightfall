@@ -5,6 +5,16 @@ import type { PhaseMultipliers } from "./multipliers";
 export async function applyRoadDecay(pool: PoolLike, multipliers: PhaseMultipliers) {
   const result = await pool.query<FeatureDelta>(
     `
+    WITH feature_rust AS (
+      SELECT
+        wf.gers_id,
+        AVG(h.rust_level) AS rust_level
+      FROM world_features AS wf
+      JOIN world_feature_hex_cells AS wfhc ON wfhc.gers_id = wf.gers_id
+      JOIN hex_cells AS h ON h.h3_index = wfhc.h3_index
+      WHERE wf.feature_type = 'road'
+      GROUP BY wf.gers_id
+    )
     UPDATE feature_state AS fs
     SET
       health = GREATEST(0, fs.health - decay.decay_value),
@@ -27,9 +37,9 @@ export async function applyRoadDecay(pool: PoolLike, multipliers: PhaseMultiplie
             WHEN 'service' THEN 2.0
             ELSE 1.0
           END
-        ) * (1 + h.rust_level) * $1 AS decay_value
+        ) * (1 + COALESCE(feature_rust.rust_level, 0)) * $1 AS decay_value
       FROM world_features AS wf
-      JOIN hex_cells AS h ON h.h3_index = wf.h3_index
+      LEFT JOIN feature_rust ON feature_rust.gers_id = wf.gers_id
       WHERE wf.feature_type = 'road'
     ) AS decay
     WHERE fs.gers_id = decay.gers_id
