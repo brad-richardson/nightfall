@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@nightfall/config": "workspace:*",
+    "h3-js": "^4.4.0",
     "lucide-react": "^0.562.0",
     "maplibre-gl": "^5.15.0",
     "next": "^14.2.5",

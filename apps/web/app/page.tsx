@@ -50,7 +50,6 @@ type WorldResponse = {
 type Hex = {
   h3_index: string;
   rust_level: number;
-  boundary: any;
 };
 
 const DEMO_REGION_ID = "bar_harbor_me_usa_demo";

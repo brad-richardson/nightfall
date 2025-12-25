@@ -109,6 +109,9 @@ importers:
       '@nightfall/config':
         specifier: workspace:*
         version: link:../../packages/config
+      h3-js:
+        specifier: ^4.4.0
+        version: 4.4.0
       lucide-react:
         specifier: ^0.562.0
         version: 0.562.0(react@18.3.1)

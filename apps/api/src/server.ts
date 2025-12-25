@@ -450,28 +450,36 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   });
 
   app.get("/api/hexes", async (request, reply) => {
-    const query = request.query as { bbox?: string };
-    const bbox = parseBBox(query.bbox);
-    if (!bbox) {
-      reply.status(400);
-      return { ok: false, error: "invalid_bbox" };
+    const query = request.query as { bbox?: string; region_id?: string };
+    const pool = getPool();
+    
+    let whereClause = "";
+    const values: any[] = [];
+
+    if (query.region_id) {
+      whereClause = "WHERE region_id = $1";
+      values.push(query.region_id);
+    } else if (query.bbox) {
+      // Fallback: Find regions overlapping the bbox, then get their hexes
+      const bbox = parseBBox(query.bbox);
+      if (bbox) {
+        whereClause = "WHERE region_id IN (SELECT region_id FROM regions WHERE ST_Intersects(boundary, ST_MakeEnvelope($1, $2, $3, $4, 4326)))";
+        values.push(...bbox);
+      }
     }
 
-    const pool = getPool();
     const hexesResult = await pool.query<{
       h3_index: string;
       rust_level: number;
-      boundary: unknown;
     }>(
       `
       SELECT
         h3_index,
-        rust_level,
-        ST_AsGeoJSON(h3_cell_to_boundary(h3_index))::json as boundary
+        rust_level::float
       FROM hex_cells
-      WHERE ST_Intersects(h3_cell_to_boundary(h3_index)::geometry, ST_MakeEnvelope($1, $2, $3, $4, 4326))
+      ${whereClause}
       `,
-      bbox
+      values
     );
 
     return { hexes: hexesResult.rows };

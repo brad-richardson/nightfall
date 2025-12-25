@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import * as pmtiles from "pmtiles";
+import { cellToBoundary } from "h3-js";
 import { ROAD_CLASS_FILTER } from "@nightfall/config";
 
 type Feature = {
@@ -18,7 +19,6 @@ type Feature = {
 type Hex = {
   h3_index: string;
   rust_level: number;
-  boundary: any;
 };
 
 type Boundary =
@@ -120,18 +120,20 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
             "source-layer": "building",
             type: "fill",
             paint: {
-              "fill-color": "#1c1c22",
+              "fill-color": "#18181d",
               "fill-opacity": 0.9,
-              "fill-outline-color": "#2a2a32"
+              "fill-outline-color": "#222228"
             }
           },
+          // Base Road Layers (Softer contrast, round joins)
           {
             id: "roads-low",
             source: "overture_transportation",
             "source-layer": "segment",
             type: "line",
             filter: ["all", baseRoadFilter, ["in", ["get", "class"], ["literal", ["residential", "service"]]]],
-            paint: { "line-color": "#25252d", "line-width": 0.6 }
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: { "line-color": "#1a1a20", "line-width": 0.6 }
           },
           {
             id: "roads-mid",
@@ -139,7 +141,8 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
             "source-layer": "segment",
             type: "line",
             filter: ["all", baseRoadFilter, ["in", ["get", "class"], ["literal", ["primary", "secondary", "tertiary"]]]],
-            paint: { "line-color": "#3a3a48", "line-width": 1.2 }
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: { "line-color": "#22222c", "line-width": 1.2 }
           },
           {
             id: "roads-high",
@@ -147,7 +150,8 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
             "source-layer": "segment",
             type: "line",
             filter: ["all", baseRoadFilter, ["in", ["get", "class"], ["literal", ["motorway", "trunk"]]]],
-            paint: { "line-color": "#4a4a5e", "line-width": 1.8 }
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: { "line-color": "#2a2a38", "line-width": 1.8 }
           },
           // Game State Highlight Layers
           {
@@ -156,10 +160,11 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
             "source-layer": "segment",
             type: "line",
             filter: ["all", baseRoadFilter, ["==", ["get", "id"], "none"]],
+            layout: { "line-cap": "round", "line-join": "round" },
             paint: {
               "line-color": "#3eb0c0",
-              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 1.2, 16, 4.5],
-              "line-opacity": 0.6
+              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 1, 16, 3],
+              "line-opacity": 0.4
             }
           },
           {
@@ -168,10 +173,11 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
             "source-layer": "segment",
             type: "line",
             filter: ["all", baseRoadFilter, ["==", ["get", "id"], "none"]],
+            layout: { "line-cap": "round", "line-join": "round" },
             paint: {
               "line-color": "#f08a4e",
-              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 1.8, 16, 5.5],
-              "line-opacity": 0.75
+              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 1.2, 16, 4],
+              "line-opacity": 0.5
             }
           },
           {
@@ -180,10 +186,11 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
             "source-layer": "segment",
             type: "line",
             filter: ["all", baseRoadFilter, ["==", ["get", "id"], "none"]],
+            layout: { "line-cap": "round", "line-join": "round" },
             paint: {
               "line-color": "#e03a30",
-              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 2.5, 16, 7],
-              "line-opacity": 0.85
+              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 1.5, 16, 5],
+              "line-opacity": 0.6
             }
           }
         ]
@@ -194,8 +201,6 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
     });
 
     map.current.on("load", () => {
-      setIsLoaded(true);
-
       // Add source for hex cells
       map.current?.addSource("game-hexes", {
         type: "geojson",
@@ -215,13 +220,13 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
             "interpolate",
             ["linear"],
             ["get", "rust_level"],
-            0, "#3eb0c0", // Healthy teal
-            0.5, "#f08a4e", // Warning amber
-            1, "#e03a30"  // Rusted red
+            0, "#3eb0c0",
+            0.5, "#f08a4e",
+            1, "#e03a30"
           ],
-          "fill-opacity": 0.05
+          "fill-opacity": 0.1
         }
-      }, "game-roads-healthy"); // Place below road highlights
+      }, "game-roads-healthy");
 
       // Add hex outline layer
       map.current?.addLayer({
@@ -238,9 +243,11 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
             1, "#e03a30"
           ],
           "line-width": 1,
-          "line-opacity": 0.15
+          "line-opacity": 0.3
         }
       }, "game-roads-healthy");
+
+      setIsLoaded(true);
     });
 
     return () => {
@@ -270,20 +277,34 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
 
   // Sync hex data to GeoJSON source
   useEffect(() => {
-    if (!isLoaded || !map.current) return;
+    if (!isLoaded || !map.current || !hexes.length) return;
 
     const source = map.current.getSource("game-hexes") as maplibregl.GeoJSONSource;
     if (source) {
       source.setData({
         type: "FeatureCollection",
-        features: hexes.map(h => ({
-          type: "Feature",
-          geometry: h.boundary,
-          properties: {
-            h3_index: h.h3_index,
-            rust_level: h.rust_level
+        features: hexes.map(h => {
+          try {
+            const boundary = cellToBoundary(h.h3_index);
+            const coordinates = [boundary.map(([lat, lon]) => [lon, lat])];
+            coordinates[0].push(coordinates[0][0]);
+
+            return {
+              type: "Feature",
+              geometry: {
+                type: "Polygon",
+                coordinates
+              },
+              properties: {
+                h3_index: h.h3_index,
+                rust_level: h.rust_level
+              }
+            };
+          } catch (e) {
+            console.error("Failed to calculate boundary for hex", h.h3_index, e);
+            return null;
           }
-        }))
+        }).filter(Boolean) as any
       });
     }
   }, [hexes, isLoaded]);
