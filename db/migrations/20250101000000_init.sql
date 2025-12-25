@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS hex_cells (
   h3_index TEXT PRIMARY KEY,
   region_id TEXT NOT NULL REFERENCES regions(region_id),
   rust_level REAL NOT NULL DEFAULT 0,
+  land_ratio REAL NOT NULL DEFAULT 0,
   distance_from_center REAL NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

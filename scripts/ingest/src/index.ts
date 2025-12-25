@@ -1,6 +1,6 @@
 import { spawn } from "child_process";
 import { Pool, type PoolClient } from "pg";
-import { latLngToCell, cellToLatLng, polygonToCells } from "h3-js";
+import { cellToBoundary, cellToLatLng, latLngToCell, polygonToCells } from "h3-js";
 import * as dotenv from "dotenv";
 import path from "path";
 import fs from "fs";
@@ -27,7 +27,8 @@ type OvertureDataset = {
 const OVERTURE_DATASETS: OvertureDataset[] = [
   { type: "segment", theme: "transportation" },
   { type: "building", theme: "buildings" },
-  { type: "place", theme: "places" }
+  { type: "place", theme: "places" },
+  { type: "land", theme: "base" }
 ];
 const DUCKDB_BIN = path.resolve(__dirname, "../bin/duckdb");
 
@@ -206,6 +207,92 @@ function bboxToCells(bbox: Bbox, resolution: number) {
   return [latLngToCell(lat, lon, resolution)];
 }
 
+function buildHexWkt(h3Index: string) {
+  const boundary = cellToBoundary(h3Index);
+  const coords = boundary.map((point) => {
+    if (Array.isArray(point)) {
+      const [lat, lon] = point;
+      return [lat, lon];
+    }
+    return [point.lat, point.lng];
+  });
+
+  if (coords.length === 0) {
+    return null;
+  }
+
+  const ring = [...coords, coords[0]];
+  const wkt = ring.map(([lat, lon]) => `${lon} ${lat}`).join(", ");
+  return `POLYGON((${wkt}))`;
+}
+
+async function computeLandRatios(
+  dataDir: string,
+  region: RegionConfig,
+  hexes: string[]
+) {
+  if (hexes.length === 0) {
+    return [];
+  }
+
+  const landPath = resolveOverturePath(dataDir, { theme: "base", type: "land" });
+  const results: Array<{ h3_index: string; land_ratio: number }> = [];
+  const CHUNK_SIZE = 300;
+
+  for (let i = 0; i < hexes.length; i += CHUNK_SIZE) {
+    const chunk = hexes.slice(i, i + CHUNK_SIZE);
+    const values = chunk
+      .map((h3Index) => {
+        const wkt = buildHexWkt(h3Index);
+        if (!wkt) {
+          return null;
+        }
+        return `('${h3Index}', ST_GeomFromText('${wkt}'))`;
+      })
+      .filter(Boolean)
+      .join(", ");
+
+    if (!values) {
+      continue;
+    }
+
+    const rows = await runDuckDB(`
+      WITH hexes(h3_index, geom) AS (
+        VALUES ${values}
+      ),
+      hexes_with_area AS (
+        SELECT
+          h3_index,
+          geom,
+          ST_Area(geom) AS hex_area
+        FROM hexes
+      ),
+      land AS (
+        SELECT geometry
+        FROM read_parquet('${landPath}')
+        WHERE
+          bbox.xmin > ${region.bbox.xmin} AND
+          bbox.xmax < ${region.bbox.xmax} AND
+          bbox.ymin > ${region.bbox.ymin} AND
+          bbox.ymax < ${region.bbox.ymax}
+      )
+      SELECT
+        h.h3_index,
+        SUM(ST_Area(ST_Intersection(l.geometry, h.geom))) / NULLIF(h.hex_area, 0) AS land_ratio
+      FROM hexes_with_area h
+      JOIN land l ON ST_Intersects(l.geometry, h.geom)
+      GROUP BY h.h3_index, h.hex_area
+    `);
+
+    rows.forEach((row) => {
+      const ratio = Math.min(1, Math.max(0, Number(row.land_ratio ?? 0)));
+      results.push({ h3_index: row.h3_index, land_ratio: ratio });
+    });
+  }
+
+  return results;
+}
+
 function haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371e3;
   const φ1 = (lat1 * Math.PI) / 180;
@@ -313,6 +400,52 @@ async function pruneHexCells(
     "DELETE FROM hex_cells WHERE region_id = $1 AND h3_index = ANY($2::text[])",
     [regionId, toDelete]
   );
+}
+
+async function updateLandRatios(
+  pgPool: Pool,
+  region: RegionConfig,
+  dataDir: string,
+  regionHexes: Set<string>
+) {
+  const hexList = Array.from(regionHexes);
+  if (hexList.length === 0) {
+    return;
+  }
+
+  const ratios = await computeLandRatios(dataDir, region, hexList);
+  const client = await pgPool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("UPDATE hex_cells SET land_ratio = 0 WHERE region_id = $1", [
+      region.regionId
+    ]);
+
+    if (ratios.length > 0) {
+      const indices = ratios.map((row) => row.h3_index);
+      const values = ratios.map((row) => row.land_ratio);
+      await client.query(
+        `
+        UPDATE hex_cells AS h
+        SET land_ratio = data.land_ratio
+        FROM (
+          SELECT
+            UNNEST($1::text[]) AS h3_index,
+            UNNEST($2::float8[]) AS land_ratio
+        ) AS data
+        WHERE h.region_id = $3
+          AND h.h3_index = data.h3_index
+        `,
+        [indices, values, region.regionId]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function seedDemoData(pgPool: Pool, region: RegionConfig) {
@@ -840,10 +973,14 @@ async function main() {
 
     const pruneClient = await pgPool.connect();
     try {
+      console.log("--- H3 Cell Cleanup ---");
       await pruneHexCells(pruneClient, region.regionId, regionHexes);
     } finally {
       pruneClient.release();
     }
+
+    console.log("--- Land Ratio Update ---");
+    await updateLandRatios(pgPool, region, dataDir, regionHexes);
 
     if (shouldSeedDemo()) {
       await seedDemoData(pgPool, region);
