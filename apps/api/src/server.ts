@@ -101,8 +101,8 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   const eventStream = options.eventStream ?? createDbEventStream(getPool(), app.log);
 
   app.setErrorHandler((error, _request, reply) => {
-    app.log.error({ err: error }, "request failed");
-    reply.status(500).send({ ok: false, error: "internal_error" });
+    app.log.error(error);
+    reply.status(500).send({ ok: false, error: "internal_error", message: error.message });
   });
 
   app.get("/health", async () => {
@@ -247,12 +247,12 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         r.region_id,
         r.name,
         ST_AsGeoJSON(r.center)::json as center,
-        r.pool_labor,
-        r.pool_materials,
+        r.pool_labor::float,
+        r.pool_materials::float,
         r.crew_count,
-        COALESCE(c.active_crews, 0) AS active_crews,
-        COALESCE(h.rust_avg, 0) AS rust_avg,
-        COALESCE(s.health_avg, 0) AS health_avg
+        COALESCE(c.active_crews, 0)::int AS active_crews,
+        COALESCE(h.rust_avg, 0)::float AS rust_avg,
+        COALESCE(s.health_avg, 0)::float AS health_avg
       FROM regions AS r
       LEFT JOIN (
         SELECT region_id, COUNT(*) FILTER (WHERE status != 'idle') AS active_crews
@@ -304,7 +304,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       pool_labor: number;
       pool_materials: number;
     }>(
-      "SELECT region_id, name, ST_AsGeoJSON(boundary)::json as boundary, pool_labor, pool_materials FROM regions WHERE region_id = $1",
+      "SELECT region_id, name, ST_AsGeoJSON(boundary)::json as boundary, pool_labor::float, pool_materials::float FROM regions WHERE region_id = $1",
       [regionId]
     );
 
@@ -340,9 +340,9 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       SELECT
         task_id,
         target_gers_id,
-        priority_score,
+        priority_score::float,
         status,
-        vote_score,
+        vote_score::float,
         cost_labor,
         cost_materials,
         duration_s,
@@ -362,9 +362,9 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     }>(
       `
       SELECT
-        COUNT(*) FILTER (WHERE wf.feature_type = 'road') AS total_roads,
-        COUNT(*) FILTER (WHERE wf.feature_type = 'road' AND fs.health > 80) AS healthy_roads,
-        COUNT(*) FILTER (WHERE wf.feature_type = 'road' AND fs.health < 30) AS degraded_roads
+        COUNT(*) FILTER (WHERE wf.feature_type = 'road')::int AS total_roads,
+        COUNT(*) FILTER (WHERE wf.feature_type = 'road' AND fs.health > 80)::int AS healthy_roads,
+        COUNT(*) FILTER (WHERE wf.feature_type = 'road' AND fs.health < 30)::int AS degraded_roads
       FROM world_features AS wf
       JOIN feature_state AS fs ON fs.gers_id = wf.gers_id
       WHERE wf.region_id = $1
@@ -373,7 +373,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     );
 
     const rustResult = await pool.query<{ rust_avg: number }>(
-      "SELECT AVG(rust_level) AS rust_avg FROM hex_cells WHERE region_id = $1",
+      "SELECT AVG(rust_level)::float AS rust_avg FROM hex_cells WHERE region_id = $1",
       [regionId]
     );
 

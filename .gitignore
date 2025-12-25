@@ -45,3 +45,4 @@ playwright-report/
 test-results/
 scripts/ingest/bin/
 scripts/ingest/ingest.duckdb
+scripts/ingest/data/

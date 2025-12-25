@@ -4,7 +4,8 @@ import {
   getRegionConfig,
   H3_RESOLUTION,
   ROAD_CLASS_FILTER,
-  REGION_CONFIGS
+  REGION_CONFIGS,
+  shouldSeedDemo
 } from "./index";
 
 const region = {
@@ -113,5 +114,28 @@ describe("region config selection", () => {
     process.env.INGEST_REGION = "unknown_region";
 
     expect(() => getRegionConfig()).toThrow(/Unknown region/);
+  });
+});
+
+describe("demo seed flag", () => {
+  const originalArgv = process.argv.slice();
+
+  afterEach(() => {
+    process.argv = [...originalArgv];
+  });
+
+  it("defaults to false", () => {
+    process.argv = [...originalArgv];
+    expect(shouldSeedDemo()).toBe(false);
+  });
+
+  it("returns true when --seed-demo is present", () => {
+    process.argv = [...originalArgv, "--seed-demo"];
+    expect(shouldSeedDemo()).toBe(true);
+  });
+
+  it("returns true when --demo is present", () => {
+    process.argv = [...originalArgv, "--demo"];
+    expect(shouldSeedDemo()).toBe(true);
   });
 });

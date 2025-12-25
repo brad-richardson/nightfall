@@ -12,6 +12,8 @@
     "format": "echo \"no format configured\""
   },
   "dependencies": {
+    "@nightfall/config": "workspace:*",
+    "dotenv": "^16.6.1",
     "fastify": "^4.28.0",
     "pg": "^8.12.0",
     "zod": "^4.2.1"

@@ -19,7 +19,7 @@ Working list to build the core loop and UI in a sensible order. Keep PRs small b
 
 ## World Data (Week 2-3)
 - [x] Ingest pipeline for Boston: download Overture layers, curate regions list, generate H3 cells, load roads/buildings/places with joins, initialize state. Script + docs to rerun.
-- [ ] Seed/demo data for dev: lightweight fixture load to let frontend run without full ingest.
+- [x] Seed/demo data for dev: lightweight fixture load to let frontend run without full ingest.
 
 ## API & Realtime (Week 3)
 - [x] REST endpoints: world summary, region detail, features by bbox, hexes by bbox, contribute, vote, tasks detail, set-home.
@@ -27,9 +27,9 @@ Working list to build the core loop and UI in a sensible order. Keep PRs small b
 - [x] Admin endpoints: demo mode toggle, set-phase, reset trigger; auth guard.
 
 ## Frontend (Week 3-4)
-- [ ] State/store setup (Zustand) + shared client for API/SSE; environment config.
+- [x] State/store setup + shared client for API/SSE; environment config.
 - [ ] MapLibre base with day/night grading, roads colored by health, buildings by generation type, rust hex overlay with animated grain.
-- [ ] UI chrome: header with phase indicator + countdown, region selector, responsive layout (sidebar/bottom sheet), activity feed ticker.
+- [/] UI chrome: header with phase indicator + countdown, region selector, responsive layout (sidebar/bottom sheet), activity feed ticker.
 - [ ] Interaction flows: feature selection panel, vote buttons, contribute action, task list sorted by priority with ETA, crews markers.
 - [ ] Mobile polish: gestures, touch targets, bottom sheet behavior.
 

@@ -3,7 +3,7 @@ import { z } from "zod";
 const configSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3001),
   HOST: z.string().default("0.0.0.0"),
-  DATABASE_URL: z.string().url().optional(),
+  DATABASE_URL: z.string().url().default("postgresql://nightfall:nightfall@localhost:5432/nightfall?sslmode=disable"),
   APP_VERSION: z.string().default("dev")
 });
 

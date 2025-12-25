@@ -1,8 +1,13 @@
 import type { FeatureDelta } from "./deltas";
 import type { PoolLike } from "./ticker";
 import type { PhaseMultipliers } from "./multipliers";
+import { ROAD_CLASSES } from "@nightfall/config";
 
 export async function applyRoadDecay(pool: PoolLike, multipliers: PhaseMultipliers) {
+  const decayCases = Object.entries(ROAD_CLASSES)
+    .map(([cls, info]) => `WHEN '${cls}' THEN ${info.decayRate}`)
+    .join("\n            ");
+
   const result = await pool.query<FeatureDelta>(
     `
     WITH feature_rust AS (
@@ -28,13 +33,7 @@ export async function applyRoadDecay(pool: PoolLike, multipliers: PhaseMultiplie
         wf.gers_id,
         (
           CASE wf.road_class
-            WHEN 'motorway' THEN 0.5
-            WHEN 'trunk' THEN 0.6
-            WHEN 'primary' THEN 0.8
-            WHEN 'secondary' THEN 1.0
-            WHEN 'tertiary' THEN 1.2
-            WHEN 'residential' THEN 1.5
-            WHEN 'service' THEN 2.0
+            ${decayCases}
             ELSE 1.0
           END
         ) * (1 + COALESCE(feature_rust.rust_level, 0)) * $1 AS decay_value
@@ -50,3 +49,4 @@ export async function applyRoadDecay(pool: PoolLike, multipliers: PhaseMultiplie
 
   return result.rows;
 }
+

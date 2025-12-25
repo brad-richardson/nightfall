@@ -2,11 +2,54 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer utilities {
+  .animate-marquee {
+    animation: marquee 60s linear infinite;
+  }
+}
+
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
 :root {
   color-scheme: light;
+  --night-ink: #191710;
+  --night-ash: #2f2a1f;
+  --night-sand: #f6f0e4;
+  --night-glow: #f0ddc2;
+  --night-coral: #dd7a49;
+  --night-teal: #2c6575;
+  --night-moss: #5a6b45;
+  --night-outline: rgba(25, 23, 16, 0.12);
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
-  background-color: #f6f2ea;
-  color: #1f1a13;
+  background-color: var(--night-sand);
+  color: var(--night-ink);
+  font-family: var(--font-sans), "Space Grotesk", system-ui, sans-serif;
+}
+
+.font-display {
+  font-family: var(--font-display), "Fraunces", "Times New Roman", serif;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.map-feature {
+  animation: rise-in 0.6s ease both;
 }

@@ -1,9 +1,26 @@
 import type { TaskDelta } from "./deltas";
 import type { PoolLike } from "./ticker";
+import { ROAD_CLASSES } from "@nightfall/config";
 
 const DEFAULT_LAMBDA = 0.1;
 
 export async function spawnDegradedRoadTasks(pool: PoolLike) {
+  const costLaborCases = Object.entries(ROAD_CLASSES)
+    .map(([cls, info]) => `WHEN '${cls}' THEN ${info.costLabor}`)
+    .join("\n        ");
+  
+  const costMaterialsCases = Object.entries(ROAD_CLASSES)
+    .map(([cls, info]) => `WHEN '${cls}' THEN ${info.costMaterials}`)
+    .join("\n        ");
+
+  const durationCases = Object.entries(ROAD_CLASSES)
+    .map(([cls, info]) => `WHEN '${cls}' THEN ${info.durationS}`)
+    .join("\n        ");
+
+  const repairCases = Object.entries(ROAD_CLASSES)
+    .map(([cls, info]) => `WHEN '${cls}' THEN ${info.repairAmount}`)
+    .join("\n        ");
+
   const result = await pool.query<TaskDelta>(
     `
     INSERT INTO tasks (
@@ -23,43 +40,19 @@ export async function spawnDegradedRoadTasks(pool: PoolLike) {
       wf.gers_id,
       'repair_road',
       CASE wf.road_class
-        WHEN 'motorway' THEN 100
-        WHEN 'trunk' THEN 80
-        WHEN 'primary' THEN 60
-        WHEN 'secondary' THEN 40
-        WHEN 'tertiary' THEN 30
-        WHEN 'residential' THEN 20
-        WHEN 'service' THEN 10
+        ${costLaborCases}
         ELSE 20
       END AS cost_labor,
       CASE wf.road_class
-        WHEN 'motorway' THEN 100
-        WHEN 'trunk' THEN 80
-        WHEN 'primary' THEN 60
-        WHEN 'secondary' THEN 40
-        WHEN 'tertiary' THEN 30
-        WHEN 'residential' THEN 20
-        WHEN 'service' THEN 10
+        ${costMaterialsCases}
         ELSE 20
       END AS cost_materials,
       CASE wf.road_class
-        WHEN 'motorway' THEN 120
-        WHEN 'trunk' THEN 100
-        WHEN 'primary' THEN 80
-        WHEN 'secondary' THEN 60
-        WHEN 'tertiary' THEN 50
-        WHEN 'residential' THEN 40
-        WHEN 'service' THEN 30
+        ${durationCases}
         ELSE 40
       END AS duration_s,
       CASE wf.road_class
-        WHEN 'motorway' THEN 30
-        WHEN 'trunk' THEN 30
-        WHEN 'primary' THEN 25
-        WHEN 'secondary' THEN 25
-        WHEN 'tertiary' THEN 20
-        WHEN 'residential' THEN 20
-        WHEN 'service' THEN 15
+        ${repairCases}
         ELSE 20
       END AS repair_amount,
       0,
@@ -83,6 +76,10 @@ export async function spawnDegradedRoadTasks(pool: PoolLike) {
 }
 
 export async function updateTaskPriorities(pool: PoolLike, lambda = DEFAULT_LAMBDA) {
+  const weightCases = Object.entries(ROAD_CLASSES)
+    .map(([cls, info]) => `WHEN '${cls}' THEN ${info.priorityWeight}`)
+    .join("\n          ");
+
   const result = await pool.query<TaskDelta>(
     `
     WITH vote_scores AS (
@@ -109,13 +106,7 @@ export async function updateTaskPriorities(pool: PoolLike, lambda = DEFAULT_LAMB
       vote_score = task_info.vote_score,
       priority_score = (100 - task_info.health) * (
         CASE task_info.road_class
-          WHEN 'motorway' THEN 10
-          WHEN 'trunk' THEN 8
-          WHEN 'primary' THEN 6
-          WHEN 'secondary' THEN 4
-          WHEN 'tertiary' THEN 3
-          WHEN 'residential' THEN 2
-          WHEN 'service' THEN 1
+          ${weightCases}
           ELSE 1
         END
       ) + task_info.vote_score
@@ -128,3 +119,4 @@ export async function updateTaskPriorities(pool: PoolLike, lambda = DEFAULT_LAMB
 
   return result.rows;
 }
+

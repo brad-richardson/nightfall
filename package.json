@@ -13,7 +13,7 @@
     "format": "prettier -w .",
     "start": "pnpm --filter @nightfall/web start",
     "start:ticker": "pnpm --filter @nightfall/ticker start",
-    "ingest:demo": "pnpm --filter nightfall-ingest start -- --region=bar_harbor_me_usa_demo",
+    "ingest:demo": "pnpm --filter nightfall-ingest start -- --region=bar_harbor_me_usa_demo --seed-demo",
     "db:up": "dbmate up",
     "db:down": "dbmate down",
     "db:status": "dbmate status",
