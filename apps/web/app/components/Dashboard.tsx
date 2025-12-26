@@ -578,7 +578,7 @@ export default function Dashboard({
       <ResourceTicker deltas={resourceFeed} />
 
       <div className="rounded-3xl border border-[var(--night-outline)] bg-[color:var(--night-ink)] p-6 text-white shadow-[0_18px_40px_rgba(24,20,14,0.2)]">
-        <TaskList tasks={region.tasks} onVote={handleVote} />
+        <TaskList tasks={region.tasks} crews={region.crews} features={features} onVote={handleVote} />
       </div>
 
       <div className="rounded-3xl border border-[var(--night-outline)] bg-white/70 p-6 shadow-[0_18px_40px_rgba(24,20,14,0.12)]">
@@ -769,7 +769,7 @@ export default function Dashboard({
 
           <MapOverlay position="bottom-left" className="!bottom-20 hidden w-[360px] max-h-[55vh] lg:block">
             <MapPanel title="Operations Queue" className="h-full overflow-hidden">
-              <TaskList tasks={region.tasks} onVote={handleVote} />
+              <TaskList tasks={region.tasks} crews={region.crews} features={features} onVote={handleVote} />
             </MapPanel>
           </MapOverlay>
 

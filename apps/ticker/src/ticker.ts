@@ -1,10 +1,10 @@
 export type PoolLike = {
-  query: <T = unknown>(text: string, params?: unknown[]) => Promise<{ rows: T[] }>;
+  query: <T = unknown>(text: string, params?: unknown[]) => Promise<{ rows: T[]; rowCount?: number | null }>;
   connect?: () => Promise<PoolClientLike>;
 };
 
 export type PoolClientLike = {
-  query: <T = unknown>(text: string, params?: unknown[]) => Promise<{ rows: T[] }>;
+  query: <T = unknown>(text: string, params?: unknown[]) => Promise<{ rows: T[]; rowCount?: number | null }>;
   release?: () => void | Promise<void>;
 };
 

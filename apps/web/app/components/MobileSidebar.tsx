@@ -20,6 +20,10 @@ export default function MobileSidebar({ children }: MobileSidebarProps) {
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 bg-black/40" />
         <Drawer.Content className="fixed bottom-0 left-0 right-0 z-50 flex max-h-[96%] flex-col rounded-t-[32px] bg-[color:var(--night-sand)] outline-none">
+          <Drawer.Title className="sr-only">Region status and tasks</Drawer.Title>
+          <Drawer.Description className="sr-only">
+            Resource pools, repair tasks, and network health for the active region.
+          </Drawer.Description>
           <div className="flex-1 overflow-y-auto rounded-t-[32px] bg-[color:var(--night-sand)] p-4">
             <div className="mx-auto mb-8 h-1.5 w-12 shrink-0 rounded-full bg-black/10" />
             <div className="mx-auto max-w-md space-y-6 pb-8">

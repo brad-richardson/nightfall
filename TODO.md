@@ -4,6 +4,8 @@
 - [ ] Prevent rust spread lost updates (transaction or update-in-DB strategy).
 - [ ] Guard task spawn with locking to avoid duplicate degraded-road tasks.
 - [ ] Clean up SSE listeners and add reconnect handling/backpressure strategy.
+- [ ] Add a MapLibre lifecycle test harness (Strict Mode mount/unmount) to catch map init regressions.
+- [ ] Add a UI test that asserts map pan/zoom still work with overlays active (pointer-events guard).
 
 ## Security & Abuse Protection (Week 4-5)
 - [ ] Re-enable CORS with explicit allowlist + tests once deployment targets are stable.

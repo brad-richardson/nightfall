@@ -2,7 +2,6 @@
 
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import maplibregl from "maplibre-gl";
-import "maplibre-gl/dist/maplibre-gl.css";
 import * as pmtiles from "pmtiles";
 import { cellToBoundary } from "h3-js";
 import { ROAD_CLASS_FILTER } from "@nightfall/config";
@@ -225,13 +224,20 @@ export default function DemoMap({
       if (feature.geometry.type === "LineString") {
         roads.push({ geometry: { coordinates: feature.geometry.coordinates as number[][] } });
       } else if (feature.geometry.type === "MultiLineString") {
-        for (const line of feature.geometry.coordinates as number[][][]) {
+        const multiCoords = feature.geometry.coordinates as number[][][];
+        for (const line of multiCoords) {
           roads.push({ geometry: { coordinates: line } });
         }
       }
     }
     return roads;
   }, [features]);
+
+  const roadGraph = useMemo(() => {
+    if (roadFeaturesForPath.length === 0) return null;
+    const { buildRoadGraph } = require("../lib/roadRouting");
+    return buildRoadGraph(roadFeaturesForPath);
+  }, [roadFeaturesForPath]);
 
   const travelingCrewIds = useMemo(() => new Set(crewPaths.map((path) => path.crew_id)), [crewPaths]);
 
@@ -314,6 +320,7 @@ export default function DemoMap({
     // Prevent re-initialization if map already exists
     if (map.current) return;
 
+    setIsLoaded(false);
     const protocol = new pmtiles.Protocol();
     maplibregl.addProtocol("pmtiles", protocol.tile);
 
@@ -369,7 +376,7 @@ export default function DemoMap({
       ]
     ];
 
-    map.current = new maplibregl.Map({
+    const mapInstance = new maplibregl.Map({
       container: mapContainer.current,
       maxBounds,
       style: {
@@ -742,8 +749,9 @@ export default function DemoMap({
       zoom: 14,
       pitch: 45
     });
+    map.current = mapInstance;
 
-    map.current.on("load", () => {
+    mapInstance.on("load", () => {
       // Add source for the boundary mask (The Fog)
       if (boundary) {
         map.current?.addSource("game-boundary-mask", {
@@ -1013,8 +1021,8 @@ export default function DemoMap({
     });
 
     // Click handler
-    map.current.on("click", (e) => {
-      const clickedFeatures = map.current?.queryRenderedFeatures(e.point, {
+    mapInstance.on("click", (e) => {
+      const clickedFeatures = mapInstance.queryRenderedFeatures(e.point, {
         layers: [
           "game-roads-healthy", "game-roads-warning", "game-roads-degraded",
           "roads-low", "roads-mid", "roads-high", "roads-routes", "buildings"
@@ -1027,15 +1035,19 @@ export default function DemoMap({
         const type = feature.layer.id.includes("buildings") ? "building" : "road";
 
         // Update both selection layers
-        map.current?.setFilter("game-feature-selection", ["==", ["get", "id"], gersId]);
-        map.current?.setFilter("game-feature-selection-glow", ["==", ["get", "id"], gersId]);
+        mapInstance.setFilter("game-feature-selection", ["==", ["get", "id"], gersId]);
+        mapInstance.setFilter("game-feature-selection-glow", ["==", ["get", "id"], gersId]);
 
         window.dispatchEvent(new CustomEvent("nightfall:feature_selected", {
-          detail: { gers_id: gersId, type }
+          detail: { 
+            gers_id: gersId, 
+            type,
+            position: { x: e.point.x, y: e.point.y }
+          }
         }));
       } else {
-        map.current?.setFilter("game-feature-selection", ["==", ["get", "id"], "none"]);
-        map.current?.setFilter("game-feature-selection-glow", ["==", ["get", "id"], "none"]);
+        mapInstance.setFilter("game-feature-selection", ["==", ["get", "id"], "none"]);
+        mapInstance.setFilter("game-feature-selection-glow", ["==", ["get", "id"], "none"]);
         window.dispatchEvent(new CustomEvent("nightfall:feature_selected", {
           detail: null
         }));
@@ -1049,24 +1061,25 @@ export default function DemoMap({
     ];
 
     interactiveLayers.forEach(layer => {
-      map.current?.on("mousemove", layer, (e) => {
-        if (!map.current) return;
+      mapInstance.on("mousemove", layer, (e) => {
         const id = e.features?.[0]?.properties?.id;
         if (id) {
-          map.current.setFilter("game-feature-hover", ["==", ["get", "id"], id]);
-          map.current.getCanvas().style.cursor = "pointer";
+          mapInstance.setFilter("game-feature-hover", ["==", ["get", "id"], id]);
+          mapInstance.getCanvas().style.cursor = "pointer";
         }
       });
 
-      map.current?.on("mouseleave", layer, () => {
-        if (!map.current) return;
-        map.current.setFilter("game-feature-hover", ["==", ["get", "id"], ""]);
-        map.current.getCanvas().style.cursor = "";
+      mapInstance.on("mouseleave", layer, () => {
+        mapInstance.setFilter("game-feature-hover", ["==", ["get", "id"], ""]);
+        mapInstance.getCanvas().style.cursor = "";
       });
     });
 
     return () => {
-      map.current?.remove();
+      mapInstance.remove();
+      if (map.current === mapInstance) {
+        map.current = null;
+      }
       maplibregl.removeProtocol("pmtiles");
     };
   }, [fallbackBbox, boundary, pmtilesBase]);
@@ -1155,7 +1168,10 @@ export default function DemoMap({
         return;
       }
 
-      const topFeature = featuresAtPoint[0];
+      // Prioritize specific features over hexes
+      const nonHexFeature = featuresAtPoint.find(f => !f.layer.id.includes("hex"));
+      const topFeature = nonHexFeature ?? featuresAtPoint[0];
+      
       const data = buildTooltipData(topFeature, point);
       setTooltipData(data);
     };
@@ -1690,7 +1706,8 @@ export default function DemoMap({
     const departAt = Date.parse(transfer.depart_at);
     const arriveAt = Date.parse(transfer.arrive_at);
     const startTime = Number.isNaN(departAt) ? Date.now() : departAt;
-    const endTime = Number.isNaN(arriveAt) ? startTime + 4000 : arriveAt;
+    // Add 10s buffer to endTime to handle potential client/server clock desync
+    const endTime = (Number.isNaN(arriveAt) ? startTime + 4000 : arriveAt) + 10000;
 
     if (Date.now() >= endTime) return;
 
@@ -1706,7 +1723,10 @@ export default function DemoMap({
       ? getFeatureCenter(hubFeature)
       : getNearestHubCenter(sourceCenter) ?? fallbackCenter;
 
-    if (!sourceCenter || !hubCenter) return;
+    if (!sourceCenter || !hubCenter) {
+      console.warn("Transfer missing source or hub center", { sourceCenter, hubCenter, transfer });
+      return;
+    }
 
     const path = buildResourcePath(sourceCenter, hubCenter, roadFeaturesForPath);
     const duration = Math.max(1000, endTime - startTime);
@@ -1715,15 +1735,17 @@ export default function DemoMap({
       if (prev.some((pkg) => pkg.id === transfer.transfer_id)) {
         return prev;
       }
-      const nextPackage: ResourcePackage = {
-        id: transfer.transfer_id,
-        type: transfer.resource_type,
-        path,
-        progress: 0,
-        startTime,
-        duration
-      };
-      return [...prev, nextPackage];
+      return [
+        ...prev,
+        {
+          id: transfer.transfer_id,
+          type: transfer.resource_type,
+          path,
+          progress: 0,
+          startTime,
+          duration
+        }
+      ];
     });
   }, [features, fallbackCenter, getFeatureCenter, getNearestHubCenter, isLoaded, roadFeaturesForPath]);
 
@@ -1874,7 +1896,7 @@ export default function DemoMap({
         />
         <MapTooltip tooltip={tooltipData} containerSize={mapSize} />
         {children ? (
-          <div className="absolute inset-0 z-30">
+          <div className="pointer-events-none absolute inset-0 z-30">
             {children}
           </div>
         ) : null}

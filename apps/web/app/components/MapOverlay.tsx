@@ -25,7 +25,7 @@ export function MapOverlay({ position, children, className = "", mobileHidden = 
   const mobileClass = mobileHidden ? "hidden md:block" : "";
 
   return (
-    <div className={`absolute ${positionClasses[position]} ${mobileClass} ${className}`}>
+    <div className={`pointer-events-auto absolute ${positionClasses[position]} ${mobileClass} ${className}`}>
       {children}
     </div>
   );

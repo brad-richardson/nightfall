@@ -1166,13 +1166,13 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       }>(
         `
         UPDATE tasks AS t
-        SET vote_score = $2,
+        SET vote_score = $2::float,
             priority_score = (100 - fs.health) * (
               CASE wf.road_class
                 ${weightCases}
                 ELSE 1
               END
-            ) + $2
+            ) + $2::float
         FROM world_features AS wf
         JOIN feature_state AS fs ON fs.gers_id = wf.gers_id
         WHERE t.task_id = $1

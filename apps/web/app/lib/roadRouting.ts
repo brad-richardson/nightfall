@@ -161,7 +161,7 @@ export function routeGraph(
 ): RouteResult | null {
   if (graph.nodes.size === 0) return null;
 
-  const maxSnapDistance = options.maxSnapDistance ?? DEFAULT_MAX_SNAP_DISTANCE;
+  const maxSnapDistance = options.maxSnapDistance ?? 1.0; // Very lenient default
   const startNode = findNearestNode(startPoint, graph);
   const endNode = findNearestNode(endPoint, graph);
 

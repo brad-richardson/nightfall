@@ -45,7 +45,7 @@ describe("TaskList", () => {
   it("filters tasks by search query", () => {
     vi.useFakeTimers();
 
-    render(<TaskList tasks={tasks} onVote={vi.fn()} />);
+    render(<TaskList tasks={tasks} crews={[]} features={[]} onVote={vi.fn()} />);
     const input = screen.getByPlaceholderText(/search tasks/i);
 
     fireEvent.change(input, { target: { value: "pothole" } });
@@ -61,7 +61,7 @@ describe("TaskList", () => {
   });
 
   it("filters queued tasks from filter chips", () => {
-    render(<TaskList tasks={tasks} onVote={vi.fn()} />);
+    render(<TaskList tasks={tasks} crews={[]} features={[]} onVote={vi.fn()} />);
 
     const queuedChip = screen.getByRole("button", { name: /queued/i });
     fireEvent.click(queuedChip);
@@ -72,7 +72,7 @@ describe("TaskList", () => {
   });
 
   it("sorts tasks by total cost", () => {
-    render(<TaskList tasks={tasks} onVote={vi.fn()} />);
+    render(<TaskList tasks={tasks} crews={[]} features={[]} onVote={vi.fn()} />);
 
     const sortSelect = screen.getByRole("combobox");
     fireEvent.change(sortSelect, { target: { value: "cost" } });
