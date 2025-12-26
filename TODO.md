@@ -39,10 +39,10 @@ Working list to build the core loop and UI in a sensible order. Keep PRs small b
 - [x] Observability: structured logging, basic metrics (tick duration, rust spread stats, task counts), alerting hooks.
 
 ## Security & Abuse Protection (Week 4-5)
-- [ ] Request rate limiting: per-IP and per-client limits for /api/hello, /api/contribute, /api/vote, /api/stream.
-- [ ] SSE connection caps + reconnect backoff guidance to avoid reconnect storms.
-- [ ] Abuse guardrails: tighten payload size/validation, enforce quotas, and log suspicious patterns.
-- [ ] Admin endpoint hardening: secret rotation, optional allowlist, audit events for changes.
+- [x] Request rate limiting: per-IP and per-client limits for /api/hello, /api/contribute, /api/vote, /api/stream.
+- [x] SSE connection caps + reconnect backoff guidance to avoid reconnect storms.
+- [x] Abuse guardrails: tighten payload size/validation, enforce quotas, and log suspicious patterns.
+- [x] Admin endpoint hardening: secret rotation, optional allowlist, audit events for changes.
 
 ## Attribution & Compliance
 - [ ] Add in-product attribution for Overture Maps and upstream sources; include in docs/landing page.

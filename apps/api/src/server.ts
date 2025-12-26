@@ -1,5 +1,9 @@
 import type { FastifyInstance, FastifyServerOptions } from "fastify";
 import Fastify from "fastify";
+import cors from "@fastify/cors";
+import helmet from "@fastify/helmet";
+import rateLimit from "@fastify/rate-limit";
+import { getConfig } from "./config";
 import { closePool, getPool } from "./db";
 import { loadCycleState, loadCycleSummary } from "./cycle";
 import { createDbEventStream } from "./event-stream";
@@ -98,6 +102,17 @@ function getNextReset(now: Date) {
 
 export function buildServer(options: ServerOptions = {}): FastifyInstance {
   const app = Fastify({ logger: resolveLogger(options.logger) });
+  const config = getConfig();
+  let sseClients = 0;
+
+  app.register(cors);
+  app.register(helmet);
+  app.register(rateLimit, {
+    global: true,
+    max: config.RATE_LIMIT_MAX,
+    timeWindow: config.RATE_LIMIT_WINDOW_MS,
+  });
+
   const eventStream = options.eventStream ?? createDbEventStream(getPool(), app.log);
 
   app.setErrorHandler((error, _request, reply) => {
@@ -122,7 +137,12 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     return { ok: true, service: "api", version: getAppVersion() };
   });
 
-  app.get("/api/stream", async (request, reply) => {
+    app.get("/api/stream", async (request, reply) => {
+    if (sseClients >= config.SSE_MAX_CLIENTS) {
+      reply.status(503).send({ ok: false, error: "too_many_connections" });
+      return;
+    }
+
     const once = request.headers["x-sse-once"] === "1";
 
     reply.raw.setHeader("Content-Type", "text/event-stream");
@@ -131,7 +151,15 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     reply.raw.flushHeaders?.();
     reply.hijack();
 
+    sseClients++;
     let unsubscribe = () => {};
+
+    const cleanup = () => {
+      unsubscribe();
+      sseClients--;
+    };
+
+    request.raw.on("close", cleanup);
 
     try {
       await eventStream.start?.();
@@ -139,6 +167,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       app.log.error({ err: error }, "event stream unavailable");
       reply.raw.writeHead(503, { "Content-Type": "application/json" });
       reply.raw.end(JSON.stringify({ ok: false, error: "event_stream_unavailable" }));
+      cleanup();
       return;
     }
 
@@ -146,13 +175,11 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       writeSseEvent(reply.raw, payload.event, payload.data);
 
       if (once) {
-        unsubscribe();
+        // cleanup will be called by 'close' event when we end the response?
+        // Or we should call it manually?
+        // If we end the response, the socket closes.
         reply.raw.end();
       }
-    });
-
-    request.raw.on("close", () => {
-      unsubscribe();
     });
   });
 
@@ -808,7 +835,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
 
   app.post("/api/admin/demo-mode", async (request, reply) => {
     const authHeader = request.headers["authorization"];
-    const secret = process.env.ADMIN_SECRET;
+    const secret = config.ADMIN_SECRET;
 
     if (!secret || authHeader !== `Bearer ${secret}`) {
       reply.status(401);
@@ -842,7 +869,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
 
   app.post("/api/admin/reset", async (request, reply) => {
     const authHeader = request.headers["authorization"];
-    const secret = process.env.ADMIN_SECRET;
+    const secret = config.ADMIN_SECRET;
 
     if (!secret || authHeader !== `Bearer ${secret}`) {
       reply.status(401);

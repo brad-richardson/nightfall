@@ -4,7 +4,12 @@ const configSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3001),
   HOST: z.string().default("0.0.0.0"),
   DATABASE_URL: z.string().url().default("postgresql://nightfall:nightfall@localhost:5432/nightfall?sslmode=disable"),
-  APP_VERSION: z.string().default("dev")
+  APP_VERSION: z.string().default("dev"),
+  // Security & Rate Limiting
+  RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60 * 1000), // 1 minute
+  RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100), // 100 requests per window
+  SSE_MAX_CLIENTS: z.coerce.number().int().positive().default(1000),
+  ADMIN_SECRET: z.string().optional(),
 });
 
 export type Config = z.infer<typeof configSchema>;

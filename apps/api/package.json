@@ -12,6 +12,9 @@
     "format": "echo \"no format configured\""
   },
   "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "@fastify/helmet": "^13.0.2",
+    "@fastify/rate-limit": "^10.3.0",
     "@nightfall/config": "workspace:*",
     "dotenv": "^16.6.1",
     "fastify": "^4.28.0",
