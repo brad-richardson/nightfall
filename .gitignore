@@ -15,6 +15,7 @@ yarn.lock
 
 # TypeScript
 *.tsbuildinfo
+.eslintcache
 
 # Build output
 .next/

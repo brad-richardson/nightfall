@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint \"app/**/*.{ts,tsx}\"",
+    "lint": "eslint \"app/**/*.{ts,tsx}\" --cache",
     "test": "vitest run",
     "format": "echo \"no format configured\""
   },
