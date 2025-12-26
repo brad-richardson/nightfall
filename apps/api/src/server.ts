@@ -237,7 +237,7 @@ async function fetchOvertureLatest(): Promise<string | null> {
       await writeOvertureReleaseToDb(release);
       return release;
     }
-  } catch (error) {
+  } catch {
     // Swallow and fall back to cache; logger not available here
   }
 
