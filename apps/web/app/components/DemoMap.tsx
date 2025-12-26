@@ -53,6 +53,24 @@ const PHASE_FILTERS = {
   night: "brightness(0.7) saturate(0.6) sepia(0.3) contrast(1.25)"
 };
 
+// Color palette - improved contrast
+const COLORS = {
+  background: "#101216",
+  landuse: "#14181e",
+  water: "#0a1520",
+  waterOutline: "#1a2a3a",
+  buildings: "#1a1f28",
+  buildingOutline: "#2a3040",
+  roadsLow: "#252530",
+  roadsMid: "#2a3040",
+  roadsHigh: "#353a4a",
+  roadsRoute: "#2a3545",
+  healthy: "#3eb0c0",
+  warning: "#f08a4e",
+  degraded: "#e03a30",
+  selection: "#ffffff"
+};
+
 export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle }: DemoMapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -67,9 +85,29 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
     const centerLon = (fallbackBbox.xmin + fallbackBbox.xmax) / 2;
     const centerLat = (fallbackBbox.ymin + fallbackBbox.ymax) / 2;
 
-    const baseRoadFilter = ["all", 
+    // Base road filter - roads in our class list
+    const baseRoadFilter: maplibregl.FilterSpecification = ["all",
       ["==", ["get", "subtype"], "road"],
       ["in", ["get", "class"], ["literal", ROAD_CLASS_FILTER]]
+    ];
+
+    // Filter for roads that have routes OR have route-like names
+    // This helps show connected road networks at lower zoom levels
+    const hasRouteFilter: maplibregl.FilterSpecification = ["any",
+      // Has routes array (from Overture)
+      ["all",
+        ["has", "routes"],
+        ["!=", ["get", "routes"], "[]"],
+        ["!=", ["get", "routes"], null]
+      ],
+      // OR primary name contains route indicators
+      ["any",
+        ["in", "Route", ["coalesce", ["get", "primary"], ""]],
+        ["in", "Highway", ["coalesce", ["get", "primary"], ""]],
+        ["in", "US-", ["coalesce", ["get", "primary"], ""]],
+        ["in", "SR-", ["coalesce", ["get", "primary"], ""]],
+        ["in", "State Route", ["coalesce", ["get", "primary"], ""]]
+      ]
     ];
 
     map.current = new maplibregl.Map({
@@ -95,24 +133,36 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
           }
         },
         layers: [
+          // === BASE LAYERS ===
           {
             id: "background",
             type: "background",
-            paint: { "background-color": "#0d0d0f" }
+            paint: { "background-color": COLORS.background }
           },
           {
             id: "landuse",
             source: "overture_base",
             "source-layer": "land_use",
             type: "fill",
-            paint: { "fill-color": "#111114" }
+            paint: { "fill-color": COLORS.landuse }
           },
           {
             id: "water",
             source: "overture_base",
             "source-layer": "water",
             type: "fill",
-            paint: { "fill-color": "#020406" }
+            paint: { "fill-color": COLORS.water }
+          },
+          {
+            id: "water-outline",
+            source: "overture_base",
+            "source-layer": "water",
+            type: "line",
+            paint: {
+              "line-color": COLORS.waterOutline,
+              "line-width": 1,
+              "line-opacity": 0.5
+            }
           },
           {
             id: "buildings",
@@ -120,39 +170,94 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
             "source-layer": "building",
             type: "fill",
             paint: {
-              "fill-color": "#18181d",
+              "fill-color": COLORS.buildings,
               "fill-opacity": 0.9,
-              "fill-outline-color": "#222228"
+              "fill-outline-color": COLORS.buildingOutline
             }
           },
+
+          // === ROAD LAYERS ===
+          // Route roads - shown at lower zoom for connectivity
+          {
+            id: "roads-routes",
+            source: "overture_transportation",
+            "source-layer": "segment",
+            type: "line",
+            minzoom: 8,
+            maxzoom: 13,
+            filter: ["all",
+              ["==", ["get", "subtype"], "road"],
+              hasRouteFilter
+            ],
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: {
+              "line-color": COLORS.roadsRoute,
+              "line-width": ["interpolate", ["linear"], ["zoom"], 8, 0.5, 13, 2]
+            }
+          },
+          // Regular road hierarchy
           {
             id: "roads-low",
             source: "overture_transportation",
             "source-layer": "segment",
             type: "line",
+            minzoom: 13,
             filter: ["all", baseRoadFilter, ["in", ["get", "class"], ["literal", ["residential", "service"]]]],
             layout: { "line-cap": "round", "line-join": "round" },
-            paint: { "line-color": "#1a1a20", "line-width": 0.6 }
+            paint: {
+              "line-color": COLORS.roadsLow,
+              "line-width": ["interpolate", ["linear"], ["zoom"], 13, 0.5, 16, 1.5]
+            }
           },
           {
             id: "roads-mid",
             source: "overture_transportation",
             "source-layer": "segment",
             type: "line",
-            filter: ["all", baseRoadFilter, ["in", ["get", "class"], ["literal", ["primary", "secondary", "tertiary"]]]],
+            minzoom: 10,
+            filter: ["any",
+              ["all", baseRoadFilter, ["in", ["get", "class"], ["literal", ["primary", "secondary", "tertiary"]]]],
+              // Also show any road with routes at mid-zoom
+              ["all",
+                ["==", ["get", "subtype"], "road"],
+                hasRouteFilter
+              ]
+            ],
             layout: { "line-cap": "round", "line-join": "round" },
-            paint: { "line-color": "#22222c", "line-width": 1.2 }
+            paint: {
+              "line-color": COLORS.roadsMid,
+              "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.8, 16, 2.5]
+            }
           },
           {
             id: "roads-high",
             source: "overture_transportation",
             "source-layer": "segment",
             type: "line",
+            minzoom: 6,
             filter: ["all", baseRoadFilter, ["in", ["get", "class"], ["literal", ["motorway", "trunk"]]]],
             layout: { "line-cap": "round", "line-join": "round" },
-            paint: { "line-color": "#2a2a38", "line-width": 1.8 }
+            paint: {
+              "line-color": COLORS.roadsHigh,
+              "line-width": ["interpolate", ["linear"], ["zoom"], 6, 0.5, 10, 1.5, 16, 3]
+            }
           },
-          // Game State Highlight Layers
+
+          // === GAME STATE GLOW LAYERS ===
+          {
+            id: "game-roads-healthy-glow",
+            source: "overture_transportation",
+            "source-layer": "segment",
+            type: "line",
+            filter: ["all", baseRoadFilter, ["==", ["get", "id"], "none"]],
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: {
+              "line-color": COLORS.healthy,
+              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 6, 16, 14],
+              "line-blur": 4,
+              "line-opacity": 0.15
+            }
+          },
           {
             id: "game-roads-healthy",
             source: "overture_transportation",
@@ -161,9 +266,23 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
             filter: ["all", baseRoadFilter, ["==", ["get", "id"], "none"]],
             layout: { "line-cap": "round", "line-join": "round" },
             paint: {
-              "line-color": "#3eb0c0",
-              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 1, 16, 3],
-              "line-opacity": 0.4
+              "line-color": COLORS.healthy,
+              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 1.5, 16, 4],
+              "line-opacity": 0.7
+            }
+          },
+          {
+            id: "game-roads-warning-glow",
+            source: "overture_transportation",
+            "source-layer": "segment",
+            type: "line",
+            filter: ["all", baseRoadFilter, ["==", ["get", "id"], "none"]],
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: {
+              "line-color": COLORS.warning,
+              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 7, 16, 16],
+              "line-blur": 4,
+              "line-opacity": 0.2
             }
           },
           {
@@ -174,9 +293,23 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
             filter: ["all", baseRoadFilter, ["==", ["get", "id"], "none"]],
             layout: { "line-cap": "round", "line-join": "round" },
             paint: {
-              "line-color": "#f08a4e",
-              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 1.2, 16, 4],
-              "line-opacity": 0.5
+              "line-color": COLORS.warning,
+              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 1.8, 16, 5],
+              "line-opacity": 0.8
+            }
+          },
+          {
+            id: "game-roads-degraded-glow",
+            source: "overture_transportation",
+            "source-layer": "segment",
+            type: "line",
+            filter: ["all", baseRoadFilter, ["==", ["get", "id"], "none"]],
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: {
+              "line-color": COLORS.degraded,
+              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 8, 16, 18],
+              "line-blur": 5,
+              "line-opacity": 0.25
             }
           },
           {
@@ -187,9 +320,38 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
             filter: ["all", baseRoadFilter, ["==", ["get", "id"], "none"]],
             layout: { "line-cap": "round", "line-join": "round" },
             paint: {
-              "line-color": "#e03a30",
-              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 1.5, 16, 5],
-              "line-opacity": 0.6
+              "line-color": COLORS.degraded,
+              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 2, 16, 6],
+              "line-opacity": 0.9
+            }
+          },
+
+          // === INTERACTION LAYERS ===
+          {
+            id: "game-feature-hover",
+            source: "overture_transportation",
+            "source-layer": "segment",
+            type: "line",
+            filter: ["==", ["get", "id"], ""],
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: {
+              "line-color": COLORS.selection,
+              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 3, 16, 7],
+              "line-opacity": 0.25
+            }
+          },
+          {
+            id: "game-feature-selection-glow",
+            source: "overture_transportation",
+            "source-layer": "segment",
+            type: "line",
+            filter: ["==", ["get", "id"], "none"],
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: {
+              "line-color": COLORS.selection,
+              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 12, 16, 24],
+              "line-blur": 6,
+              "line-opacity": 0.3
             }
           },
           {
@@ -200,9 +362,9 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
             filter: ["==", ["get", "id"], "none"],
             layout: { "line-cap": "round", "line-join": "round" },
             paint: {
-              "line-color": "#ffffff",
-              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 3, 16, 8],
-              "line-opacity": 0.4
+              "line-color": COLORS.selection,
+              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 2, 16, 5],
+              "line-opacity": 0.9
             }
           }
         ]
@@ -222,7 +384,7 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
         }
       });
 
-      // Add hex fill layer (rust gradient)
+      // Add hex fill layer with improved visibility (rust-based opacity)
       map.current?.addLayer({
         id: "game-hex-fill",
         type: "fill",
@@ -232,15 +394,22 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
             "interpolate",
             ["linear"],
             ["get", "rust_level"],
-            0, "#3eb0c0",
-            0.5, "#f08a4e",
-            1, "#e03a30"
+            0, COLORS.healthy,
+            0.5, COLORS.warning,
+            1, COLORS.degraded
           ],
-          "fill-opacity": 0.1
+          "fill-opacity": [
+            "interpolate",
+            ["linear"],
+            ["get", "rust_level"],
+            0, 0.12,
+            0.5, 0.22,
+            1, 0.35
+          ]
         }
-      }, "game-roads-healthy");
+      }, "game-roads-healthy-glow");
 
-      // Add hex outline layer
+      // Add hex outline layer with improved visibility
       map.current?.addLayer({
         id: "game-hex-outline",
         type: "line",
@@ -250,46 +419,83 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
             "interpolate",
             ["linear"],
             ["get", "rust_level"],
-            0, "#3eb0c0",
-            0.5, "#f08a4e",
-            1, "#e03a30"
+            0, COLORS.healthy,
+            0.5, COLORS.warning,
+            1, COLORS.degraded
           ],
-          "line-width": 1,
-          "line-opacity": 0.3
+          "line-width": [
+            "interpolate",
+            ["linear"],
+            ["get", "rust_level"],
+            0, 1,
+            0.5, 1.5,
+            1, 2.5
+          ],
+          "line-opacity": [
+            "interpolate",
+            ["linear"],
+            ["get", "rust_level"],
+            0, 0.25,
+            0.5, 0.45,
+            1, 0.65
+          ]
         }
-      }, "game-roads-healthy");
+      }, "game-roads-healthy-glow");
 
       setIsLoaded(true);
     });
 
+    // Click handler
     map.current.on("click", (e) => {
-      const features = map.current?.queryRenderedFeatures(e.point, {
-        layers: ["game-roads-healthy", "game-roads-warning", "game-roads-degraded", "roads-low", "roads-mid", "roads-high", "buildings"]
+      const clickedFeatures = map.current?.queryRenderedFeatures(e.point, {
+        layers: [
+          "game-roads-healthy", "game-roads-warning", "game-roads-degraded",
+          "roads-low", "roads-mid", "roads-high", "roads-routes", "buildings"
+        ]
       });
 
-      if (features && features.length > 0) {
-        const feature = features[0];
+      if (clickedFeatures && clickedFeatures.length > 0) {
+        const feature = clickedFeatures[0];
         const gersId = feature.properties?.id;
         const type = feature.layer.id.includes("buildings") ? "building" : "road";
-        
+
+        // Update both selection layers
         map.current?.setFilter("game-feature-selection", ["==", ["get", "id"], gersId]);
-        
-        window.dispatchEvent(new CustomEvent("nightfall:feature_selected", { 
-          detail: { gers_id: gersId, type } 
+        map.current?.setFilter("game-feature-selection-glow", ["==", ["get", "id"], gersId]);
+
+        window.dispatchEvent(new CustomEvent("nightfall:feature_selected", {
+          detail: { gers_id: gersId, type }
         }));
       } else {
         map.current?.setFilter("game-feature-selection", ["==", ["get", "id"], "none"]);
-        window.dispatchEvent(new CustomEvent("nightfall:feature_selected", { 
-          detail: null 
+        map.current?.setFilter("game-feature-selection-glow", ["==", ["get", "id"], "none"]);
+        window.dispatchEvent(new CustomEvent("nightfall:feature_selected", {
+          detail: null
         }));
       }
     });
 
-    map.current.on("mouseenter", "game-roads-healthy", () => {
-      if (map.current) map.current.getCanvas().style.cursor = "pointer";
-    });
-    map.current.on("mouseleave", "game-roads-healthy", () => {
-      if (map.current) map.current.getCanvas().style.cursor = "";
+    // Hover handlers for all interactive road layers
+    const interactiveLayers = [
+      "game-roads-healthy", "game-roads-warning", "game-roads-degraded",
+      "roads-low", "roads-mid", "roads-high", "roads-routes"
+    ];
+
+    interactiveLayers.forEach(layer => {
+      map.current?.on("mousemove", layer, (e) => {
+        if (!map.current) return;
+        const id = e.features?.[0]?.properties?.id;
+        if (id) {
+          map.current.setFilter("game-feature-hover", ["==", ["get", "id"], id]);
+          map.current.getCanvas().style.cursor = "pointer";
+        }
+      });
+
+      map.current?.on("mouseleave", layer, () => {
+        if (!map.current) return;
+        map.current.setFilter("game-feature-hover", ["==", ["get", "id"], ""]);
+        map.current.getCanvas().style.cursor = "";
+      });
     });
 
     return () => {
@@ -306,14 +512,23 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
     const warningIds = features.filter(f => f.feature_type === "road" && (f.health ?? 100) <= 80 && (f.health ?? 100) > 30).map(f => f.gers_id);
     const degradedIds = features.filter(f => f.feature_type === "road" && (f.health ?? 100) <= 30).map(f => f.gers_id);
 
-    const baseFilter = ["all", 
+    const baseFilter = ["all",
       ["==", ["get", "subtype"], "road"],
       ["in", ["get", "class"], ["literal", ROAD_CLASS_FILTER]]
-    ];
+    ] as maplibregl.FilterSpecification;
 
-    map.current.setFilter("game-roads-healthy", ["all", baseFilter, ["in", ["get", "id"], ["literal", healthyIds.length ? healthyIds : ["none"]]]]);
-    map.current.setFilter("game-roads-warning", ["all", baseFilter, ["in", ["get", "id"], ["literal", warningIds.length ? warningIds : ["none"]]]]);
-    map.current.setFilter("game-roads-degraded", ["all", baseFilter, ["in", ["get", "id"], ["literal", degradedIds.length ? degradedIds : ["none"]]]]);
+    const makeIdFilter = (ids: string[]) =>
+      ["in", ["get", "id"], ["literal", ids.length ? ids : ["__none__"]]] as maplibregl.ExpressionSpecification;
+
+    // Update both main and glow layers for each health state
+    map.current.setFilter("game-roads-healthy", ["all", baseFilter, makeIdFilter(healthyIds)] as maplibregl.FilterSpecification);
+    map.current.setFilter("game-roads-healthy-glow", ["all", baseFilter, makeIdFilter(healthyIds)] as maplibregl.FilterSpecification);
+
+    map.current.setFilter("game-roads-warning", ["all", baseFilter, makeIdFilter(warningIds)] as maplibregl.FilterSpecification);
+    map.current.setFilter("game-roads-warning-glow", ["all", baseFilter, makeIdFilter(warningIds)] as maplibregl.FilterSpecification);
+
+    map.current.setFilter("game-roads-degraded", ["all", baseFilter, makeIdFilter(degradedIds)] as maplibregl.FilterSpecification);
+    map.current.setFilter("game-roads-degraded-glow", ["all", baseFilter, makeIdFilter(degradedIds)] as maplibregl.FilterSpecification);
 
   }, [features, isLoaded]);
 
@@ -352,16 +567,16 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
   }, [hexes, isLoaded]);
 
   return (
-    <div className="relative overflow-hidden rounded-3xl border border-[var(--night-outline)] bg-[#0d0d0f] shadow-[0_20px_60px_rgba(0,0,0,0.5)]">
-      <div className="absolute top-0 z-10 flex w-full items-center justify-between border-b border-white/5 bg-[#0d0d0f]/80 px-6 py-4 text-sm uppercase tracking-[0.3em] text-[color:var(--night-ash)] backdrop-blur-md">
+    <div className="relative overflow-hidden rounded-3xl border border-[var(--night-outline)] bg-[#101216] shadow-[0_20px_60px_rgba(0,0,0,0.5)]">
+      <div className="absolute top-0 z-10 flex w-full items-center justify-between border-b border-white/5 bg-[#101216]/80 px-6 py-4 text-sm uppercase tracking-[0.3em] text-[color:var(--night-ash)] backdrop-blur-md">
         <span>Bar Harbor Tactical Map</span>
         <span className="rounded-full border border-white/10 px-3 py-1 text-[0.65rem] tracking-[0.35em] text-[color:var(--night-teal)]">
           Live Vector Stream
         </span>
       </div>
-      <div 
-        ref={mapContainer} 
-        className="h-[640px] w-full transition-all duration-[2000ms] ease-in-out" 
+      <div
+        ref={mapContainer}
+        className="h-[640px] w-full transition-all duration-[2000ms] ease-in-out"
         style={{ filter: PHASE_FILTERS[cycle.phase] }}
       />
     </div>

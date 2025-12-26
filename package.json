@@ -21,7 +21,8 @@
     "test": "pnpm run test:db && pnpm run test:unit && pnpm run test:ui",
     "test:db": "bash scripts/test-db.sh",
     "test:unit": "vitest run",
-    "test:ui": "playwright test"
+    "test:ui": "playwright test",
+    "screenshot": "pnpm dlx tsx scripts/screenshot.ts"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.3",

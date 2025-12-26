@@ -42,13 +42,14 @@ type Task = {
   task_type: string;
 };
 
+type Boundary =
+  | { type: "Polygon"; coordinates: number[][][] }
+  | { type: "MultiPolygon"; coordinates: number[][][][] };
+
 type Region = {
   region_id: string;
   name: string;
-  boundary: {
-    type: string;
-    coordinates: number[][][] | number[][][][];
-  } | null;
+  boundary: Boundary | null;
   pool_labor: number;
   pool_materials: number;
   tasks: Task[];

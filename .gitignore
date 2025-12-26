@@ -21,6 +21,7 @@ yarn.lock
 out/
 dist/
 .turbo/
+screenshots/
 
 # Env files
 .env
