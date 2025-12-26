@@ -16,6 +16,9 @@ const nextConfig = {
   trailingSlash: isExport ? true : undefined,
   basePath,
   assetPrefix: basePath ? `${basePath}/` : undefined,
+  experimental: {
+    turbopackUseSystemTlsCerts: true,
+  },
   async rewrites() {
     if (isExport) return [];
     return [
