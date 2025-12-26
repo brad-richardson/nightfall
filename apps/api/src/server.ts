@@ -709,7 +709,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       const scoreResult = await pool.query<{ vote_score: number }>(
         `
         SELECT
-          COALESCE(SUM(weight * EXP(-$2 * EXTRACT(EPOCH FROM (now() - created_at)) / 3600.0)), 0) AS vote_score
+          COALESCE(SUM(weight * EXP(-$2::float * EXTRACT(EPOCH FROM (now() - created_at)) / 3600.0)), 0) AS vote_score
         FROM task_votes
         WHERE task_id = $1
         `,
@@ -774,7 +774,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     const voteScoreResult = await pool.query<{ vote_score: number }>(
       `
       SELECT
-        COALESCE(SUM(weight * EXP(-$2 * EXTRACT(EPOCH FROM (now() - created_at)) / 3600.0)), 0) AS vote_score
+        COALESCE(SUM(weight * EXP(-$2::float * EXTRACT(EPOCH FROM (now() - created_at)) / 3600.0)), 0) AS vote_score
       FROM task_votes
       WHERE task_id = $1
       `,

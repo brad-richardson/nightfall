@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import DemoMap from "./DemoMap";
 import PhaseIndicator from "./PhaseIndicator";
 import ActivityFeed, { type FeedItem } from "./ActivityFeed";
+import TaskList from "./TaskList";
+import FeaturePanel from "./FeaturePanel";
 import { useEventStream, type EventPayload } from "../hooks/useEventStream";
 
 type Phase = "dawn" | "day" | "dusk" | "night";
@@ -27,6 +29,19 @@ type Feature = {
   generates_materials?: boolean;
 };
 
+type Task = {
+  task_id: string;
+  target_gers_id: string;
+  priority_score: number;
+  status: string;
+  vote_score: number;
+  cost_labor: number;
+  cost_materials: number;
+  duration_s: number;
+  repair_amount: number;
+  task_type: string;
+};
+
 type Region = {
   region_id: string;
   name: string;
@@ -36,18 +51,19 @@ type Region = {
   } | null;
   pool_labor: number;
   pool_materials: number;
+  tasks: Task[];
   stats: {
     total_roads: number;
     healthy_roads: number;
     degraded_roads: number;
     rust_avg: number;
+    health_avg: number;
   };
 };
 
 type Hex = {
   h3_index: string;
   rust_level: number;
-  boundary: any;
 };
 
 type DashboardProps = {
@@ -66,6 +82,16 @@ function formatPercent(value: number) {
   return `${Math.round(value * 100)}%`;
 }
 
+function getOrCreateClientId() {
+  if (typeof window === "undefined") return "server";
+  let id = localStorage.getItem("nightfall_client_id");
+  if (!id) {
+    id = `client_${Math.random().toString(36).slice(2, 11)}`;
+    localStorage.setItem("nightfall_client_id", id);
+  }
+  return id;
+}
+
 export default function Dashboard({
   initialRegion,
   initialFeatures,
@@ -73,11 +99,16 @@ export default function Dashboard({
   initialCycle,
   apiBaseUrl
 }: DashboardProps) {
-  const [region] = useState<Region>(initialRegion);
+  const [region, setRegion] = useState<Region>(initialRegion);
   const [features, setFeatures] = useState<Feature[]>(initialFeatures);
-  const [hexes] = useState<Hex[]>(initialHexes);
+  const [hexes, setHexes] = useState<Hex[]>(initialHexes);
   const [cycle, setCycle] = useState<CycleState>(initialCycle);
   const [lastEvent, setLastEvent] = useState<string | null>(null);
+  const [clientId, setClientId] = useState<string>("");
+
+  useEffect(() => {
+    setClientId(getOrCreateClientId());
+  }, []);
 
   const handleEvent = useCallback((payload: EventPayload) => {
     setLastEvent(`${payload.event} @ ${new Date().toLocaleTimeString()}`);
@@ -102,10 +133,76 @@ export default function Dashboard({
         );
         break;
       }
+      case "task_delta": {
+        const delta = payload.data as { task_id: string; status: string; priority_score: number };
+        setRegion((prev) => {
+          const taskExists = prev.tasks.some(t => t.task_id === delta.task_id);
+          if (taskExists) {
+            return {
+              ...prev,
+              tasks: prev.tasks.map(t => 
+                t.task_id === delta.task_id 
+                  ? { ...t, status: delta.status, priority_score: delta.priority_score } 
+                  : t
+              ).filter(t => t.status !== 'done' && t.status !== 'expired')
+            };
+          }
+          return prev;
+        });
+        break;
+      }
     }
   }, []);
 
   useEventStream(apiBaseUrl, handleEvent);
+
+  const handleVote = useCallback(async (taskId: string, weight: number) => {
+    if (!clientId) return;
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/vote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client_id: clientId, task_id: taskId, weight })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRegion(prev => ({
+          ...prev,
+          tasks: prev.tasks.map(t => 
+            t.task_id === taskId ? { ...t, vote_score: data.new_vote_score } : t
+          )
+        }));
+      }
+    } catch (err) {
+      console.error("Failed to vote", err);
+    }
+  }, [apiBaseUrl, clientId]);
+
+  const handleContribute = useCallback(async (labor: number, materials: number) => {
+    if (!clientId) return;
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/contribute`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          client_id: clientId, 
+          region_id: region.region_id, 
+          labor, 
+          materials 
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRegion(prev => ({
+          ...prev,
+          pool_labor: Number(data.new_pool_labor),
+          pool_materials: Number(data.new_pool_materials)
+        }));
+      }
+    } catch (err) {
+      console.error("Failed to contribute", err);
+    }
+  }, [apiBaseUrl, clientId, region.region_id]);
 
   const counts = useMemo(() => {
     let roads = 0;
@@ -155,68 +252,56 @@ export default function Dashboard({
           <aside className="space-y-6">
             <div className="rounded-3xl border border-[var(--night-outline)] bg-white/70 p-6 shadow-[0_18px_40px_rgba(24,20,14,0.12)]">
               <p className="text-xs uppercase tracking-[0.4em] text-[color:var(--night-ash)]">
-                Region Identity
+                Resource Pools
               </p>
-              <div className="mt-4 space-y-3 text-sm text-[color:var(--night-ash)]">
-                <div>
-                  <p className="text-[0.65rem] uppercase tracking-[0.3em] text-[color:var(--night-moss)]">
-                    Region ID
-                  </p>
-                  <p className="mt-1 break-all font-medium">{region.region_id}</p>
+              <div className="mt-4 space-y-4 text-sm text-[color:var(--night-ash)]">
+                <div className="space-y-1">
+                  <div className="flex justify-between">
+                    <span>Labor</span>
+                    <span className="font-bold">{formatNumber(region.pool_labor)}</span>
+                  </div>
+                  <div className="h-1.5 w-full rounded-full bg-black/10 overflow-hidden">
+                    <div className="h-full bg-[color:var(--night-teal)] shadow-[0_0_8px_var(--night-teal)] transition-all duration-500" style={{ width: `${Math.min(100, (region.pool_labor / 1000) * 100)}%` }} />
+                  </div>
                 </div>
-                <div>
-                  <p className="text-[0.65rem] uppercase tracking-[0.3em] text-[color:var(--night-moss)]">
-                    Center of Operations
-                  </p>
-                  <p className="mt-1 font-medium">{region.name}</p>
+                <div className="space-y-1">
+                  <div className="flex justify-between">
+                    <span>Materials</span>
+                    <span className="font-bold">{formatNumber(region.pool_materials)}</span>
+                  </div>
+                  <div className="h-1.5 w-full rounded-full bg-black/10 overflow-hidden">
+                    <div className="h-full bg-[color:var(--night-glow)] shadow-[0_0_8px_var(--night-glow)] transition-all duration-500" style={{ width: `${Math.min(100, (region.pool_materials / 1000) * 100)}%` }} />
+                  </div>
                 </div>
               </div>
             </div>
 
             <div className="rounded-3xl border border-[var(--night-outline)] bg-[color:var(--night-ink)] p-6 text-white shadow-[0_18px_40px_rgba(24,20,14,0.2)]">
-              <p className="text-xs uppercase tracking-[0.4em] text-[color:var(--night-glow)]">
-                Live Totals
+              <TaskList tasks={region.tasks} onVote={handleVote} />
+            </div>
+
+            <div className="rounded-3xl border border-[var(--night-outline)] bg-white/70 p-6 shadow-[0_18px_40px_rgba(24,20,14,0.12)]">
+              <p className="text-xs uppercase tracking-[0.4em] text-[color:var(--night-ash)]">
+                Region Health
               </p>
-              <div className="mt-5 space-y-4">
+              <div className="mt-4 space-y-3">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-[color:var(--night-glow)]">Road segments</span>
-                  <span className="text-lg font-semibold text-white">
-                    {formatNumber(counts.roads)}
+                  <span className="text-[color:var(--night-ash)]">Avg Health</span>
+                  <span className="font-semibold text-[color:var(--night-ink)]">
+                    {formatPercent(region.stats.health_avg / 100)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-[color:var(--night-glow)]">Buildings</span>
-                  <span className="text-lg font-semibold text-white">
-                    {formatNumber(counts.buildings)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-[color:var(--night-glow)]">Rust average</span>
-                  <span className="text-lg font-semibold text-white">
+                  <span className="text-[color:var(--night-ash)]">Rust Level</span>
+                  <span className="font-semibold text-[color:var(--night-ink)]">
                     {formatPercent(region.stats.rust_avg)}
                   </span>
                 </div>
               </div>
             </div>
-
-            <div className="rounded-3xl border border-[var(--night-outline)] bg-white/60 p-6 shadow-[0_18px_40px_rgba(24,20,14,0.12)]">
-              <p className="text-xs uppercase tracking-[0.4em] text-[color:var(--night-ash)]">
-                Resource Pools
-              </p>
-              <div className="mt-4 space-y-2 text-sm text-[color:var(--night-ash)]">
-                <div className="flex items-center justify-between">
-                  <span>Labor</span>
-                  <span className="font-semibold">{formatNumber(region.pool_labor)}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>Materials</span>
-                  <span className="font-semibold">{formatNumber(region.pool_materials)}</span>
-                </div>
-              </div>
-            </div>
           </aside>
 
-          <div className="space-y-6">
+          <div className="relative space-y-6">
             <DemoMap 
               boundary={region.boundary} 
               features={features} 
@@ -225,12 +310,18 @@ export default function Dashboard({
               cycle={cycle}
             />
             
+            <FeaturePanel 
+              activeTasks={region.tasks} 
+              onVote={handleVote} 
+              onContribute={handleContribute} 
+            />
+
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="rounded-2xl border border-[var(--night-outline)] bg-white/70 px-4 py-3 text-sm text-[color:var(--night-ash)]">
                 <p className="text-[0.65rem] uppercase tracking-[0.3em] text-[color:var(--night-moss)]">
                   Healthy roads
                 </p>
-                <p className="mt-1 text-lg font-semibold">
+                <p className="mt-1 text-lg font-semibold text-[color:var(--night-teal)]">
                   {formatNumber(counts.healthy)}
                 </p>
               </div>
@@ -238,7 +329,7 @@ export default function Dashboard({
                 <p className="text-[0.65rem] uppercase tracking-[0.3em] text-[color:var(--night-moss)]">
                   Degraded roads
                 </p>
-                <p className="mt-1 text-lg font-semibold">
+                <p className="mt-1 text-lg font-semibold text-red-600">
                   {formatNumber(counts.degraded)}
                 </p>
               </div>
@@ -246,7 +337,7 @@ export default function Dashboard({
                 <p className="text-[0.65rem] uppercase tracking-[0.3em] text-[color:var(--night-moss)]">
                   Total features
                 </p>
-                <p className="mt-1 text-lg font-semibold">
+                <p className="mt-1 text-lg font-semibold text-[color:var(--night-ink)]">
                   {formatNumber(features.length)}
                 </p>
               </div>

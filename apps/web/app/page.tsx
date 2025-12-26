@@ -29,11 +29,13 @@ type RegionResponse = {
   boundary: Boundary | null;
   pool_labor: number;
   pool_materials: number;
+  tasks: any[];
   stats: {
     total_roads: number;
     healthy_roads: number;
     degraded_roads: number;
     rust_avg: number;
+    health_avg: number;
   };
 };
 

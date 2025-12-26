@@ -125,7 +125,6 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
               "fill-outline-color": "#222228"
             }
           },
-          // Base Road Layers (Softer contrast, round joins)
           {
             id: "roads-low",
             source: "overture_transportation",
@@ -192,6 +191,19 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
               "line-width": ["interpolate", ["linear"], ["zoom"], 12, 1.5, 16, 5],
               "line-opacity": 0.6
             }
+          },
+          {
+            id: "game-feature-selection",
+            source: "overture_transportation",
+            "source-layer": "segment",
+            type: "line",
+            filter: ["==", ["get", "id"], "none"],
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: {
+              "line-color": "#ffffff",
+              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 3, 16, 8],
+              "line-opacity": 0.4
+            }
           }
         ]
       },
@@ -248,6 +260,36 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
       }, "game-roads-healthy");
 
       setIsLoaded(true);
+    });
+
+    map.current.on("click", (e) => {
+      const features = map.current?.queryRenderedFeatures(e.point, {
+        layers: ["game-roads-healthy", "game-roads-warning", "game-roads-degraded", "roads-low", "roads-mid", "roads-high", "buildings"]
+      });
+
+      if (features && features.length > 0) {
+        const feature = features[0];
+        const gersId = feature.properties?.id;
+        const type = feature.layer.id.includes("buildings") ? "building" : "road";
+        
+        map.current?.setFilter("game-feature-selection", ["==", ["get", "id"], gersId]);
+        
+        window.dispatchEvent(new CustomEvent("nightfall:feature_selected", { 
+          detail: { gers_id: gersId, type } 
+        }));
+      } else {
+        map.current?.setFilter("game-feature-selection", ["==", ["get", "id"], "none"]);
+        window.dispatchEvent(new CustomEvent("nightfall:feature_selected", { 
+          detail: null 
+        }));
+      }
+    });
+
+    map.current.on("mouseenter", "game-roads-healthy", () => {
+      if (map.current) map.current.getCanvas().style.cursor = "pointer";
+    });
+    map.current.on("mouseleave", "game-roads-healthy", () => {
+      if (map.current) map.current.getCanvas().style.cursor = "";
     });
 
     return () => {
