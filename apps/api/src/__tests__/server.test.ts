@@ -42,6 +42,20 @@ describe("api server", () => {
     await app.close();
   });
 
+  it("does not set CORS headers", async () => {
+    const app = buildServer();
+    const response = await app.inject({
+      method: "GET",
+      url: "/health",
+      headers: { origin: "http://example.com" }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["access-control-allow-origin"]).toBeUndefined();
+
+    await app.close();
+  });
+
   it("rejects hello without client_id", async () => {
     const app = buildServer();
     const response = await app.inject({ method: "POST", url: "/api/hello", payload: {} });

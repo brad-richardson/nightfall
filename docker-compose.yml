@@ -2,6 +2,7 @@ services:
   db:
     image: postgis/postgis:16-3.4-alpine
     platform: linux/amd64
+    restart: unless-stopped
     ports:
       - "5432:5432"
     environment:

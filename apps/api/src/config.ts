@@ -11,6 +11,10 @@ const configSchema = z.object({
   SSE_MAX_CLIENTS: z.coerce.number().int().positive().default(1000),
   ADMIN_SECRET: z.string().optional(),
   JWT_SECRET: z.string().default("dev-secret-do-not-use-in-prod"),
+  RESOURCE_TRAVEL_MPS: z.coerce.number().positive().default(8),
+  RESOURCE_TRAVEL_MIN_S: z.coerce.number().positive().default(4),
+  RESOURCE_TRAVEL_MAX_S: z.coerce.number().positive().default(45),
+  RESOURCE_DISTANCE_MULTIPLIER: z.coerce.number().positive().default(1.25)
 });
 
 export type Config = z.infer<typeof configSchema>;

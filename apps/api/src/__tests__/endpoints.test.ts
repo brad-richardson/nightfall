@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHmac } from "crypto";
-import { buildServer } from "../server";
+import { buildServer, resetOvertureCacheForTests } from "../server";
 
 let queryMock = vi.fn();
 const closePoolMock = vi.fn();
@@ -20,6 +20,7 @@ describe("api endpoints", () => {
   beforeEach(() => {
     queryMock = vi.fn();
     closePoolMock.mockClear();
+    resetOvertureCacheForTests();
   });
 
   afterEach(() => {
@@ -71,6 +72,8 @@ describe("api endpoints", () => {
     const response = await app.inject({ method: "GET", url: "/api/world" });
 
     expect(response.statusCode).toBe(200);
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.headers["pragma"]).toBe("no-cache");
     const payload = response.json();
     expect(payload.world_version).toBe(2);
     expect(payload.demo_mode).toBe(true);
@@ -219,8 +222,75 @@ describe("api endpoints", () => {
       if (text.includes("FROM events")) {
         return Promise.resolve({ rows: [{ labor_used: 0, materials_used: 0 }] });
       }
-      if (text.includes("UPDATE regions")) {
-        return Promise.resolve({ rows: [{ pool_labor: 110, pool_materials: 120 }] });
+      if (text.includes("feature_type = 'building'")) {
+        return Promise.resolve({
+          rows: [{
+            gers_id: "building-1",
+            h3_index: "hex-1",
+            bbox_xmin: 0,
+            bbox_xmax: 1,
+            bbox_ymin: 0,
+            bbox_ymax: 1
+          }]
+        });
+      }
+      if (text.includes("FROM world_features AS wf")) {
+        return Promise.resolve({
+          rows: [{
+            gers_id: "hub-1",
+            h3_index: "hex-1",
+            bbox_xmin: 0,
+            bbox_xmax: 1,
+            bbox_ymin: 0,
+            bbox_ymax: 1
+          }]
+        });
+      }
+      if (text.includes("FROM hex_cells AS h")) {
+        return Promise.resolve({
+          rows: [{
+            gers_id: "hub-1",
+            bbox_xmin: 0,
+            bbox_xmax: 1,
+            bbox_ymin: 0,
+            bbox_ymax: 1
+          }]
+        });
+      }
+      if (text.includes("INSERT INTO resource_transfers")) {
+        return Promise.resolve({
+          rows: [
+            {
+              transfer_id: "transfer-1",
+              region_id: "region-1",
+              source_gers_id: "building-1",
+              hub_gers_id: "hub-1",
+              resource_type: "labor",
+              amount: 10,
+              depart_at: "2025-01-01T00:00:00Z",
+              arrive_at: "2025-01-01T00:00:05Z"
+            },
+            {
+              transfer_id: "transfer-2",
+              region_id: "region-1",
+              source_gers_id: "building-1",
+              hub_gers_id: "hub-1",
+              resource_type: "materials",
+              amount: 20,
+              depart_at: "2025-01-01T00:00:00Z",
+              arrive_at: "2025-01-01T00:00:05Z"
+            }
+          ]
+        });
+      }
+      if (text.includes("UPDATE players SET lifetime_contrib")) {
+        return Promise.resolve({ rows: [] });
+      }
+      if (text.includes("INSERT INTO events")) {
+        return Promise.resolve({ rows: [] });
+      }
+      if (text.includes("pg_notify")) {
+        return Promise.resolve({ rows: [] });
       }
       return Promise.resolve({ rows: [] });
     });
@@ -230,13 +300,19 @@ describe("api endpoints", () => {
       method: "POST",
       url: "/api/contribute",
       headers: { authorization: `Bearer ${getTestToken("client-1")}` },
-      payload: { client_id: "client-1", region_id: "region-1", labor: 10, materials: 20 }
+      payload: {
+        client_id: "client-1",
+        region_id: "region-1",
+        labor: 10,
+        materials: 20,
+        source_gers_id: "building-1"
+      }
     });
 
     expect(response.statusCode).toBe(200);
     const payload = response.json();
     expect(payload.applied_labor).toBe(10);
-    expect(payload.new_pool_labor).toBe(110);
+    expect(payload.transfers).toHaveLength(2);
 
     await app.close();
   });
@@ -303,6 +379,27 @@ describe("api endpoints", () => {
     expect(second.statusCode).toBe(200);
     expect(second.json()).toEqual({ ok: true, release: "2025-12-17" });
     expect(fetchMock).toHaveBeenCalledTimes(1); // cached
+
+    await app.close();
+  });
+
+  it("falls back to cached overture release from db when fetch fails", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 503 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    queryMock.mockImplementation((text: string) => {
+      if (text.includes("FROM world_meta") && text.includes("overture_release")) {
+        return Promise.resolve({ rows: [{ release: "2025-10-01" }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+
+    const app = buildServer();
+    const response = await app.inject({ method: "GET", url: "/api/overture-latest" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ ok: true, release: "2025-10-01" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
     await app.close();
   });

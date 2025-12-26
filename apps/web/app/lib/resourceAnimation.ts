@@ -5,7 +5,12 @@
  * similar to Pokemon transfer animations.
  */
 
-type Point = [number, number]; // [lng, lat]
+import {
+  type Point,
+  buildRoadGraph,
+  distance,
+  routeGraph
+} from "./roadRouting";
 
 export type ResourcePackage = {
   id: string;
@@ -34,15 +39,6 @@ function closestPointOnSegment(point: Point, segStart: Point, segEnd: Point): Po
   t = Math.max(0, Math.min(1, t));
 
   return [ax + t * dx, ay + t * dy];
-}
-
-/**
- * Calculate distance between two points
- */
-function distance(a: Point, b: Point): number {
-  const dx = b[0] - a[0];
-  const dy = b[1] - a[1];
-  return Math.sqrt(dx * dx + dy * dy);
 }
 
 /**
@@ -79,91 +75,43 @@ export function buildResourcePath(
   hexCentroid: Point,
   roads: { geometry: { coordinates: number[][] } }[]
 ): Point[] {
-  const path: Point[] = [buildingLocation];
+  const directPath: Point[] = [buildingLocation, hexCentroid];
+  if (roads.length === 0) {
+    return directPath;
+  }
 
-  // Find closest point on road from building
   const startRoadPoint = findClosestRoadPoint(buildingLocation, roads);
-  if (!startRoadPoint) {
-    // No roads, just go direct
-    path.push(hexCentroid);
-    return path;
+  const endRoadPoint = findClosestRoadPoint(hexCentroid, roads);
+
+  if (!startRoadPoint || !endRoadPoint) {
+    return directPath;
   }
 
-  path.push(startRoadPoint);
-
-  // Greedy pathfinding along roads toward centroid
-  // Collect all road segment endpoints
-  const allPoints: Point[] = [];
-  const pointToRoads: Map<string, number[][]> = new Map();
-
-  roads.forEach((road) => {
-    const coords = road.geometry.coordinates as Point[];
-    coords.forEach((coord, i) => {
-      const key = `${coord[0].toFixed(6)},${coord[1].toFixed(6)}`;
-      if (!pointToRoads.has(key)) {
-        pointToRoads.set(key, []);
-        allPoints.push(coord);
-      }
-      // Store connections to next point in segment
-      if (i < coords.length - 1) {
-        pointToRoads.get(key)!.push(coords[i + 1]);
-      }
-      if (i > 0) {
-        pointToRoads.get(key)!.push(coords[i - 1]);
-      }
-    });
-  });
-
-  // Simple greedy: from current point, find connected point closest to destination
-  let current = startRoadPoint;
-  const visited = new Set<string>();
-  let iterations = 0;
-  const maxIterations = 50; // Prevent infinite loops
-
-  while (iterations < maxIterations) {
-    iterations++;
-    const currentKey = `${current[0].toFixed(6)},${current[1].toFixed(6)}`;
-
-    // If we're close enough to centroid, break
-    if (distance(current, hexCentroid) < 0.001) break;
-
-    visited.add(currentKey);
-
-    // Find closest connected point that moves us toward centroid
-    let bestNext: Point | null = null;
-    let bestScore = Infinity;
-
-    // Look for nearby road points
-    for (const point of allPoints) {
-      const pointKey = `${point[0].toFixed(6)},${point[1].toFixed(6)}`;
-      if (visited.has(pointKey)) continue;
-
-      // Check if this point is reasonably close to current
-      const distToCurrent = distance(current, point);
-      if (distToCurrent > 0.005) continue; // Skip points too far away
-
-      // Score: distance to destination + distance from current
-      const score = distance(point, hexCentroid) + distToCurrent * 0.5;
-      if (score < bestScore) {
-        bestScore = score;
-        bestNext = point;
-      }
-    }
-
-    if (!bestNext) break;
-
-    // If the next point is further from destination than just going direct, stop
-    if (distance(bestNext, hexCentroid) > distance(current, hexCentroid) + 0.001) {
-      break;
-    }
-
-    path.push(bestNext);
-    current = bestNext;
+  const graph = buildRoadGraph(roads);
+  if (graph.nodes.size === 0) {
+    return directPath;
   }
 
-  // Finally, add the centroid
+  const route = routeGraph(graph, startRoadPoint, endRoadPoint);
+  if (!route) {
+    return [buildingLocation, startRoadPoint, endRoadPoint, hexCentroid];
+  }
+
+  const pathOnRoad = route.pathPoints;
+  const path: Point[] = [buildingLocation, startRoadPoint];
+  for (const point of pathOnRoad) {
+    const last = path[path.length - 1];
+    if (!last || distance(last, point) > 0.000001) {
+      path.push(point);
+    }
+  }
+
+  const last = path[path.length - 1];
+  if (last && distance(last, endRoadPoint) > 0.000001) {
+    path.push(endRoadPoint);
+  }
+
   path.push(hexCentroid);
-
   return path;
 }
 

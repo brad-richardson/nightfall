@@ -18,6 +18,7 @@ const tables = [
   "crews",
   "players",
   "events",
+  "resource_transfers",
   "world_meta"
 ];
 

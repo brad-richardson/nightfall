@@ -19,7 +19,7 @@ type Task = {
 };
 
 type FeaturePanelProps = {
-  onContribute: (labor: number, materials: number) => void;
+  onContribute: (sourceGersId: string, labor: number, materials: number) => void;
   onVote: (taskId: string, weight: number) => void;
   activeTasks: Task[];
   canContribute: boolean;
@@ -58,21 +58,13 @@ export default function FeaturePanel({ onContribute, onVote, activeTasks, canCon
     if (contributionDisabled || !selected) return;
     setIsSubmitting(true);
     setStatusMsg(null);
-    Promise.resolve(onContribute(labor, materials))
+    Promise.resolve(onContribute(selected.gers_id, labor, materials))
       .then(() => {
-        setStatusMsg("Contribution sent");
+        setStatusMsg("Convoy dispatched");
         toast.success(
-          labor > 0 ? `+${labor} Labor contributed` : `+${materials} Materials contributed`,
-          { description: "Resources added to regional pool" }
+          labor > 0 ? `+${labor} Labor dispatched` : `+${materials} Materials dispatched`,
+          { description: "Convoy en route to the hub" }
         );
-
-        // Emit event for map animation
-        window.dispatchEvent(new CustomEvent("nightfall:resource_contributed", {
-          detail: {
-            buildingGersId: selected.gers_id,
-            resourceType: labor > 0 ? "labor" : "materials"
-          }
-        }));
       })
       .catch(() => {
         setStatusMsg("Contribution failed");
@@ -111,7 +103,7 @@ export default function FeaturePanel({ onContribute, onVote, activeTasks, canCon
         {selected.type === 'building' && (
           <div className="space-y-4">
             <p className="text-xs leading-relaxed text-white/60">
-              Contribute resources to the regional pool from this building.
+              Dispatch resources to the regional hub from this building.
             </p>
             <div className="grid grid-cols-2 gap-3">
               <button 

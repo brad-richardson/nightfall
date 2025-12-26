@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import DemoMap from "./DemoMap";
@@ -9,15 +9,28 @@ import ActivityFeed, { type FeedItem } from "./ActivityFeed";
 import TaskList from "./TaskList";
 import FeaturePanel from "./FeaturePanel";
 import MobileSidebar from "./MobileSidebar";
+import RegionalHealthRing from "./RegionalHealthRing";
 import { useEventStream, type EventPayload } from "../hooks/useEventStream";
 import { useStore, type Region, type Feature, type Hex, type CycleState } from "../store";
 import { BAR_HARBOR_DEMO_BBOX, type Bbox } from "@nightfall/config";
+import { fetchWithRetry } from "../lib/retry";
 
 type ResourceDelta = {
   type: "labor" | "materials";
   delta: number;
   source: string;
   ts: number;
+};
+
+type ResourceTransferPayload = {
+  transfer_id: string;
+  region_id: string;
+  source_gers_id: string | null;
+  hub_gers_id: string | null;
+  resource_type: "labor" | "materials";
+  amount: number;
+  depart_at: string;
+  arrive_at: string;
 };
 
 type DashboardProps = {
@@ -44,6 +57,8 @@ function formatTime(seconds: number) {
   const s = Math.floor(seconds % 60);
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
+
+const FETCH_RETRY_OPTIONS = { attempts: 3, baseDelayMs: 250, maxDelayMs: 2000, jitter: 0.2 };
 
 function ResourceTicker({ deltas }: { deltas: ResourceDelta[] }) {
   return (
@@ -83,6 +98,29 @@ function ResourceTicker({ deltas }: { deltas: ResourceDelta[] }) {
   );
 }
 
+function MapPanel({
+  title,
+  children,
+  className
+}: {
+  title?: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`rounded-2xl border border-white/10 bg-[#0f1216]/75 p-4 text-white shadow-[0_12px_30px_rgba(0,0,0,0.45)] backdrop-blur-md${className ? ` ${className}` : ""}`}
+    >
+      {title ? (
+        <p className="text-[10px] uppercase tracking-[0.35em] text-white/50">
+          {title}
+        </p>
+      ) : null}
+      <div className={title ? "mt-3" : ""}>{children}</div>
+    </div>
+  );
+}
+
 function getBoundaryBbox(boundary: Region["boundary"] | null): Bbox | null {
   if (!boundary) return null;
   const coords = boundary.type === "Polygon" ? boundary.coordinates.flat() : boundary.coordinates.flat(2);
@@ -110,11 +148,11 @@ async function initializeSession(apiBaseUrl: string): Promise<{ clientId: string
   }
 
   try {
-    const res = await fetch(`${apiBaseUrl}/api/hello`, {
+    const res = await fetchWithRetry(`${apiBaseUrl}/api/hello`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ client_id: clientId })
-    });
+    }, FETCH_RETRY_OPTIONS);
     
     if (res.ok) {
       const data = await res.json();
@@ -175,7 +213,11 @@ export default function Dashboard({
 
   const fetchRegionData = useCallback(async (regionId: string): Promise<Region | null> => {
     try {
-      const res = await fetch(`${apiBaseUrl}/api/region/${regionId}`, { cache: "no-store" });
+      const res = await fetchWithRetry(
+        `${apiBaseUrl}/api/region/${regionId}`,
+        { cache: "no-store" },
+        FETCH_RETRY_OPTIONS
+      );
       if (!res.ok) return null;
       return (await res.json()) as Region;
     } catch {
@@ -186,9 +228,10 @@ export default function Dashboard({
   const fetchFeaturesInBbox = useCallback(async (bbox: Bbox): Promise<Feature[]> => {
     try {
       const bboxParam = `${bbox.xmin},${bbox.ymin},${bbox.xmax},${bbox.ymax}`;
-      const res = await fetch(
+      const res = await fetchWithRetry(
         `${apiBaseUrl}/api/features?bbox=${bboxParam}&types=road,building`,
-        { cache: "no-store" }
+        { cache: "no-store" },
+        FETCH_RETRY_OPTIONS
       );
       if (!res.ok) return [];
       const data = await res.json();
@@ -201,7 +244,11 @@ export default function Dashboard({
   const fetchHexesInBbox = useCallback(async (bbox: Bbox): Promise<Hex[]> => {
     try {
       const bboxParam = `${bbox.xmin},${bbox.ymin},${bbox.xmax},${bbox.ymax}`;
-      const res = await fetch(`${apiBaseUrl}/api/hexes?bbox=${bboxParam}`, { cache: "no-store" });
+      const res = await fetchWithRetry(
+        `${apiBaseUrl}/api/hexes?bbox=${bboxParam}`,
+        { cache: "no-store" },
+        FETCH_RETRY_OPTIONS
+      );
       if (!res.ok) return [];
       const data = await res.json();
       return data.hexes ?? [];
@@ -294,6 +341,12 @@ export default function Dashboard({
       case "feed_item": {
         const item = payload.data as FeedItem;
         window.dispatchEvent(new CustomEvent("nightfall:feed_item", { detail: item }));
+        break;
+      }
+      case "resource_transfer": {
+        const transfer = payload.data as ResourceTransferPayload;
+        if (transfer.region_id !== region.region_id) break;
+        window.dispatchEvent(new CustomEvent("nightfall:resource_transfer", { detail: transfer }));
         break;
       }
       case "feature_delta": {
@@ -411,7 +464,7 @@ export default function Dashboard({
     }
   }, [apiBaseUrl, auth, setRegion]);
 
-  const handleContribute = useCallback(async (labor: number, materials: number) => {
+  const handleContribute = useCallback(async (sourceGersId: string, labor: number, materials: number) => {
     if (!auth.clientId || !auth.token) return;
     try {
       const res = await fetch(`${apiBaseUrl}/api/contribute`, {
@@ -424,27 +477,17 @@ export default function Dashboard({
           client_id: auth.clientId, 
           region_id: region.region_id, 
           labor, 
-          materials 
+          materials,
+          source_gers_id: sourceGersId
         })
       });
       if (res.ok) {
-        const data = await res.json();
-        setRegion(prev => {
-          const laborDelta = Number(data.new_pool_labor) - prev.pool_labor;
-          const materialDelta = Number(data.new_pool_materials) - prev.pool_materials;
-          if (laborDelta !== 0) pushResourceDelta("labor", laborDelta, "Player contribution");
-          if (materialDelta !== 0) pushResourceDelta("materials", materialDelta, "Player contribution");
-          return {
-            ...prev,
-            pool_labor: Number(data.new_pool_labor),
-            pool_materials: Number(data.new_pool_materials)
-          };
-        });
+        await res.json();
       }
     } catch (err) {
       console.error("Failed to contribute", err);
     }
-  }, [apiBaseUrl, auth, region.region_id, setRegion, pushResourceDelta]);
+  }, [apiBaseUrl, auth, region.region_id]);
 
   const counts = useMemo(() => {
     let roads = 0;
@@ -470,6 +513,9 @@ export default function Dashboard({
 
     return { roads, buildings, healthy, degraded, laborBuildings, materialBuildings };
   }, [features]);
+
+  const healthPercent = region.stats.health_avg;
+  const rustPercent = region.stats.rust_avg * 100;
 
   const SidebarContent = ({ resourceFeed }: { resourceFeed: ResourceDelta[] }) => (
     <>
@@ -540,143 +586,190 @@ export default function Dashboard({
   };
 
   return (
-    <div className={`flex min-h-screen flex-col transition-all duration-[2000ms] ${phaseGlow[cycle.phase]}`}>
-      <div className="relative flex-1 px-6 pb-16 pt-10 lg:px-12">
-        <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_20%_20%,rgba(221,122,73,0.12),transparent_55%),radial-gradient(circle_at_80%_0%,rgba(44,101,117,0.16),transparent_50%)]" />
-        
-        {cycle.phase === "dusk" && (
-          <div className="mb-6 flex w-full justify-center">
-            <div className="animate-pulse rounded-full border border-amber-500/50 bg-amber-900/80 px-6 py-2 text-xs font-bold uppercase tracking-[0.2em] text-amber-200 shadow-[0_0_20px_rgba(245,158,11,0.4)] backdrop-blur-md">
-              Warning: Nightfall Imminent ({formatTime(cycle.next_phase_in_seconds)})
+    <div className={`relative min-h-screen transition-all duration-[2500ms] ease-in-out ${phaseGlow[cycle.phase]}`}>
+      <DemoMap
+        boundary={region.boundary}
+        features={features}
+        hexes={hexes}
+        crews={region.crews}
+        tasks={region.tasks}
+        fallbackBbox={BAR_HARBOR_DEMO_BBOX}
+        cycle={cycle}
+        pmtilesRelease={pmtilesRelease}
+        className="h-screen w-full rounded-none border-0 shadow-none"
+      >
+        <div className="pointer-events-none absolute inset-0">
+          {cycle.phase === "dusk" && (
+            <div className="pointer-events-none absolute top-20 left-1/2 z-40 -translate-x-1/2">
+              <div className="animate-pulse rounded-full border border-amber-500/50 bg-amber-900/80 px-6 py-2 text-xs font-bold uppercase tracking-[0.2em] text-amber-200 shadow-[0_0_20px_rgba(245,158,11,0.4)] backdrop-blur-md">
+                Warning: Nightfall Imminent ({formatTime(cycle.next_phase_in_seconds)})
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {cycle.phase === "dawn" && cycle.phase_progress < 0.2 && (
-          <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center">
-            <div className="animate-[fade-out_4s_ease-out_forwards] text-center">
-              <h2 className="text-4xl font-bold uppercase tracking-[0.5em] text-amber-100 opacity-0 blur-xl animate-[reveal_4s_ease-out_forwards]">
-                The Sun Rises
+          {cycle.phase === "dawn" && cycle.phase_progress < 0.2 && (
+            <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center">
+              <div className="animate-[fade-out_4s_ease-out_forwards] text-center">
+                <h2 className="text-4xl font-bold uppercase tracking-[0.5em] text-amber-100 opacity-0 blur-xl animate-[reveal_4s_ease-out_forwards]">
+                  The Sun Rises
+                </h2>
+              </div>
+            </div>
+          )}
+
+          <div className="pointer-events-auto absolute left-4 right-4 top-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <MapPanel className="max-w-[520px]">
+              <p className="text-[10px] uppercase tracking-[0.5em] text-white/60">
+                Nightfall Ops Console
+                {isDemoMode && (
+                  <span className="ml-3 rounded bg-red-900/50 px-2 py-0.5 text-[0.65rem] font-bold text-red-200">
+                    DEMO MODE
+                  </span>
+                )}
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-4">
+                <h1 className="font-display text-3xl text-white sm:text-4xl">
+                  {region.name}
+                </h1>
+                {availableRegions?.length > 1 && (
+                  <select
+                    className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-xs text-white/80 backdrop-blur-sm transition-colors hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-[var(--night-teal)]"
+                    value={region.region_id}
+                    onChange={(e) => router.push(`/?region=${e.target.value}`)}
+                  >
+                    {availableRegions.map((r) => (
+                      <option key={r.region_id} value={r.region_id}>
+                        {r.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+              <h2 className="mt-2 text-xs font-medium uppercase tracking-[0.2em] text-[color:var(--night-moss)]">
+                The city endures. The nights get longer.
               </h2>
+            </MapPanel>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <PhaseIndicator />
+              <div className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-[10px] uppercase tracking-[0.4em] text-[color:var(--night-teal)]">
+                {lastEvent ? `Live: ${lastEvent}` : "Connecting..."}
+              </div>
             </div>
           </div>
-        )}
 
-        <header className="flex flex-wrap items-center justify-between gap-6">
-          <div>
-            <p className="text-xs uppercase tracking-[0.5em] text-[color:var(--night-ash)]">
-              Nightfall Ops Console
-              {isDemoMode && (
-                <span className="ml-3 rounded bg-red-900/50 px-2 py-0.5 text-[0.65rem] font-bold text-red-200">
-                  DEMO MODE
-                </span>
-              )}
-            </p>
-            <div className="flex items-center gap-4">
-              <h1 className="font-display mt-3 text-4xl text-[color:var(--night-ink)] sm:text-5xl">
-                {region.name}
-              </h1>
-              {availableRegions?.length > 1 && (
-                <select
-                  className="mt-3 rounded-lg border border-[var(--night-outline)] bg-white/50 px-3 py-2 text-sm backdrop-blur-sm transition-colors hover:bg-white/80 focus:outline-none focus:ring-2 focus:ring-[var(--night-teal)]"
-                  value={region.region_id}
-                  onChange={(e) => router.push(`/?region=${e.target.value}`)}
-                >
-                  {availableRegions.map((r) => (
-                    <option key={r.region_id} value={r.region_id}>
-                      {r.name}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-            <h2 className="mt-2 text-sm font-medium tracking-[0.2em] text-[color:var(--night-moss)] uppercase">
-              The city endures. The nights get longer.
-            </h2>
+          <div className="pointer-events-auto absolute right-4 top-24 hidden w-72 flex-col gap-4 lg:flex">
+            <MapPanel title="Resource Pools">
+              <div className="space-y-3 text-xs text-white/70">
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span>Labor</span>
+                    <span className="font-semibold text-white">{formatNumber(region.pool_labor)}</span>
+                  </div>
+                  <div className="h-1.5 w-full rounded-full bg-white/10">
+                    <div
+                      className="h-full rounded-full bg-[color:var(--night-teal)] shadow-[0_0_8px_var(--night-teal)] transition-all duration-500"
+                      style={{ width: `${Math.min(100, (region.pool_labor / 1000) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span>Materials</span>
+                    <span className="font-semibold text-white">{formatNumber(region.pool_materials)}</span>
+                  </div>
+                  <div className="h-1.5 w-full rounded-full bg-white/10">
+                    <div
+                      className="h-full rounded-full bg-[color:var(--night-glow)] shadow-[0_0_8px_var(--night-glow)] transition-all duration-500"
+                      style={{ width: `${Math.min(100, (region.pool_materials / 1000) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="mt-3 text-[10px] text-white/50">
+                Buildings: {formatNumber(counts.laborBuildings)} Labor • {formatNumber(counts.materialBuildings)} Materials
+              </div>
+            </MapPanel>
+
+            <MapPanel title="Region Health" className="flex flex-col items-center">
+              <RegionalHealthRing
+                className="map-overlay-ring"
+                healthPercent={healthPercent}
+                rustLevel={rustPercent}
+              />
+              <div className="mt-3 grid w-full grid-cols-2 gap-3 text-xs">
+                <div className="rounded-xl bg-white/5 px-3 py-2 text-center">
+                  <p className="text-[9px] uppercase tracking-[0.2em] text-white/40">Avg Health</p>
+                  <p className="mt-1 text-sm font-semibold text-white">
+                    {formatPercent(region.stats.health_avg / 100)}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-white/5 px-3 py-2 text-center">
+                  <p className="text-[9px] uppercase tracking-[0.2em] text-white/40">Rust Level</p>
+                  <p className="mt-1 text-sm font-semibold text-white">
+                    {formatPercent(region.stats.rust_avg)}
+                  </p>
+                </div>
+              </div>
+            </MapPanel>
+
+            <MapPanel title="Network Snapshot">
+              <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                <div className="rounded-xl bg-white/5 px-2 py-2">
+                  <p className="text-[9px] uppercase tracking-[0.2em] text-white/40">Healthy</p>
+                  <p className="mt-1 text-sm font-semibold text-[color:var(--night-teal)]">
+                    {formatNumber(counts.healthy)}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-white/5 px-2 py-2">
+                  <p className="text-[9px] uppercase tracking-[0.2em] text-white/40">Degraded</p>
+                  <p className="mt-1 text-sm font-semibold text-red-400">
+                    {formatNumber(counts.degraded)}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-white/5 px-2 py-2">
+                  <p className="text-[9px] uppercase tracking-[0.2em] text-white/40">Features</p>
+                  <p className="mt-1 text-sm font-semibold text-white">
+                    {formatNumber(features.length)}
+                  </p>
+                </div>
+              </div>
+            </MapPanel>
+
+            <ResourceTicker deltas={resourceDeltas} />
           </div>
-          
-          <div className="flex items-center gap-4">
-            <PhaseIndicator />
-            <div className="rounded-full border border-[var(--night-outline)] bg-white/70 px-4 py-2 text-[10px] uppercase tracking-[0.4em] text-[color:var(--night-teal)]">
-              {lastEvent ? `Live: ${lastEvent}` : "Connecting..."}
-            </div>
+
+          <div className="pointer-events-auto absolute bottom-20 left-4 hidden w-[360px] max-h-[55vh] lg:block">
+            <MapPanel title="Operations Queue" className="h-full overflow-hidden">
+              <TaskList tasks={region.tasks} onVote={handleVote} />
+            </MapPanel>
           </div>
-        </header>
 
-        <section className="mt-10 lg:grid lg:gap-8 lg:grid-cols-[320px_minmax(0,1fr)]">
-          {/* Desktop Sidebar */}
-      <aside className="hidden space-y-6 lg:block">
-            <SidebarContent resourceFeed={resourceDeltas} />
-          </aside>
+          <div className="pointer-events-auto absolute bottom-12 left-4 hidden text-[10px] text-white/40 lg:block">
+            <p className="uppercase tracking-widest">Attribution</p>
+            <p>Overture Maps Foundation • H3 • OpenStreetMap</p>
+          </div>
 
-          <div className="relative space-y-6">
-            <DemoMap 
-              boundary={region.boundary}
-              features={features} 
-              hexes={hexes}
-              crews={region.crews}
-              tasks={region.tasks}
-              fallbackBbox={BAR_HARBOR_DEMO_BBOX}
-              cycle={cycle}
-              pmtilesRelease={pmtilesRelease}
-            />
-            
-            <FeaturePanel 
-              activeTasks={region.tasks} 
-              onVote={handleVote} 
+          <div className="pointer-events-auto absolute bottom-0 left-0 right-0 hidden lg:block">
+            <ActivityFeed />
+          </div>
+
+          <div className="pointer-events-auto absolute bottom-0 left-0 right-0 lg:hidden">
+            <MobileSidebar>
+              <SidebarContent resourceFeed={resourceDeltas} />
+            </MobileSidebar>
+          </div>
+
+          <div className="pointer-events-auto">
+            <FeaturePanel
+              activeTasks={region.tasks}
+              onVote={handleVote}
               onContribute={handleContribute}
               canContribute={Boolean(auth.token && auth.clientId)}
             />
-
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="rounded-2xl border border-[var(--night-outline)] bg-white/70 px-4 py-3 text-sm text-[color:var(--night-ash)]">
-                <p className="text-[0.65rem] uppercase tracking-[0.3em] text-[color:var(--night-moss)]">
-                  Healthy roads
-                </p>
-                <p className="mt-1 text-lg font-semibold text-[color:var(--night-teal)]">
-                  {formatNumber(counts.healthy)}
-                </p>
-              </div>
-              <div className="rounded-2xl border border-[var(--night-outline)] bg-white/70 px-4 py-3 text-sm text-[color:var(--night-ash)]">
-                <p className="text-[0.65rem] uppercase tracking-[0.3em] text-[color:var(--night-moss)]">
-                  Degraded roads
-                </p>
-                <p className="mt-1 text-lg font-semibold text-red-600">
-                  {formatNumber(counts.degraded)}
-                </p>
-              </div>
-              <div className="rounded-2xl border border-[var(--night-outline)] bg-white/70 px-4 py-3 text-sm text-[color:var(--night-ash)]">
-                <p className="text-[0.65rem] uppercase tracking-[0.3em] text-[color:var(--night-moss)]">
-                  Total features
-                </p>
-                <p className="mt-1 text-lg font-semibold text-[color:var(--night-ink)]">
-                  {formatNumber(features.length)}
-                </p>
-              </div>
-            </div>
-
-            {/* Mobile Sidebar Trigger */}
-            <div className="lg:hidden">
-              <MobileSidebar>
-                <SidebarContent resourceFeed={resourceDeltas} />
-              </MobileSidebar>
-            </div>
-          </div>
-        </section>
-
-        <div className="mt-12 border-t border-[var(--night-outline)] pt-8 text-[10px] text-[color:var(--night-ash)] opacity-60">
-          <p className="mb-2 uppercase tracking-widest">Attribution</p>
-          <div className="space-y-1">
-            <p>Data from Overture Maps Foundation (CDLA Permissive v2.0)</p>
-            <p>H3 geospatial indexing system (Apache 2.0)</p>
-            <p>Map data © OpenStreetMap contributors</p>
           </div>
         </div>
-      </div>
-
-      <footer className="sticky bottom-0 z-50">
-        <ActivityFeed />
-      </footer>
+      </DemoMap>
     </div>
   );
 }

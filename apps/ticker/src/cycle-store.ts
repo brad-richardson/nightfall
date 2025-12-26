@@ -57,9 +57,9 @@ export async function syncCycleState(
       VALUES (
         'cycle_state',
         jsonb_build_object(
-          'phase', $1,
-          'phase_start', $2,
-          'cycle_start', $3
+          'phase', $1::text,
+          'phase_start', $2::text,
+          'cycle_start', $3::text
         ),
         now()
       )

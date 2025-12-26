@@ -44,6 +44,7 @@ Working list to build the core loop and UI in a sensible order. Keep PRs small b
 - [x] SSE connection caps + reconnect backoff guidance to avoid reconnect storms.
 - [x] Abuse guardrails: tighten payload size/validation, enforce quotas, and log suspicious patterns.
 - [x] Admin endpoint hardening: secret rotation, optional allowlist, audit events for changes.
+- [ ] Re-enable CORS with explicit allowlist + tests once deployment targets are stable.
 
 ## Attribution & Compliance
 - [x] Add in-product attribution for Overture Maps and upstream sources; include in docs/landing page.
@@ -65,4 +66,3 @@ Working list to build the core loop and UI in a sensible order. Keep PRs small b
 - [ ] Soundscape: Add dynamic ambient audio that shifts with the day/night cycle.
 - [ ] Real-time Feedback: Implement optimistic UI and animations (e.g., framer-motion) for user actions.
 - [ ] Onboarding: Create a "How to Play" overlay for first-time users explaining mechanics.
-

@@ -4,8 +4,10 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from "react"
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import * as pmtiles from "pmtiles";
-import { cellToBoundary, latLngToCell } from "h3-js";
+import { cellToBoundary } from "h3-js";
 import { ROAD_CLASS_FILTER } from "@nightfall/config";
+import { MapTooltip, type TooltipData } from "./MapTooltip";
+import type { Phase } from "../store";
 import {
   type ResourcePackage,
   buildResourcePath,
@@ -16,14 +18,16 @@ import {
 type Feature = {
   gers_id: string;
   feature_type: string;
+  h3_index?: string | null;
   bbox: [number, number, number, number] | null;
   geometry?: {
-    type: "Point" | "LineString" | "Polygon" | "MultiPolygon";
-    coordinates: number[] | number[][] | number[][][] | number[][][][];
+    type: "Point" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+    coordinates: number[] | number[][] | number[][][] | number[][][][] | number[][][][];
   } | null;
   health?: number | null;
   status?: string | null;
   road_class?: string | null;
+  place_category?: string | null;
   generates_labor?: boolean;
   generates_materials?: boolean;
   is_hub?: boolean;
@@ -33,6 +37,7 @@ type Crew = {
   crew_id: string;
   status: string;
   active_task_id: string | null;
+  busy_until?: string | null;
 };
 
 type Task = {
@@ -44,6 +49,26 @@ type Task = {
 type Hex = {
   h3_index: string;
   rust_level: number;
+};
+
+type CrewPath = {
+  crew_id: string;
+  task_id: string;
+  path: [number, number][];
+  startTime: number;
+  endTime: number;
+  status: "traveling" | "working";
+};
+
+type ResourceTransferPayload = {
+  transfer_id: string;
+  region_id: string;
+  source_gers_id: string | null;
+  hub_gers_id: string | null;
+  resource_type: "labor" | "materials";
+  amount: number;
+  depart_at: string;
+  arrive_at: string;
 };
 
 type Boundary =
@@ -65,10 +90,13 @@ type DemoMapProps = {
   tasks: Task[];
   fallbackBbox: Bbox;
   cycle: {
-    phase: "dawn" | "day" | "dusk" | "night";
+    phase: Phase;
     phase_progress: number;
+    next_phase: Phase;
   };
   pmtilesRelease: string;
+  children?: React.ReactNode;
+  className?: string;
 };
 
 // Crew status colors
@@ -79,14 +107,48 @@ const CREW_COLORS = {
   returning: "#f08a4e"
 };
 
-const DEFAULT_RELEASE = "2025-12-17";
 
-const PHASE_FILTERS = {
+const PHASE_FILTERS: Record<Phase, string> = {
   dawn: "brightness(1.05) saturate(0.9) contrast(1.1)",
   day: "brightness(1.0) saturate(1.0) contrast(1.0)",
   dusk: "brightness(0.85) saturate(0.8) sepia(0.15) contrast(1.15)",
   night: "brightness(0.7) saturate(0.6) sepia(0.3) contrast(1.25)"
 };
+
+const RUST_FILL_OPACITY_BASE: maplibregl.ExpressionSpecification = [
+  "interpolate",
+  ["linear"],
+  ["get", "rust_level"],
+  0, 0.08,
+  0.5, 0.16,
+  1, 0.26
+];
+
+const RUST_LINE_OPACITY_BASE: maplibregl.ExpressionSpecification = [
+  "interpolate",
+  ["linear"],
+  ["get", "rust_level"],
+  0, 0.18,
+  0.5, 0.32,
+  1, 0.5
+];
+
+const RUST_PHASE_MULTIPLIER: Record<Phase, number> = {
+  night: 1.5,
+  dusk: 1.2,
+  dawn: 0.8,
+  day: 0.6
+};
+
+const CREW_DASH_SEQUENCE: number[][] = [
+  [0, 4, 3],
+  [0.5, 4, 2.5],
+  [1, 4, 2],
+  [1.5, 4, 1.5],
+  [2, 4, 1],
+  [2.5, 4, 0.5],
+  [3, 4, 0]
+];
 
 // Color palette - improved contrast
 const COLORS = {
@@ -116,28 +178,142 @@ export default function DemoMap({
   tasks,
   fallbackBbox,
   cycle,
-  pmtilesRelease
+  pmtilesRelease,
+  children,
+  className
 }: DemoMapProps) {
+  const mapShellRef = useRef<HTMLDivElement>(null);
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const [resourcePackages, setResourcePackages] = useState<ResourcePackage[]>([]);
+  const [queuedTaskRoadIds, setQueuedTaskRoadIds] = useState<string[]>([]);
+  const [tooltipData, setTooltipData] = useState<TooltipData | null>(null);
+  const [mapSize, setMapSize] = useState({ width: 0, height: 0 });
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [crewPaths, setCrewPaths] = useState<CrewPath[]>([]);
   const repairPulseRef = useRef<number | null>(null);
   const resourceAnimationRef = useRef<number | null>(null);
+  const rustAnimationRef = useRef<number | null>(null);
+  const crewAnimationRef = useRef<number | null>(null);
+  const breathePhaseRef = useRef(0);
+  const hoverTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const tooltipDismissRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const pmtilesBase = useMemo(
-    () => `https://d3c1b7bog2u1nn.cloudfront.net/${pmtilesRelease || DEFAULT_RELEASE}`,
+    () => `https://d3c1b7bog2u1nn.cloudfront.net/${pmtilesRelease}`,
     [pmtilesRelease]
   );
 
+  const featuresRef = useRef(features);
+  const tasksRef = useRef(tasks);
+
   // Get IDs of roads currently being repaired (in_progress tasks)
   const repairingRoadIds = useMemo(() => {
-    return tasks
-      .filter(t => t.status === 'in_progress')
-      .map(t => {
-        const task = tasks.find(task => task.task_id === t.task_id);
-        return task?.target_gers_id;
-      })
+    const ids = tasks
+      .filter(t => t.status === "in_progress")
+      .map(t => t.target_gers_id)
       .filter((id): id is string => Boolean(id));
+    return Array.from(new Set(ids));
+  }, [tasks]);
+
+  const roadFeaturesForPath = useMemo(() => {
+    const roads: { geometry: { coordinates: number[][] } }[] = [];
+    for (const feature of features) {
+      if (feature.feature_type !== "road" || !feature.geometry) continue;
+      if (feature.geometry.type === "LineString") {
+        roads.push({ geometry: { coordinates: feature.geometry.coordinates as number[][] } });
+      } else if (feature.geometry.type === "MultiLineString") {
+        for (const line of feature.geometry.coordinates as number[][][]) {
+          roads.push({ geometry: { coordinates: line } });
+        }
+      }
+    }
+    return roads;
+  }, [features]);
+
+  const travelingCrewIds = useMemo(() => new Set(crewPaths.map((path) => path.crew_id)), [crewPaths]);
+
+  const getTransitionGradient = useCallback((_currentPhase: Phase, nextPhase: Phase): string => {
+    if (nextPhase === "night") {
+      return "radial-gradient(circle at 50% 50%, transparent 0%, rgba(10, 10, 30, 0.4) 100%)";
+    }
+    if (nextPhase === "dawn") {
+      return "radial-gradient(circle at 70% 30%, rgba(255, 180, 100, 0.2) 0%, transparent 100%)";
+    }
+    if (nextPhase === "day") {
+      return "linear-gradient(to top, transparent 0%, rgba(135, 206, 235, 0.1) 100%)";
+    }
+    if (nextPhase === "dusk") {
+      return "linear-gradient(to bottom, rgba(255, 100, 50, 0.2) 0%, transparent 100%)";
+    }
+    return "transparent";
+  }, []);
+
+  useEffect(() => {
+    const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const mobileQuery = window.matchMedia("(max-width: 768px)");
+
+    const update = () => {
+      setPrefersReducedMotion(motionQuery.matches);
+      setIsMobile(mobileQuery.matches);
+    };
+
+    update();
+
+    if ("addEventListener" in motionQuery) {
+      motionQuery.addEventListener("change", update);
+      mobileQuery.addEventListener("change", update);
+      return () => {
+        motionQuery.removeEventListener("change", update);
+        mobileQuery.removeEventListener("change", update);
+      };
+    }
+
+    // Safari fallback
+    motionQuery.addListener(update);
+    mobileQuery.addListener(update);
+    return () => {
+      motionQuery.removeListener(update);
+      mobileQuery.removeListener(update);
+    };
+  }, []);
+
+  useEffect(() => {
+    const node = mapShellRef.current;
+    if (!node) return;
+
+    const updateSize = () => {
+      setMapSize({ width: node.clientWidth, height: node.clientHeight });
+      map.current?.resize();
+    };
+
+    updateSize();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", updateSize);
+      return () => window.removeEventListener("resize", updateSize);
+    }
+
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const ids = tasks
+      .filter((t) => t.status === "queued" || t.status === "pending")
+      .map((t) => t.target_gers_id)
+      .filter((id): id is string => Boolean(id));
+    setQueuedTaskRoadIds(Array.from(new Set(ids)));
+  }, [tasks]);
+
+  useEffect(() => {
+    featuresRef.current = features;
+  }, [features]);
+
+  useEffect(() => {
+    tasksRef.current = tasks;
   }, [tasks]);
 
   useEffect(() => {
@@ -297,7 +473,7 @@ export default function DemoMap({
         filter: ["==", ["get", "id"], "none"],
         paint: {
           "fill-color": "#ffffff",
-          "fill-opacity": 0.15
+          "fill-opacity": 0.3
         }
       },
       // Hub building highlight layer
@@ -309,8 +485,8 @@ export default function DemoMap({
         filter: ["==", ["get", "id"], "none"],
         paint: {
           "line-color": "#ffffff",
-          "line-width": 2,
-          "line-opacity": 0.8
+          "line-width": 3,
+          "line-opacity": 0.95
         }
       },
 
@@ -464,6 +640,36 @@ export default function DemoMap({
             }
           },
 
+          // === TASK HIGHLIGHT LAYERS ===
+          {
+            id: "game-roads-task-highlight-glow",
+            source: "overture_transportation",
+            "source-layer": "segment",
+            type: "line",
+            filter: ["all", baseRoadFilter, ["==", ["get", "id"], "none"]],
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: {
+              "line-color": "#f0ddc2",
+              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 6, 16, 14],
+              "line-blur": 4,
+              "line-opacity": 0.25
+            }
+          },
+          {
+            id: "game-roads-task-highlight-dash",
+            source: "overture_transportation",
+            "source-layer": "segment",
+            type: "line",
+            filter: ["all", baseRoadFilter, ["==", ["get", "id"], "none"]],
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: {
+              "line-color": "#ffffff",
+              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 2, 16, 4],
+              "line-dasharray": [2, 3],
+              "line-opacity": 0.6
+            }
+          },
+
           // === REPAIR PULSE LAYER ===
           {
             id: "game-roads-repair-pulse",
@@ -599,14 +805,7 @@ export default function DemoMap({
             1, COLORS.degraded
           ],
           "fill-color-transition": { duration: 1500, delay: 0 },
-          "fill-opacity": [
-            "interpolate",
-            ["linear"],
-            ["get", "rust_level"],
-            0, 0.08,
-            0.5, 0.16,
-            1, 0.26
-          ],
+          "fill-opacity": RUST_FILL_OPACITY_BASE,
           "fill-opacity-transition": { duration: 1500, delay: 0 }
         }
       }, "game-roads-healthy-glow");
@@ -635,14 +834,7 @@ export default function DemoMap({
             1, 2
           ],
           "line-width-transition": { duration: 1500, delay: 0 },
-          "line-opacity": [
-            "interpolate",
-            ["linear"],
-            ["get", "rust_level"],
-            0, 0.18,
-            0.5, 0.32,
-            1, 0.5
-          ],
+          "line-opacity": RUST_LINE_OPACITY_BASE,
           "line-opacity-transition": { duration: 1500, delay: 0 }
         }
       }, "game-roads-healthy-glow");
@@ -687,6 +879,72 @@ export default function DemoMap({
           "circle-opacity": 0.4
         }
       }, "game-crews-point");
+
+      map.current?.addSource("game-central-hub", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] }
+      });
+
+      map.current?.addLayer({
+        id: "game-central-hub-glow",
+        type: "circle",
+        source: "game-central-hub",
+        paint: {
+          "circle-radius": 22,
+          "circle-color": "#f0ddc2",
+          "circle-blur": 0.8,
+          "circle-opacity": 0.35
+        }
+      });
+
+      map.current?.addLayer({
+        id: "game-central-hub-core",
+        type: "circle",
+        source: "game-central-hub",
+        paint: {
+          "circle-radius": 6,
+          "circle-color": "#ffffff",
+          "circle-stroke-width": 2,
+          "circle-stroke-color": "#f0ddc2",
+          "circle-opacity": 0.9
+        }
+      });
+
+      // Add crew travel path sources/layers
+      map.current?.addSource("game-crew-paths", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] }
+      });
+
+      map.current?.addLayer({
+        id: "game-crew-path-line",
+        type: "line",
+        source: "game-crew-paths",
+        paint: {
+          "line-color": "#f0ddc2",
+          "line-width": 2,
+          "line-dasharray": [2, 2],
+          "line-opacity": 0.6
+        }
+      }, "game-crews-point");
+
+      map.current?.addSource("game-crew-markers", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] }
+      });
+
+      map.current?.addLayer({
+        id: "game-crew-path-head",
+        type: "circle",
+        source: "game-crew-markers",
+        paint: {
+          "circle-radius": 6,
+          "circle-color": CREW_COLORS.traveling,
+          "circle-stroke-width": 2,
+          "circle-stroke-color": "#ffffff",
+          "circle-opacity": 0.9
+        }
+      });
 
       // Add resource packages source and layers
       map.current?.addSource("game-resource-packages", {
@@ -756,6 +1014,7 @@ export default function DemoMap({
       });
 
       setIsLoaded(true);
+      map.current?.resize();
     });
 
     // Click handler
@@ -817,6 +1076,138 @@ export default function DemoMap({
     };
   }, [fallbackBbox, boundary, pmtilesBase]);
 
+  // Hover/tap tooltips
+  useEffect(() => {
+    if (!isLoaded || !map.current) return;
+
+    const mapInstance = map.current;
+    const tooltipLayers = [
+      "game-roads-healthy",
+      "game-roads-warning",
+      "game-roads-degraded",
+      "roads-low",
+      "roads-mid",
+      "roads-high",
+      "roads-routes",
+      "buildings",
+      "buildings-labor",
+      "buildings-materials",
+      "buildings-hub",
+      "game-hex-fill"
+    ];
+
+    const normalizePercent = (value: number | null | undefined) => {
+      if (value === null || value === undefined || Number.isNaN(value)) return 0;
+      return value <= 1 ? value * 100 : value;
+    };
+
+    const buildTooltipData = (
+      feature: maplibregl.MapGeoJSONFeature,
+      point: maplibregl.Point
+    ): TooltipData | null => {
+      const layerId = feature.layer.id;
+      const gersId = feature.properties?.id as string | undefined;
+
+      if (layerId.includes("hex")) {
+        const rust = normalizePercent(Number(feature.properties?.rust_level));
+        return {
+          type: "hex",
+          position: { x: point.x, y: point.y },
+          data: { rust_level: rust }
+        };
+      }
+
+      if (layerId.includes("buildings") || layerId.includes("building")) {
+        const match = gersId
+          ? featuresRef.current.find((f) => f.gers_id === gersId)
+          : null;
+        return {
+          type: "building",
+          position: { x: point.x, y: point.y },
+          data: {
+            category: match?.place_category ?? feature.properties?.class ?? "Building",
+            generates_labor: Boolean(match?.generates_labor),
+            generates_materials: Boolean(match?.generates_materials)
+          }
+        };
+      }
+
+      if (gersId) {
+        const match = featuresRef.current.find((f) => f.gers_id === gersId);
+        const taskMatch = tasksRef.current.find((t) => t.target_gers_id === gersId);
+        const status = taskMatch?.status ?? match?.status ?? "";
+        return {
+          type: "road",
+          position: { x: point.x, y: point.y },
+          data: {
+            road_class: match?.road_class ?? feature.properties?.class ?? "road",
+            health: normalizePercent(match?.health ?? 100),
+            status
+          }
+        };
+      }
+
+      return null;
+    };
+
+    const resolveTooltip = (point: maplibregl.Point) => {
+      const featuresAtPoint = mapInstance.queryRenderedFeatures(point, {
+        layers: tooltipLayers
+      });
+
+      if (!featuresAtPoint.length) {
+        setTooltipData(null);
+        return;
+      }
+
+      const topFeature = featuresAtPoint[0];
+      const data = buildTooltipData(topFeature, point);
+      setTooltipData(data);
+    };
+
+    const scheduleTooltip = (point: maplibregl.Point) => {
+      if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = window.setTimeout(() => {
+        resolveTooltip(point);
+      }, 200);
+    };
+
+    const clearTooltip = () => {
+      if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+      if (tooltipDismissRef.current) clearTimeout(tooltipDismissRef.current);
+      setTooltipData(null);
+    };
+
+    const handleMouseMove = (e: maplibregl.MapMouseEvent) => {
+      if (isMobile) return;
+      scheduleTooltip(e.point);
+    };
+
+    const handleMouseLeave = () => {
+      clearTooltip();
+    };
+
+    const handleClick = (e: maplibregl.MapMouseEvent) => {
+      if (!isMobile) return;
+      resolveTooltip(e.point);
+      if (tooltipDismissRef.current) clearTimeout(tooltipDismissRef.current);
+      tooltipDismissRef.current = window.setTimeout(() => {
+        setTooltipData(null);
+      }, 3000);
+    };
+
+    mapInstance.on("mousemove", handleMouseMove);
+    mapInstance.on("click", handleClick);
+    mapInstance.getCanvas().addEventListener("mouseleave", handleMouseLeave);
+
+    return () => {
+      mapInstance.off("mousemove", handleMouseMove);
+      mapInstance.off("click", handleClick);
+      mapInstance.getCanvas().removeEventListener("mouseleave", handleMouseLeave);
+      clearTooltip();
+    };
+  }, [isLoaded, isMobile]);
+
   // Sync health data to vector tile features
   useEffect(() => {
     if (!isLoaded || !map.current) return;
@@ -855,6 +1246,123 @@ export default function DemoMap({
 
   }, [features, isLoaded]);
 
+  const fallbackCenter = useMemo<[number, number]>(() => {
+    return [
+      (fallbackBbox.xmin + fallbackBbox.xmax) / 2,
+      (fallbackBbox.ymin + fallbackBbox.ymax) / 2
+    ];
+  }, [fallbackBbox]);
+
+  const getFeatureCenter = useCallback((feature: Feature): [number, number] | null => {
+    if (feature.bbox) {
+      return [
+        (feature.bbox[0] + feature.bbox[2]) / 2,
+        (feature.bbox[1] + feature.bbox[3]) / 2
+      ];
+    }
+
+    if (!feature.geometry) return null;
+
+    const g = feature.geometry;
+    if (g.type === "Point") return g.coordinates as [number, number];
+    if (g.type === "LineString") {
+      const coords = g.coordinates as number[][];
+      if (coords.length === 0) return null;
+      const mid = coords[Math.floor(coords.length / 2)];
+      return [mid[0], mid[1]];
+    }
+    if (g.type === "MultiLineString") {
+      const lines = g.coordinates as number[][][];
+      const firstLine = lines[0];
+      if (!firstLine || firstLine.length === 0) return null;
+      const mid = firstLine[Math.floor(firstLine.length / 2)];
+      return [mid[0], mid[1]];
+    }
+    if (g.type === "Polygon") {
+      const ring = (g.coordinates as number[][][])[0];
+      if (!ring?.length) return null;
+      const sumLng = ring.reduce((s, c) => s + c[0], 0);
+      const sumLat = ring.reduce((s, c) => s + c[1], 0);
+      return [sumLng / ring.length, sumLat / ring.length];
+    }
+    if (g.type === "MultiPolygon") {
+      const ring = (g.coordinates as number[][][][])[0]?.[0];
+      if (!ring?.length) return null;
+      const sumLng = ring.reduce((s, c) => s + c[0], 0);
+      const sumLat = ring.reduce((s, c) => s + c[1], 0);
+      return [sumLng / ring.length, sumLat / ring.length];
+    }
+    return null;
+  }, []);
+
+  const getNearestHubCenter = useCallback((target?: [number, number] | null): [number, number] | null => {
+    const hubs = features.filter((f) => f.feature_type === "building" && f.is_hub);
+    if (hubs.length === 0) return null;
+
+    let bestCenter: [number, number] | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    for (const hub of hubs) {
+      const center = getFeatureCenter(hub);
+      if (!center) continue;
+      if (!target) return center;
+      const dx = center[0] - target[0];
+      const dy = center[1] - target[1];
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestCenter = center;
+      }
+    }
+
+    return bestCenter;
+  }, [features, getFeatureCenter]);
+
+  // Sync central hub marker
+  useEffect(() => {
+    if (!isLoaded || !map.current) return;
+
+    const hubFeatures = features.filter((f) => f.feature_type === "building" && f.is_hub);
+    const hubSource = map.current.getSource("game-central-hub") as maplibregl.GeoJSONSource | undefined;
+    if (!hubSource) return;
+
+    if (hubFeatures.length === 0) {
+      hubSource.setData({ type: "FeatureCollection", features: [] });
+      return;
+    }
+
+    let bestCenter: [number, number] | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    for (const hub of hubFeatures) {
+      const center = getFeatureCenter(hub);
+      if (!center) continue;
+      const dx = center[0] - fallbackCenter[0];
+      const dy = center[1] - fallbackCenter[1];
+      const dist = dx * dx + dy * dy;
+      if (dist < bestDistance) {
+        bestDistance = dist;
+        bestCenter = center;
+      }
+    }
+
+    if (!bestCenter) {
+      hubSource.setData({ type: "FeatureCollection", features: [] });
+      return;
+    }
+
+    hubSource.setData({
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          properties: {},
+          geometry: { type: "Point", coordinates: bestCenter }
+        }
+      ]
+    });
+  }, [features, fallbackCenter, getFeatureCenter, isLoaded]);
+
   // Sync hex data to GeoJSON source
   useEffect(() => {
     if (!isLoaded || !map.current) return;
@@ -890,11 +1398,51 @@ export default function DemoMap({
     }
   }, [hexes, isLoaded]);
 
+  // Build crew travel paths for traveling crews
+  useEffect(() => {
+    if (!crews.length) {
+      setCrewPaths([]);
+      return;
+    }
+
+    const now = Date.now();
+    const paths: CrewPath[] = [];
+
+    for (const crew of crews) {
+      if (crew.status !== "traveling" || !crew.active_task_id) continue;
+      const task = tasks.find((t) => t.task_id === crew.active_task_id);
+      if (!task?.target_gers_id) continue;
+
+      const targetFeature = features.find((f) => f.gers_id === task.target_gers_id);
+      const destination = targetFeature ? getFeatureCenter(targetFeature) : null;
+      if (!destination) continue;
+
+      const hubCenter = getNearestHubCenter(destination) ?? fallbackCenter;
+      const path = buildResourcePath(hubCenter, destination, roadFeaturesForPath);
+
+      const busyUntil = crew.busy_until ? new Date(crew.busy_until).getTime() : null;
+      const endTime = busyUntil && !Number.isNaN(busyUntil) ? busyUntil : now + 10000;
+      const startTime = Math.min(now, endTime - 1000);
+
+      paths.push({
+        crew_id: crew.crew_id,
+        task_id: task.task_id,
+        path: path.map((p) => [p[0], p[1]]),
+        startTime,
+        endTime,
+        status: "traveling"
+      });
+    }
+
+    setCrewPaths(paths);
+  }, [crews, tasks, features, roadFeaturesForPath, getFeatureCenter, getNearestHubCenter, fallbackCenter]);
+
   // Sync crews data
   useEffect(() => {
     if (!isLoaded || !map.current) return;
 
     const crewFeatures = crews.map(crew => {
+        if (travelingCrewIds.has(crew.crew_id)) return null;
         if (!crew.active_task_id) return null;
         const task = tasks.find(t => t.task_id === crew.active_task_id);
         if (!task) return null;
@@ -928,7 +1476,98 @@ export default function DemoMap({
             features: crewFeatures
         });
     }
-  }, [crews, tasks, features, isLoaded]);
+  }, [crews, tasks, features, isLoaded, travelingCrewIds]);
+
+  // Sync crew path data to GeoJSON source
+  useEffect(() => {
+    if (!isLoaded || !map.current) return;
+
+    const pathSource = map.current.getSource("game-crew-paths") as maplibregl.GeoJSONSource;
+    if (pathSource) {
+      pathSource.setData({
+        type: "FeatureCollection",
+        features: crewPaths.map((cp) => ({
+          type: "Feature",
+          properties: { crew_id: cp.crew_id },
+          geometry: { type: "LineString", coordinates: cp.path }
+        }))
+      });
+    }
+
+    if (crewPaths.length === 0) {
+      const markerSource = map.current.getSource("game-crew-markers") as maplibregl.GeoJSONSource;
+      markerSource?.setData({ type: "FeatureCollection", features: [] });
+    }
+  }, [crewPaths, isLoaded]);
+
+  // Animate crew paths and markers
+  useEffect(() => {
+    if (!isLoaded || !map.current) return;
+
+    if (crewAnimationRef.current) {
+      cancelAnimationFrame(crewAnimationRef.current);
+      crewAnimationRef.current = null;
+    }
+
+    if (crewPaths.length === 0) return;
+
+    const mapInstance = map.current;
+    const markerSource = mapInstance.getSource("game-crew-markers") as maplibregl.GeoJSONSource | undefined;
+    if (!markerSource) return;
+
+    const updateMarkers = (now: number) => {
+      const markerFeatures = crewPaths.map((cp) => {
+        const duration = Math.max(1, cp.endTime - cp.startTime);
+        const progress = (now - cp.startTime) / duration;
+        const clampedProgress = Math.max(0, Math.min(1, progress));
+        const position = interpolatePath(cp.path, clampedProgress);
+
+        return {
+          type: "Feature",
+          properties: { crew_id: cp.crew_id },
+          geometry: {
+            type: "Point",
+            coordinates: position
+          }
+        };
+      });
+
+      markerSource.setData({
+        type: "FeatureCollection",
+        features: markerFeatures
+      });
+    };
+
+    if (prefersReducedMotion) {
+      updateMarkers(Date.now());
+      return;
+    }
+
+    let dashIndex = 0;
+    let lastDashTime = 0;
+
+    const animate = (time: number) => {
+      if (!mapInstance) return;
+
+      if (time - lastDashTime > 120) {
+        dashIndex = (dashIndex + 1) % CREW_DASH_SEQUENCE.length;
+        mapInstance.setPaintProperty("game-crew-path-line", "line-dasharray", CREW_DASH_SEQUENCE[dashIndex]);
+        lastDashTime = time;
+      }
+
+      updateMarkers(Date.now());
+      crewAnimationRef.current = requestAnimationFrame(animate);
+    };
+
+    crewAnimationRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (crewAnimationRef.current) {
+        cancelAnimationFrame(crewAnimationRef.current);
+        crewAnimationRef.current = null;
+      }
+    };
+  }, [crewPaths, isLoaded, prefersReducedMotion]);
 
   // Listen for task completion events and animate
   useEffect(() => {
@@ -963,6 +1602,19 @@ export default function DemoMap({
     window.addEventListener("nightfall:task_completed", handleTaskCompleted);
     return () => window.removeEventListener("nightfall:task_completed", handleTaskCompleted);
   }, [isLoaded]);
+
+  // Highlight queued/pending task roads
+  useEffect(() => {
+    if (!isLoaded || !map.current) return;
+
+    const taskFilter: maplibregl.FilterSpecification = ["all",
+      ["==", ["get", "subtype"], "road"],
+      ["in", ["get", "id"], ["literal", queuedTaskRoadIds.length ? queuedTaskRoadIds : ["__none__"]]]
+    ];
+
+    map.current.setFilter("game-roads-task-highlight-glow", taskFilter);
+    map.current.setFilter("game-roads-task-highlight-dash", taskFilter);
+  }, [queuedTaskRoadIds, isLoaded]);
 
   // Animate repair pulse for roads being repaired
   useEffect(() => {
@@ -1004,112 +1656,122 @@ export default function DemoMap({
     };
   }, [repairingRoadIds, isLoaded]);
 
-  // Helper to get building center
-  const getBuildingCenter = useCallback((building: Feature): [number, number] | null => {
-    if (building.bbox) {
-      return [
-        (building.bbox[0] + building.bbox[2]) / 2,
-        (building.bbox[1] + building.bbox[3]) / 2
-      ];
-    } else if (building.geometry) {
-      const g = building.geometry;
-      if (g.type === "Point") return g.coordinates as [number, number];
-      else if (g.type === "Polygon") {
-        const ring = (g.coordinates as number[][][])[0];
-        const sumLng = ring.reduce((s, c) => s + c[0], 0);
-        const sumLat = ring.reduce((s, c) => s + c[1], 0);
-        return [sumLng / ring.length, sumLat / ring.length];
-      }
-    }
-    return null;
-  }, []);
-
-  // Function to spawn a resource package animation
-  const spawnResourcePackage = useCallback((
-    buildingGersId: string,
-    resourceType: "labor" | "materials"
-  ) => {
-    if (!isLoaded) return;
-
-    // Find the source building
-    const building = features.find(f => f.gers_id === buildingGersId && f.feature_type === "building");
-    if (!building) return;
-
-    // Get building center
-    const buildingCenter = getBuildingCenter(building);
-    if (!buildingCenter) return;
-
-    // Find the hub building for this hex
-    // First, get the hex for this building's location
-    const h3Index = latLngToCell(buildingCenter[1], buildingCenter[0], 8);
-
-    // Find a hub building in the same hex (or nearby)
-    const hubBuilding = features.find(f =>
-      f.feature_type === "building" &&
-      f.is_hub &&
-      f.gers_id !== buildingGersId
-    );
-
-    // Determine target: hub building center if found, otherwise hex centroid
-    let targetCenter: [number, number];
-    if (hubBuilding) {
-      const hubCenter = getBuildingCenter(hubBuilding);
-      if (hubCenter) {
-        targetCenter = hubCenter;
-      } else {
-        // Fallback to hex centroid
-        const hexBoundary = cellToBoundary(h3Index);
-        targetCenter = [
-          hexBoundary.reduce((s, c) => s + c[1], 0) / hexBoundary.length,
-          hexBoundary.reduce((s, c) => s + c[0], 0) / hexBoundary.length
-        ];
-      }
-    } else {
-      // No hub found, use hex centroid
-      const hexBoundary = cellToBoundary(h3Index);
-      targetCenter = [
-        hexBoundary.reduce((s, c) => s + c[1], 0) / hexBoundary.length,
-        hexBoundary.reduce((s, c) => s + c[0], 0) / hexBoundary.length
-      ];
-    }
-
-    // Get road features for pathfinding
-    const roads = features
-      .filter(f => f.feature_type === "road" && f.geometry?.type === "LineString")
-      .map(f => ({ geometry: { coordinates: f.geometry!.coordinates as number[][] } }));
-
-    // Build path
-    const path = buildResourcePath(buildingCenter, targetCenter, roads);
-
-    // Create package
-    const newPackage: ResourcePackage = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      type: resourceType,
-      path,
-      progress: 0,
-      startTime: Date.now(),
-      duration: 2500 // 2.5 seconds
-    };
-
-    setResourcePackages(prev => [...prev, newPackage]);
-  }, [features, isLoaded, getBuildingCenter]);
-
-  // Listen for contribution events
+  // Prepare rust opacity transitions
   useEffect(() => {
-    const handleContribution = (e: Event) => {
-      const customEvent = e as CustomEvent<{
-        buildingGersId: string;
-        resourceType: "labor" | "materials";
-      }>;
-      spawnResourcePackage(
-        customEvent.detail.buildingGersId,
-        customEvent.detail.resourceType
+    if (!isLoaded || !map.current) return;
+
+    map.current.setPaintProperty("game-hex-fill", "fill-opacity-transition", {
+      duration: 1000,
+      delay: 0
+    });
+    map.current.setPaintProperty("game-hex-outline", "line-opacity-transition", {
+      duration: 1000,
+      delay: 0
+    });
+  }, [isLoaded]);
+
+  // Animate rust "breathing" during night/dusk phases
+  useEffect(() => {
+    if (!isLoaded || !map.current) return;
+
+    const mapInstance = map.current;
+    const phaseMultiplier = RUST_PHASE_MULTIPLIER[cycle.phase];
+
+    const applyStaticOpacity = (multiplier: number) => {
+      mapInstance.setPaintProperty(
+        "game-hex-fill",
+        "fill-opacity",
+        ["*", RUST_FILL_OPACITY_BASE, multiplier] as maplibregl.ExpressionSpecification
+      );
+      mapInstance.setPaintProperty(
+        "game-hex-outline",
+        "line-opacity",
+        ["*", RUST_LINE_OPACITY_BASE, multiplier] as maplibregl.ExpressionSpecification
       );
     };
 
-    window.addEventListener("nightfall:resource_contributed", handleContribution);
-    return () => window.removeEventListener("nightfall:resource_contributed", handleContribution);
-  }, [spawnResourcePackage]);
+    if (rustAnimationRef.current) {
+      cancelAnimationFrame(rustAnimationRef.current);
+      rustAnimationRef.current = null;
+    }
+
+    if (prefersReducedMotion || (cycle.phase !== "night" && cycle.phase !== "dusk")) {
+      applyStaticOpacity(phaseMultiplier);
+      return;
+    }
+
+    const animate = () => {
+      breathePhaseRef.current += 0.015;
+      const pulse = 1 + 0.1 * Math.sin(breathePhaseRef.current);
+      const multiplier = pulse * phaseMultiplier;
+
+      applyStaticOpacity(multiplier);
+      rustAnimationRef.current = requestAnimationFrame(animate);
+    };
+
+    rustAnimationRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (rustAnimationRef.current) {
+        cancelAnimationFrame(rustAnimationRef.current);
+        rustAnimationRef.current = null;
+      }
+    };
+  }, [cycle.phase, isLoaded, prefersReducedMotion]);
+
+  const spawnResourceTransfer = useCallback((transfer: ResourceTransferPayload) => {
+    if (!isLoaded) return;
+
+    const departAt = Date.parse(transfer.depart_at);
+    const arriveAt = Date.parse(transfer.arrive_at);
+    const startTime = Number.isNaN(departAt) ? Date.now() : departAt;
+    const endTime = Number.isNaN(arriveAt) ? startTime + 4000 : arriveAt;
+
+    if (Date.now() >= endTime) return;
+
+    const sourceFeature = transfer.source_gers_id
+      ? features.find((f) => f.gers_id === transfer.source_gers_id)
+      : null;
+    const hubFeature = transfer.hub_gers_id
+      ? features.find((f) => f.gers_id === transfer.hub_gers_id)
+      : null;
+
+    const sourceCenter = sourceFeature ? getFeatureCenter(sourceFeature) : fallbackCenter;
+    const hubCenter = hubFeature
+      ? getFeatureCenter(hubFeature)
+      : getNearestHubCenter(sourceCenter) ?? fallbackCenter;
+
+    if (!sourceCenter || !hubCenter) return;
+
+    const path = buildResourcePath(sourceCenter, hubCenter, roadFeaturesForPath);
+    const duration = Math.max(1000, endTime - startTime);
+
+    setResourcePackages((prev) => {
+      if (prev.some((pkg) => pkg.id === transfer.transfer_id)) {
+        return prev;
+      }
+      const nextPackage: ResourcePackage = {
+        id: transfer.transfer_id,
+        type: transfer.resource_type,
+        path,
+        progress: 0,
+        startTime,
+        duration
+      };
+      return [...prev, nextPackage];
+    });
+  }, [features, fallbackCenter, getFeatureCenter, getNearestHubCenter, isLoaded, roadFeaturesForPath]);
+
+  // Listen for transfer events
+  useEffect(() => {
+    const handleTransfer = (e: Event) => {
+      const customEvent = e as CustomEvent<ResourceTransferPayload>;
+      spawnResourceTransfer(customEvent.detail);
+    };
+
+    window.addEventListener("nightfall:resource_transfer", handleTransfer);
+    return () => window.removeEventListener("nightfall:resource_transfer", handleTransfer);
+  }, [spawnResourceTransfer]);
 
   // Animate resource packages
   useEffect(() => {
@@ -1132,7 +1794,7 @@ export default function DemoMap({
 
       for (const pkg of resourcePackages) {
         const elapsed = now - pkg.startTime;
-        const rawProgress = Math.min(1, elapsed / pkg.duration);
+        const rawProgress = Math.max(0, Math.min(1, elapsed / pkg.duration));
 
         if (rawProgress < 1) {
           // Update progress with easing
@@ -1199,19 +1861,53 @@ export default function DemoMap({
     };
   }, [resourcePackages, isLoaded]);
 
+  useEffect(() => {
+    if (!map.current || !isLoaded) return;
+    if (mapSize.width === 0 || mapSize.height === 0) return;
+    map.current.resize();
+  }, [isLoaded, mapSize.width, mapSize.height]);
+
+  const isTransitioning = cycle.phase_progress > 0.9;
+  const transitionOpacity = prefersReducedMotion ? 0 : isTransitioning ? 0.15 : 0;
+  const transitionGradient = getTransitionGradient(cycle.phase, cycle.next_phase);
+
+  const rootClassName = [
+    "relative overflow-hidden rounded-3xl border border-[var(--night-outline)] bg-[#101216] shadow-[0_20px_60px_rgba(0,0,0,0.5)]",
+    className
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <div className="relative overflow-hidden rounded-3xl border border-[var(--night-outline)] bg-[#101216] shadow-[0_20px_60px_rgba(0,0,0,0.5)]">
-      <div className="absolute top-0 z-10 flex w-full items-center justify-between border-b border-white/5 bg-[#101216]/80 px-6 py-4 text-sm uppercase tracking-[0.3em] text-[color:var(--night-ash)] backdrop-blur-md">
-        <span>Bar Harbor Tactical Map</span>
-        <span className="rounded-full border border-white/10 px-3 py-1 text-[0.65rem] tracking-[0.35em] text-[color:var(--night-teal)]">
-          Live Vector Stream
-        </span>
-      </div>
+    <div className={rootClassName}>
       <div
-        ref={mapContainer}
-        className="h-[640px] w-full transition-all duration-[2000ms] ease-in-out"
-        style={{ filter: PHASE_FILTERS[cycle.phase] }}
-      />
+        ref={mapShellRef}
+        className={`map-shell relative h-full min-h-[520px] w-full phase-${cycle.phase}`}
+      >
+        <div
+          className="phase-transition-overlay"
+          style={{
+            opacity: transitionOpacity,
+            background: transitionGradient
+          }}
+        />
+        <div
+          ref={mapContainer}
+          className="map-surface absolute inset-0"
+          style={{
+            filter: PHASE_FILTERS[cycle.phase],
+            transition: prefersReducedMotion
+              ? "none"
+              : "filter 2500ms cubic-bezier(0.4, 0, 0.2, 1)"
+          }}
+        />
+        <MapTooltip tooltip={tooltipData} containerSize={mapSize} />
+        {children ? (
+          <div className="absolute inset-0 z-30">
+            {children}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

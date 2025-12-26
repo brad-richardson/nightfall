@@ -1,7 +1,6 @@
 import type { FastifyInstance, FastifyServerOptions } from "fastify";
 import Fastify from "fastify";
 import { createHmac } from "crypto";
-import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import { getConfig } from "./config";
@@ -53,6 +52,10 @@ const MATERIAL_CATEGORIES = [
 
 const OVERTURE_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // daily refresh is sufficient; releases are monthly
 let overtureLatestCache: { value: string; fetchedAt: number } | null = null;
+
+export function resetOvertureCacheForTests() {
+  overtureLatestCache = null;
+}
 
 type DbHealth = {
   ok: boolean;
@@ -122,6 +125,25 @@ function parseTypes(value?: string) {
   return types.length > 0 ? types : null;
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function haversineDistanceMeters(a: [number, number], b: [number, number]) {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const [lng1, lat1] = a;
+  const [lng2, lat2] = b;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const radLat1 = toRad(lat1);
+  const radLat2 = toRad(lat2);
+
+  const sinDLat = Math.sin(dLat / 2);
+  const sinDLng = Math.sin(dLng / 2);
+  const h = sinDLat * sinDLat + Math.cos(radLat1) * Math.cos(radLat2) * sinDLng * sinDLng;
+  return 6371000 * (2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h)));
+}
+
 function getNextReset(now: Date) {
   const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const day = next.getUTCDay();
@@ -157,6 +179,35 @@ function normalizeOvertureRelease(raw?: string | null): string | null {
   return match ? match[1] : null;
 }
 
+async function readOvertureReleaseFromDb(): Promise<string | null> {
+  try {
+    const pool = getPool();
+    const result = await pool.query<{ release: string | null }>(
+      "SELECT value->>'release' AS release FROM world_meta WHERE key = 'overture_release'"
+    );
+    return result.rows[0]?.release ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeOvertureReleaseToDb(release: string): Promise<void> {
+  try {
+    const pool = getPool();
+    await pool.query(
+      `
+      INSERT INTO world_meta (key, value, updated_at)
+      VALUES ('overture_release', jsonb_build_object('release', $1, 'fetched_at', now()), now())
+      ON CONFLICT (key) DO UPDATE
+      SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at
+      `,
+      [release]
+    );
+  } catch {
+    // best-effort cache only
+  }
+}
+
 async function fetchOvertureLatest(): Promise<string | null> {
   const now = Date.now();
   if (overtureLatestCache && now - overtureLatestCache.fetchedAt < OVERTURE_CACHE_TTL_MS) {
@@ -183,10 +234,16 @@ async function fetchOvertureLatest(): Promise<string | null> {
     const release = fromLatestField ?? fromLinks;
     if (release) {
       overtureLatestCache = { value: release, fetchedAt: now };
+      await writeOvertureReleaseToDb(release);
       return release;
     }
   } catch (error) {
     // Swallow and fall back to cache; logger not available here
+  }
+
+  const cachedRelease = await readOvertureReleaseFromDb();
+  if (cachedRelease) {
+    return cachedRelease;
   }
 
   return overtureLatestCache?.value ?? null;
@@ -197,7 +254,6 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   const config = getConfig();
   let sseClients = 0;
 
-  app.register(cors);
   app.register(helmet);
   app.register(rateLimit, {
     global: true,
@@ -206,6 +262,15 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   });
 
   const eventStream = options.eventStream ?? createDbEventStream(getPool(), app.log);
+
+  app.addHook("onSend", (request, reply, payload, done) => {
+    const url = request.raw.url ?? "";
+    if (url.startsWith("/api/") && !url.startsWith("/api/stream")) {
+      reply.header("Cache-Control", "no-store");
+      reply.header("Pragma", "no-cache");
+    }
+    done(null, payload);
+  });
 
   app.setErrorHandler((error, _request, reply) => {
     app.log.error(error);
@@ -249,7 +314,8 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     const once = request.headers["x-sse-once"] === "1";
 
     reply.raw.setHeader("Content-Type", "text/event-stream");
-    reply.raw.setHeader("Cache-Control", "no-cache");
+    reply.raw.setHeader("Cache-Control", "no-store");
+    reply.raw.setHeader("Pragma", "no-cache");
     reply.raw.setHeader("Connection", "keep-alive");
     reply.raw.flushHeaders?.();
     reply.hijack();
@@ -553,7 +619,9 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     const featuresResult = await pool.query<{
       gers_id: string;
       feature_type: string;
+      h3_index: string | null;
       bbox: number[] | null;
+      geometry: unknown;
       health: number | null;
       status: string | null;
       road_class: string | null;
@@ -566,7 +634,9 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       SELECT
         wf.gers_id,
         wf.feature_type,
+        wf.h3_index,
         json_build_array(wf.bbox_xmin, wf.bbox_ymin, wf.bbox_xmax, wf.bbox_ymax) as bbox,
+        ST_AsGeoJSON(wf.geom)::json as geometry,
         fs.health,
         fs.status,
         wf.road_class,
@@ -686,12 +756,14 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       region_id?: string;
       labor?: number;
       materials?: number;
+      source_gers_id?: string;
     } | undefined;
 
     const clientId = body?.client_id?.trim();
     const regionId = body?.region_id?.trim();
     const labor = Number(body?.labor ?? 0);
     const materials = Number(body?.materials ?? 0);
+    const sourceGersId = body?.source_gers_id?.trim();
     const authHeader = request.headers["authorization"];
 
     if (!clientId || !regionId) {
@@ -778,12 +850,189 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       const appliedLabor = Math.floor(allowedLabor * multiplier);
       const appliedMaterials = Math.floor(allowedMaterials * multiplier);
 
-      const regionUpdate = await pool.query<{
-        pool_labor: number;
-        pool_materials: number;
+      const sourceResult = sourceGersId
+        ? await pool.query<{
+            gers_id: string;
+            h3_index: string | null;
+            bbox_xmin: number | null;
+            bbox_xmax: number | null;
+            bbox_ymin: number | null;
+            bbox_ymax: number | null;
+          }>(
+            `
+            SELECT
+              gers_id,
+              h3_index,
+              bbox_xmin,
+              bbox_xmax,
+              bbox_ymin,
+              bbox_ymax
+            FROM world_features
+            WHERE gers_id = $1
+              AND region_id = $2
+              AND feature_type = 'building'
+            `,
+            [sourceGersId, regionId]
+          )
+        : null;
+
+      if (sourceGersId && sourceResult?.rows.length === 0) {
+        await pool.query("ROLLBACK");
+        reply.status(400);
+        return { ok: false, error: "invalid_source_gers_id" };
+      }
+
+      const fallbackSource = await pool.query<{
+        gers_id: string;
+        h3_index: string | null;
+        bbox_xmin: number | null;
+        bbox_xmax: number | null;
+        bbox_ymin: number | null;
+        bbox_ymax: number | null;
       }>(
-        "UPDATE regions SET pool_labor = pool_labor + $2, pool_materials = pool_materials + $3, updated_at = now() WHERE region_id = $1 RETURNING pool_labor, pool_materials",
-        [regionId, appliedLabor, appliedMaterials]
+        `
+        SELECT
+          wf.gers_id,
+          wf.h3_index,
+          wf.bbox_xmin,
+          wf.bbox_xmax,
+          wf.bbox_ymin,
+          wf.bbox_ymax
+        FROM world_features AS wf
+        WHERE wf.region_id = $1
+          AND wf.is_hub IS TRUE
+        ORDER BY wf.created_at ASC
+        LIMIT 1
+        `,
+        [regionId]
+      );
+
+      const source = sourceResult?.rows[0] ?? fallbackSource.rows[0];
+      if (
+        !source ||
+        source.bbox_xmin === null ||
+        source.bbox_xmax === null ||
+        source.bbox_ymin === null ||
+        source.bbox_ymax === null
+      ) {
+        await pool.query("ROLLBACK");
+        reply.status(404);
+        return { ok: false, error: "source_not_found" };
+      }
+
+      const sourceCenter: [number, number] = [
+        (source.bbox_xmin + source.bbox_xmax) / 2,
+        (source.bbox_ymin + source.bbox_ymax) / 2
+      ];
+
+      const hubResult = source.h3_index
+        ? await pool.query<{
+            gers_id: string;
+            bbox_xmin: number | null;
+            bbox_xmax: number | null;
+            bbox_ymin: number | null;
+            bbox_ymax: number | null;
+          }>(
+            `
+            SELECT
+              hub.gers_id,
+              hub.bbox_xmin,
+              hub.bbox_xmax,
+              hub.bbox_ymin,
+              hub.bbox_ymax
+            FROM hex_cells AS h
+            JOIN world_features AS hub ON hub.gers_id = h.hub_building_gers_id
+            WHERE h.h3_index = $1
+            `,
+            [source.h3_index]
+          )
+        : null;
+
+      const hub = hubResult?.rows[0] ?? fallbackSource.rows[0];
+      if (
+        !hub ||
+        hub.bbox_xmin === null ||
+        hub.bbox_xmax === null ||
+        hub.bbox_ymin === null ||
+        hub.bbox_ymax === null
+      ) {
+        await pool.query("ROLLBACK");
+        reply.status(404);
+        return { ok: false, error: "hub_not_found" };
+      }
+
+      const hubCenter: [number, number] = [
+        (hub.bbox_xmin + hub.bbox_xmax) / 2,
+        (hub.bbox_ymin + hub.bbox_ymax) / 2
+      ];
+
+      const distanceMeters = haversineDistanceMeters(sourceCenter, hubCenter);
+      const travelSeconds = clamp(
+        (distanceMeters * config.RESOURCE_DISTANCE_MULTIPLIER) / config.RESOURCE_TRAVEL_MPS,
+        config.RESOURCE_TRAVEL_MIN_S,
+        config.RESOURCE_TRAVEL_MAX_S
+      );
+
+      const transferRows: Array<{ type: string; amount: number }> = [];
+      if (appliedLabor > 0) transferRows.push({ type: "labor", amount: appliedLabor });
+      if (appliedMaterials > 0) transferRows.push({ type: "materials", amount: appliedMaterials });
+
+      if (transferRows.length === 0) {
+        await pool.query("ROLLBACK");
+        reply.status(400);
+        return { ok: false, error: "empty_contribution" };
+      }
+
+      const types = transferRows.map((row) => row.type);
+      const amounts = transferRows.map((row) => row.amount);
+
+      const transferResult = await pool.query<{
+        transfer_id: string;
+        region_id: string;
+        source_gers_id: string | null;
+        hub_gers_id: string | null;
+        resource_type: "labor" | "materials";
+        amount: number;
+        depart_at: string;
+        arrive_at: string;
+      }>(
+        `
+        INSERT INTO resource_transfers (
+          region_id,
+          source_gers_id,
+          hub_gers_id,
+          resource_type,
+          amount,
+          depart_at,
+          arrive_at
+        )
+        SELECT
+          $1,
+          $2,
+          $3,
+          resource_type,
+          amount,
+          now(),
+          now() + ($4 || ' seconds')::interval
+        FROM UNNEST($5::text[], $6::int[]) AS t(resource_type, amount)
+        RETURNING
+          transfer_id,
+          region_id,
+          source_gers_id,
+          hub_gers_id,
+          resource_type,
+          amount,
+          depart_at::text,
+          arrive_at::text
+        `,
+        [
+          regionId,
+          source.gers_id,
+          hub.gers_id,
+          travelSeconds,
+          types,
+          amounts
+        ]
       );
 
       await pool.query(
@@ -801,23 +1050,29 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
             materials: allowedMaterials,
             applied_labor: appliedLabor,
             applied_materials: appliedMaterials,
-            taxed
+            taxed,
+            source_gers_id: source.gers_id,
+            hub_gers_id: hub.gers_id
           })
         ]
       );
 
-      await pool.query("COMMIT");
+      for (const transfer of transferResult.rows) {
+        await pool.query("SELECT pg_notify($1, $2)", [
+          "resource_transfer",
+          JSON.stringify(transfer)
+        ]);
+      }
 
-      const updatedPools = regionUpdate.rows[0];
+      await pool.query("COMMIT");
 
       return {
         ok: true,
-        new_pool_labor: updatedPools?.pool_labor ?? 0,
-        new_pool_materials: updatedPools?.pool_materials ?? 0,
         applied_labor: appliedLabor,
         applied_materials: appliedMaterials,
         remaining_labor: Math.max(0, remainingLabor - allowedLabor),
-        remaining_materials: Math.max(0, remainingMaterials - allowedMaterials)
+        remaining_materials: Math.max(0, remainingMaterials - allowedMaterials),
+        transfers: transferResult.rows
       };
     } catch (error) {
       await pool.query("ROLLBACK");

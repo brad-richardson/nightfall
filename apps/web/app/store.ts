@@ -12,10 +12,11 @@ export type CycleState = {
 export type Feature = {
   gers_id: string;
   feature_type: string;
+  h3_index?: string | null;
   bbox: [number, number, number, number] | null;
   geometry?: {
-    type: "Point" | "LineString" | "Polygon" | "MultiPolygon";
-    coordinates: number[] | number[][] | number[][][] | number[][][][];
+    type: "Point" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+    coordinates: number[] | number[][] | number[][][] | number[][][][] | number[][][][];
   } | null;
   health?: number | null;
   status?: string | null;

@@ -13,7 +13,9 @@ const eventHandlers: Array<(payload: { event: string; data: unknown }) => void> 
 
 vi.mock("./DemoMap", () => ({
   __esModule: true,
-  default: () => <div data-testid="demo-map" />
+  default: ({ children }: { children?: React.ReactNode }) => (
+    <div data-testid="demo-map">{children}</div>
+  )
 }));
 vi.mock("./FeaturePanel", () => ({ default: () => <div data-testid="feature-panel" /> }));
 vi.mock("./TaskList", () => ({ default: () => <div data-testid="task-list" /> }));
@@ -205,5 +207,14 @@ describe("Dashboard live events", () => {
       expect(cycle.phase).toBe("night");
       expect(cycle.phase_progress).toBeCloseTo(0.5);
     });
+  });
+
+  it("renders map overlays inside the map container", () => {
+    renderDashboard();
+
+    expect(document.querySelector('[data-testid="demo-map"]')).not.toBeNull();
+    expect(document.body.textContent).toContain("Nightfall Ops Console");
+    expect(document.body.textContent).toContain("Resource Pools");
+    expect(document.body.textContent).toContain("Operations Queue");
   });
 });

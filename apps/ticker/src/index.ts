@@ -10,7 +10,7 @@ import { syncCycleState } from "./cycle-store";
 import { getPhaseMultipliers, applyDemoMultiplier } from "./multipliers";
 import { applyRustSpread, type RustUpdate } from "./rust";
 import { applyRoadDecay } from "./decay";
-import { generateRegionResources } from "./resources";
+import { enqueueResourceTransfers, applyArrivedResourceTransfers, type ResourceTransfer } from "./resources";
 import { dispatchCrews, completeFinishedTasks } from "./crews";
 import { spawnDegradedRoadTasks, updateTaskPriorities } from "./tasks";
 import type { FeatureDelta, TaskDelta } from "./deltas";
@@ -18,13 +18,20 @@ import { notifyEvent } from "./notify";
 import { getDemoConfig } from "./demo";
 import { simulateBots } from "./bots";
 import { checkAndPerformReset } from "./reset";
+import { cleanupOldData } from "./cleanup";
+import { attachPoolErrorHandler } from "./pool";
 
 const intervalMs = Number(process.env.TICK_INTERVAL_MS ?? 10_000);
 const lockId = Number(process.env.TICK_LOCK_ID ?? 424242);
+const cleanupIntervalMs = Number(process.env.CLEANUP_INTERVAL_MS ?? 60 * 60 * 1000);
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL
 });
+
+attachPoolErrorHandler(pool, logger);
+
+let lastCleanupMs = 0;
 
 type RegionSnapshot = {
   region_id: string;
@@ -96,6 +103,12 @@ async function publishTaskDeltas(client: PoolLike, deltas: TaskDelta[]) {
   }
 }
 
+async function publishResourceTransfers(client: PoolLike, transfers: ResourceTransfer[]) {
+  for (const transfer of transfers) {
+    await notifyEvent(client, "resource_transfer", transfer);
+  }
+}
+
 async function publishFeedItems(
   client: PoolLike,
   items: { event_type: string; region_id: string | null; message: string; ts: string }[]
@@ -106,6 +119,7 @@ async function publishFeedItems(
 }
 
 async function runTick(client: PoolLike) {
+  const now = Date.now();
   await checkAndPerformReset(client);
 
   const demoConfig = await getDemoConfig(client);
@@ -118,7 +132,8 @@ async function runTick(client: PoolLike) {
 
   const rustHexes = await applyRustSpread(client, multipliers);
   const decayFeatureDeltas = await applyRoadDecay(client, multipliers);
-  const regionIds = await generateRegionResources(client, multipliers);
+  const resourceTransfers = await enqueueResourceTransfers(client, multipliers);
+  const arrivalResult = await applyArrivedResourceTransfers(client);
   const spawnedTasks = await spawnDegradedRoadTasks(client);
   const priorityUpdates = await updateTaskPriorities(client);
   const dispatchResult = await dispatchCrews(client, multipliers);
@@ -129,7 +144,7 @@ async function runTick(client: PoolLike) {
   await publishWorldDelta(
     client,
     [...rustHexes, ...completionResult.rustHexes],
-    [...regionIds, ...dispatchResult.regionIds, ...completionResult.regionIds]
+    [...arrivalResult.regionIds, ...dispatchResult.regionIds, ...completionResult.regionIds]
   );
 
   await publishFeatureDeltas(client, [
@@ -145,11 +160,28 @@ async function runTick(client: PoolLike) {
     ...completionResult.taskDeltas
   ]);
 
+  await publishResourceTransfers(client, resourceTransfers);
   await publishFeedItems(client, completionResult.feedItems);
+
+  if (
+    Number.isFinite(cleanupIntervalMs) &&
+    cleanupIntervalMs > 0 &&
+    now - lastCleanupMs >= cleanupIntervalMs
+  ) {
+    try {
+      const stats = await cleanupOldData(client);
+      lastCleanupMs = now;
+      logger.info({ ...stats }, "cleanup complete");
+    } catch (error) {
+      logger.error({ err: error }, "cleanup failed");
+    }
+  }
 
   logger.info({
     rust_spread_count: rustHexes.length,
     decay_updates: decayFeatureDeltas.length,
+    resource_transfers: resourceTransfers.length,
+    resource_arrivals: arrivalResult.regionIds.length,
     tasks_spawned: spawnedTasks.length,
     tasks_updated: priorityUpdates.length,
     crews_dispatched: dispatchResult.taskDeltas.length,

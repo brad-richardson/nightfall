@@ -53,4 +53,21 @@ describe("syncCycleState", () => {
     );
     expect(notifyCall).toBeTruthy();
   });
+
+  it("casts cycle_state payload parameters to text", async () => {
+    const now = new Date("2025-01-01T00:01:00.000Z");
+
+    const query = vi.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValue({ rows: [] });
+
+    await syncCycleState({ query }, logger, 1, now);
+
+    const insertCall = query.mock.calls.find((call) =>
+      String(call[0]).includes("INSERT INTO world_meta")
+    );
+
+    expect(insertCall).toBeTruthy();
+    expect(String(insertCall?.[0])).toContain("$1::text");
+    expect(String(insertCall?.[0])).toContain("$2::text");
+    expect(String(insertCall?.[0])).toContain("$3::text");
+  });
 });

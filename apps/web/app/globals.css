@@ -70,3 +70,193 @@ body {
 .map-feature {
   animation: rise-in 0.6s ease both;
 }
+
+@keyframes dawn-rays {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.85; }
+}
+
+@keyframes night-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 0.9; }
+}
+
+@keyframes dusk-glow {
+  0% { opacity: 0.4; }
+  100% { opacity: 0.75; }
+}
+
+.map-shell {
+  position: relative;
+  overflow: hidden;
+}
+
+.map-shell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.map-shell.phase-dawn::after {
+  background: radial-gradient(circle at 70% 30%, rgba(255, 200, 100, 0.12) 0%, transparent 60%);
+  animation: dawn-rays 8s ease-in-out infinite;
+}
+
+.map-shell.phase-night::after {
+  background: radial-gradient(circle at 50% 50%, rgba(100, 100, 200, 0.08) 0%, transparent 80%);
+  animation: night-pulse 6s ease-in-out infinite;
+}
+
+.map-shell.phase-dusk::after {
+  background: radial-gradient(circle at 30% 70%, rgba(255, 140, 90, 0.12) 0%, transparent 65%);
+  animation: dusk-glow 7s ease-in-out infinite;
+}
+
+.phase-transition-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+  transition: opacity 1000ms ease-in-out;
+}
+
+.map-tooltip {
+  position: absolute;
+  background: rgba(25, 23, 16, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 12px;
+  pointer-events: none;
+  z-index: 20;
+  min-width: 180px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  animation: tooltip-fade-in 0.15s ease-out;
+}
+
+@keyframes tooltip-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.tooltip-header {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.tooltip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.tooltip-label {
+  color: rgba(255, 255, 255, 0.6);
+  margin-right: 12px;
+}
+
+.tooltip-value {
+  color: #fff;
+  font-weight: 500;
+}
+
+.status-badge {
+  padding: 2px 8px;
+  background: rgba(62, 176, 192, 0.2);
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.tooltip-tags {
+  display: flex;
+  gap: 4px;
+}
+
+.tag {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.tag.labor {
+  background: rgba(62, 176, 192, 0.2);
+  color: #3eb0c0;
+}
+
+.tag.materials {
+  background: rgba(240, 138, 78, 0.2);
+  color: #f08a4e;
+}
+
+.regional-health-ring {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  z-index: 12;
+  background: rgba(25, 23, 16, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 12px;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.regional-health-ring.map-overlay-ring {
+  position: static;
+  bottom: auto;
+  left: auto;
+  transform: none;
+  margin: 0 auto;
+}
+
+.ring-label {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.rust-label {
+  font-weight: 500;
+}
+
+@media (max-width: 640px) {
+  .regional-health-ring {
+    bottom: 12px;
+    left: 12px;
+    transform: scale(0.9);
+    transform-origin: left bottom;
+  }
+
+  .regional-health-ring.map-overlay-ring {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .map-shell::after,
+  .phase-transition-overlay,
+  .map-tooltip {
+    animation: none;
+    transition: none;
+  }
+
+  .regional-health-ring circle {
+    transition: none;
+  }
+}

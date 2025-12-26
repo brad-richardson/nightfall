@@ -40,6 +40,16 @@ The only thing that seems to help is activity. Movement. Maintenance. Roads that
 
 ---
 
+## Implementation Status (Dec 2025)
+
+- Runtime split: `apps/web` (Next.js App Router UI), `apps/api` (Fastify API + SSE), `apps/ticker` (Node tick worker with advisory lock).
+- Map is the primary UI surface with in-map overlays (header, pools, health ring, task list, resource ticker, activity feed); mobile uses a bottom sheet.
+- UI enhancements merged: task highlighting, phase transition overlays, hover tooltips, rust breathing, crew travel paths, regional health ring, task list search/filter/sort.
+- Resource transfers are in-transit: `resource_transfers` table queues transfers; pools update on arrival; SSE `resource_transfer` drives client animations.
+- Road routing helper `apps/web/app/lib/roadRouting.ts` builds a simple graph from road geometry for pathing animations.
+- Ops constraints: low-memory host; API responses use `Cache-Control: no-store`; tile release is fetched dynamically and only cached in DB as `world_meta.overture_release`.
+- Ticker performs periodic cleanup of old `events` and `resource_transfers` (hourly by default).
+
 ## 1. Data Model (Postgres)
 
 ### regions
@@ -214,6 +224,30 @@ CREATE INDEX events_ts_idx ON events(ts DESC);
 CREATE INDEX events_region_idx ON events(region_id);
 ```
 
+### resource_transfers
+
+Track in-transit resources from buildings to hubs; pools update on arrival.
+
+```sql
+CREATE TABLE resource_transfers (
+  transfer_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  region_id TEXT NOT NULL REFERENCES regions(region_id),
+  source_gers_id TEXT REFERENCES world_features(gers_id),
+  hub_gers_id TEXT REFERENCES world_features(gers_id),
+  resource_type TEXT NOT NULL, -- labor | materials
+  amount INT NOT NULL CHECK (amount > 0),
+  status TEXT NOT NULL DEFAULT 'in_transit',
+  depart_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  arrive_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX resource_transfers_region_status_idx
+  ON resource_transfers(region_id, status, arrive_at);
+CREATE INDEX resource_transfers_arrive_idx
+  ON resource_transfers(arrive_at) WHERE status = 'in_transit';
+```
+
 ### world_meta
 
 Global world state and reset tracking.
@@ -228,6 +262,8 @@ CREATE TABLE world_meta (
 -- Initial values:
 -- 'last_reset' -> { "ts": "2025-01-01T00:00:00Z", "version": 1 }
 -- 'demo_mode' -> { "enabled": false, "tick_multiplier": 1 }
+-- 'cycle_state' -> { "phase": "day", "phase_start": "...", "cycle_start": "..." }
+-- 'overture_release' -> { "release": "YYYY-MM-DD", "fetched_at": "..." }
 ```
 
 ---
@@ -486,27 +522,31 @@ def tick(now):
         if road.health < 30:
             road.status = 'degraded'
     
-    # 3. Generate resources (higher during day)
+    # 3. Generate resources and enqueue transfers (higher during day)
     for region in regions:
-        labor = 0
-        materials = 0
         for building in labor_buildings(region):
             rust = get_hex_rust(building.h3_index)
-            labor += 1 * (1 - rust) * phase_mults['generation']
+            labor = 1 * (1 - rust) * phase_mults['generation']
+            enqueue_transfer(building, labor, "labor")
         for building in material_buildings(region):
             rust = get_hex_rust(building.h3_index)
-            materials += 1 * (1 - rust) * phase_mults['generation']
-        region.pool_labor += labor * tick_multiplier
-        region.pool_materials += materials * tick_multiplier
+            materials = 1 * (1 - rust) * phase_mults['generation']
+            enqueue_transfer(building, materials, "materials")
+
+    # 4. Apply arrived transfers to region pools
+    for transfer in transfers_arrived(now):
+        region.pool_labor += transfer.labor
+        region.pool_materials += transfer.materials
+        transfer.status = 'arrived'
     
-    # 4. Spawn tasks for degraded roads without active tasks
+    # 5. Spawn tasks for degraded roads without active tasks
     for road in degraded_roads_without_tasks():
         create_task(road)
     
-    # 5. Update task priorities (with vote decay)
+    # 6. Update task priorities (with vote decay)
     update_all_task_priorities(now)
     
-    # 6. Dispatch idle crews
+    # 7. Dispatch idle crews
     for crew in idle_crews():
         task = highest_priority_affordable_task(crew.region)
         if task:
@@ -519,7 +559,7 @@ def tick(now):
             task.status = 'active'
             road.status = 'repairing'
     
-    # 7. Complete finished tasks
+    # 8. Complete finished tasks
     for crew in crews_past_deadline(now):
         task = crew.active_task
         road = task.target_road
@@ -537,6 +577,9 @@ def tick(now):
         crew.active_task_id = None
         
         log_event('task_complete', task)
+
+    # 9. Cleanup old events/transfers (periodic)
+    cleanup_old_events_and_transfers(now)
     
     # 8. Check for phase transitions and emit events
     if phase_just_changed():
@@ -791,6 +834,11 @@ POST /api/admin/set-phase
 └─────────────────────┘
 ```
 
+**Current implementation (merged UI plan)**
+- Map fills the viewport; header + metrics are rendered as map overlays.
+- Desktop: floating panels for pools, health ring, task list, resource ticker, and attribution.
+- Mobile: bottom sheet drawer retains the sidebar content.
+
 ### Day/Night Cycle UI
 
 **Phase indicator (always visible)**
@@ -818,7 +866,7 @@ POST /api/admin/set-phase
 **Touch targets**: Minimum 44x44px for all interactive elements.
 
 **Feature selection**:
-- Desktop: Hover shows tooltip, click selects
+- Desktop: Hover shows tooltip (feature type, health, task status), click selects
 - Mobile: Tap selects (no hover state)
 
 **Gestures**:
@@ -828,9 +876,9 @@ POST /api/admin/set-phase
 - Single tap on feature to select
 
 **Selected feature panel**:
-- Shows feature details (health, road class, rust level)
-- Action buttons: "Vote Up", "Vote Down" (for tasks)
-- Contribution button (if building/region context)
+- Shows feature details (health, road class, rust level) and active task status
+- Action buttons: "Vote Up" for active tasks
+- Contribution buttons for resource-generating buildings (dispatch to hub)
 
 ### Map Layers
 

@@ -1,6 +1,10 @@
 import Dashboard from "./components/Dashboard";
 import { type Region, type Feature, type Hex } from "./store";
 import { BAR_HARBOR_DEMO_BBOX, type Bbox } from "@nightfall/config";
+import { fetchWithRetry } from "./lib/retry";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type Boundary =
   | { type: "Polygon"; coordinates: number[][][] }
@@ -25,12 +29,17 @@ type WorldResponse = {
 };
 
 const DEMO_REGION_ID = "bar_harbor_me_usa_demo";
-const API_BASE_URL = process.env.API_BASE_URL || "http://localhost:3001";
-const DEFAULT_RELEASE = "2025-12-17";
+const SERVER_API_BASE_URL = process.env.API_BASE_URL || "http://localhost:3001";
+const CLIENT_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+const FETCH_RETRY_OPTIONS = { attempts: 3, baseDelayMs: 250, maxDelayMs: 2000, jitter: 0.2 };
 
 async function fetchRegion(regionId: string): Promise<RegionResponse | null> {
   try {
-    const res = await fetch(`${API_BASE_URL}/api/region/${regionId}`, { cache: "no-store" });
+    const res = await fetchWithRetry(
+      `${SERVER_API_BASE_URL}/api/region/${regionId}`,
+      { cache: "no-store" },
+      FETCH_RETRY_OPTIONS
+    );
     if (!res.ok) return null;
     return (await res.json()) as RegionResponse;
   } catch {
@@ -40,7 +49,11 @@ async function fetchRegion(regionId: string): Promise<RegionResponse | null> {
 
 async function fetchWorld(): Promise<WorldResponse | null> {
   try {
-    const res = await fetch(`${API_BASE_URL}/api/world`, { cache: "no-store" });
+    const res = await fetchWithRetry(
+      `${SERVER_API_BASE_URL}/api/world`,
+      { cache: "no-store" },
+      FETCH_RETRY_OPTIONS
+    );
     if (!res.ok) return null;
     return (await res.json()) as WorldResponse;
   } catch {
@@ -51,9 +64,10 @@ async function fetchWorld(): Promise<WorldResponse | null> {
 async function fetchFeatures(bbox: Bbox): Promise<Feature[]> {
   try {
     const bboxParam = `${bbox.xmin},${bbox.ymin},${bbox.xmax},${bbox.ymax}`;
-    const res = await fetch(
-      `${API_BASE_URL}/api/features?bbox=${bboxParam}&types=road,building`,
-      { cache: "no-store" }
+    const res = await fetchWithRetry(
+      `${SERVER_API_BASE_URL}/api/features?bbox=${bboxParam}&types=road,building`,
+      { cache: "no-store" },
+      FETCH_RETRY_OPTIONS
     );
     if (!res.ok) return [];
     const data = (await res.json()) as { features?: Feature[] };
@@ -66,7 +80,11 @@ async function fetchFeatures(bbox: Bbox): Promise<Feature[]> {
 async function fetchHexes(bbox: Bbox): Promise<Hex[]> {
   try {
     const bboxParam = `${bbox.xmin},${bbox.ymin},${bbox.xmax},${bbox.ymax}`;
-    const res = await fetch(`${API_BASE_URL}/api/hexes?bbox=${bboxParam}`, { cache: "no-store" });
+    const res = await fetchWithRetry(
+      `${SERVER_API_BASE_URL}/api/hexes?bbox=${bboxParam}`,
+      { cache: "no-store" },
+      FETCH_RETRY_OPTIONS
+    );
     if (!res.ok) return [];
     const data = await res.json();
     return data.hexes ?? [];
@@ -75,9 +93,13 @@ async function fetchHexes(bbox: Bbox): Promise<Hex[]> {
   }
 }
 
-async function fetchOvertureRelease(): Promise<string> {
+async function fetchOvertureRelease(): Promise<string | null> {
   try {
-    const res = await fetch(`${API_BASE_URL}/api/overture-latest`, { cache: "no-store" });
+    const res = await fetchWithRetry(
+      `${SERVER_API_BASE_URL}/api/overture-latest`,
+      { cache: "no-store" },
+      FETCH_RETRY_OPTIONS
+    );
     if (res.ok) {
       const data = (await res.json()) as OvertureResponse;
       if (data.release) return data.release;
@@ -85,7 +107,7 @@ async function fetchOvertureRelease(): Promise<string> {
   } catch {
     // ignore and fall back
   }
-  return DEFAULT_RELEASE;
+  return null;
 }
 
 function getBoundaryBbox(boundary: Boundary | null): Bbox | null {
@@ -134,6 +156,17 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
     fetchOvertureRelease()
   ]);
 
+  if (!overtureRelease) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[color:var(--night-sand)] text-[color:var(--night-ink)]">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold">Awaiting Map Data...</h1>
+          <p className="mt-2 opacity-60">Overture tiles are temporarily unavailable.</p>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_var(--night-glow),_var(--night-sand))]">
       <Dashboard
@@ -143,7 +176,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
         initialCycle={world.cycle}
         availableRegions={world.regions}
         isDemoMode={world.demo_mode}
-        apiBaseUrl={API_BASE_URL}
+        apiBaseUrl={CLIENT_API_BASE_URL}
         pmtilesRelease={overtureRelease}
       />
     </main>

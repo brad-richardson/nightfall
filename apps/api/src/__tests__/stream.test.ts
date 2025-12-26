@@ -29,6 +29,8 @@ describe("event stream", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.headers["content-type"]).toContain("text/event-stream");
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.headers["pragma"]).toBe("no-cache");
     expect(response.body).toContain("event: phase_change");
     expect(response.body).toContain("\"phase\":\"night\"");
 
