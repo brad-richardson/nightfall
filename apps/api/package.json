@@ -17,7 +17,7 @@
     "@fastify/rate-limit": "^10.3.0",
     "@nightfall/config": "workspace:*",
     "dotenv": "^16.6.1",
-    "fastify": "^4.28.0",
+    "fastify": "^5.6.2",
     "pg": "^8.12.0",
     "zod": "^4.2.1"
   },

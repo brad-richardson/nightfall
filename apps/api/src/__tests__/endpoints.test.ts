@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createHmac } from "crypto";
 import { buildServer } from "../server";
 
 let queryMock = vi.fn();
@@ -8,6 +9,12 @@ vi.mock("../db", () => ({
   getPool: () => ({ query: (...args: unknown[]) => queryMock(...args) }),
   closePool: () => closePoolMock()
 }));
+
+function getTestToken(clientId: string) {
+  const hmac = createHmac("sha256", "dev-secret-do-not-use-in-prod");
+  hmac.update(clientId);
+  return hmac.digest("hex");
+}
 
 describe("api endpoints", () => {
   beforeEach(() => {
@@ -167,6 +174,7 @@ describe("api endpoints", () => {
     const response = await app.inject({
       method: "POST",
       url: "/api/set-home",
+      headers: { authorization: `Bearer ${getTestToken("client-1")}` },
       payload: { client_id: "client-1", region_id: "region-1" }
     });
 
@@ -197,6 +205,7 @@ describe("api endpoints", () => {
     const response = await app.inject({
       method: "POST",
       url: "/api/contribute",
+      headers: { authorization: `Bearer ${getTestToken("client-1")}` },
       payload: { client_id: "client-1", region_id: "region-1", labor: 10, materials: 20 }
     });
 
@@ -226,6 +235,7 @@ describe("api endpoints", () => {
     const response = await app.inject({
       method: "POST",
       url: "/api/vote",
+      headers: { authorization: `Bearer ${getTestToken("client-1")}` },
       payload: { client_id: "client-1", task_id: "task-1", weight: 1 }
     });
 

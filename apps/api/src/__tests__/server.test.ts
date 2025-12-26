@@ -21,6 +21,7 @@ describe("api server", () => {
   });
 
   it("returns health with db unchecked when no DATABASE_URL", async () => {
+    delete process.env.DATABASE_URL;
     const app = buildServer();
     const response = await app.inject({ method: "GET", url: "/health" });
 

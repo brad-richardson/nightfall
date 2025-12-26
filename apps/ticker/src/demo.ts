@@ -7,7 +7,13 @@ export type DemoConfig = {
 };
 
 export async function getDemoConfig(client: PoolLike): Promise<DemoConfig> {
-  const result = await client.query<{ value: any }>(
+  const result = await client.query<{ 
+    value: { 
+      enabled?: boolean; 
+      tick_multiplier?: number; 
+      cycle_speed?: number; 
+    } 
+  }>(
     "SELECT value FROM world_meta WHERE key = 'demo_mode'"
   );
 

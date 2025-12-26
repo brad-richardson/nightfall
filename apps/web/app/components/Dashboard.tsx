@@ -335,6 +335,9 @@ export default function Dashboard({
                 </select>
               )}
             </div>
+            <h2 className="mt-2 text-sm font-medium tracking-[0.2em] text-[color:var(--night-moss)] uppercase">
+              The city endures. The nights get longer.
+            </h2>
           </div>
           
           <div className="flex items-center gap-4">

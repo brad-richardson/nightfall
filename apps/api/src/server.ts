@@ -133,7 +133,8 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
 
   app.setErrorHandler((error, _request, reply) => {
     app.log.error(error);
-    reply.status(500).send({ ok: false, error: "internal_error", message: error.message });
+    const message = error instanceof Error ? error.message : String(error);
+    reply.status(500).send({ ok: false, error: "internal_error", message });
   });
 
   app.get("/health", async () => {

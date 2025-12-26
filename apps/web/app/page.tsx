@@ -1,4 +1,5 @@
 import Dashboard from "./components/Dashboard";
+import { type Region, type Feature, type Hex } from "./store";
 
 type Bbox = {
   xmin: number;
@@ -11,52 +12,7 @@ type Boundary =
   | { type: "Polygon"; coordinates: number[][][] }
   | { type: "MultiPolygon"; coordinates: number[][][][] };
 
-type Feature = {
-  gers_id: string;
-  feature_type: string;
-  bbox: [number, number, number, number] | null;
-  health?: number | null;
-  status?: string | null;
-  road_class?: string | null;
-  place_category?: string | null;
-  generates_labor?: boolean;
-  generates_materials?: boolean;
-};
-
-type Task = {
-  task_id: string;
-  target_gers_id: string;
-  priority_score: number;
-  status: string;
-  vote_score: number;
-  cost_labor: number;
-  cost_materials: number;
-  duration_s: number;
-  repair_amount: number;
-  task_type: string;
-};
-
-type RegionResponse = {
-  region_id: string;
-  name: string;
-  boundary: Boundary | null;
-  pool_labor: number;
-  pool_materials: number;
-  crews: {
-    crew_id: string;
-    status: string;
-    active_task_id: string | null;
-    busy_until: string | null;
-  }[];
-  tasks: Task[];
-  stats: {
-    total_roads: number;
-    healthy_roads: number;
-    degraded_roads: number;
-    rust_avg: number;
-    health_avg: number;
-  };
-};
+type RegionResponse = Region;
 
 type WorldResponse = {
   demo_mode: boolean;
@@ -71,26 +27,6 @@ type WorldResponse = {
     region_id: string;
     name: string;
   }[];
-};
-// ...
-  return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_var(--night-glow),_var(--night-sand))]">
-      <Dashboard
-        initialRegion={region}
-        initialFeatures={features}
-        initialHexes={hexes}
-        initialCycle={world.cycle}
-        availableRegions={world.regions}
-        isDemoMode={world.demo_mode}
-        apiBaseUrl={API_BASE_URL}
-      />
-    </main>
-  );
-
-
-type Hex = {
-  h3_index: string;
-  rust_level: number;
 };
 
 const DEMO_REGION_ID = "bar_harbor_me_usa_demo";
@@ -169,8 +105,9 @@ function getBoundaryBbox(boundary: Boundary | null): Bbox | null {
   return { xmin, ymin, xmax, ymax };
 }
 
-export default async function HomePage({ searchParams }: { searchParams: { region?: string } }) {
-  const regionId = searchParams.region || DEMO_REGION_ID;
+export default async function HomePage({ searchParams }: { searchParams: Promise<{ region?: string }> }) {
+  const { region: regionParam } = await searchParams;
+  const regionId = regionParam || DEMO_REGION_ID;
 
   const [region, world] = await Promise.all([
     fetchRegion(regionId),
@@ -202,6 +139,7 @@ export default async function HomePage({ searchParams }: { searchParams: { regio
         initialHexes={hexes}
         initialCycle={world.cycle}
         availableRegions={world.regions}
+        isDemoMode={world.demo_mode}
         apiBaseUrl={API_BASE_URL}
       />
     </main>

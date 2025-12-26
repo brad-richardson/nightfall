@@ -13,7 +13,10 @@ export type Feature = {
   gers_id: string;
   feature_type: string;
   bbox: [number, number, number, number] | null;
-  geometry?: { type: "Point" | "LineString" | "Polygon" | "MultiPolygon"; coordinates: any } | null;
+  geometry?: { 
+    type: "Point" | "LineString" | "Polygon" | "MultiPolygon"; 
+    coordinates: number[] | number[][] | number[][][] | number[][][][];
+  } | null;
   health?: number | null;
   status?: string | null;
   road_class?: string | null;

@@ -13,6 +13,8 @@ import {
   type RegionConfig 
 } from "@nightfall/config";
 
+export { ROAD_CLASS_FILTER, REGION_CONFIGS, H3_RESOLUTION };
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 

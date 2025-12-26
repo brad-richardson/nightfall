@@ -11,7 +11,10 @@ type Feature = {
   gers_id: string;
   feature_type: string;
   bbox: [number, number, number, number] | null;
-  geometry?: { type: "Point" | "LineString" | "Polygon" | "MultiPolygon"; coordinates: any } | null;
+  geometry?: { 
+    type: "Point" | "LineString" | "Polygon" | "MultiPolygon"; 
+    coordinates: number[] | number[][] | number[][][] | number[][][][];
+  } | null;
   health?: number | null;
   status?: string | null;
   road_class?: string | null;
@@ -34,10 +37,6 @@ type Hex = {
   h3_index: string;
   rust_level: number;
 };
-
-type Boundary =
-  | { type: "Polygon"; coordinates: number[][][] }
-  | { type: "MultiPolygon"; coordinates: number[][][][] };
 
 type Bbox = {
   xmin: number;
@@ -625,7 +624,8 @@ export default function DemoMap({ features, hexes, crews, tasks, fallbackBbox, c
             console.error("Failed to calculate boundary for hex", h.h3_index, e);
             return null;
           }
-        }).filter((f): f is GeoJSON.Feature => f !== null)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        }).filter((f) => f !== null) as any
       });
     }
   }, [hexes, isLoaded]);
@@ -646,9 +646,9 @@ export default function DemoMap({ features, hexes, crews, tasks, fallbackBbox, c
             coords = [(feature.bbox[0] + feature.bbox[2])/2, (feature.bbox[1] + feature.bbox[3])/2];
         } else if (feature.geometry) {
              const g = feature.geometry;
-             if (g.type === 'Point') coords = g.coordinates;
-             else if (g.type === 'LineString') coords = g.coordinates[0];
-             else if (g.type === 'Polygon') coords = g.coordinates[0][0];
+             if (g.type === 'Point') coords = g.coordinates as [number, number];
+             else if (g.type === 'LineString') coords = (g.coordinates as number[][])[0] as [number, number];
+             else if (g.type === 'Polygon') coords = (g.coordinates as number[][][])[0][0] as [number, number];
         }
 
         if (!coords) return null;
@@ -658,7 +658,8 @@ export default function DemoMap({ features, hexes, crews, tasks, fallbackBbox, c
             geometry: { type: "Point", coordinates: coords },
             properties: { ...crew }
         };
-    }).filter((f): f is GeoJSON.Feature => f !== null);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }).filter((f) => f !== null) as any;
 
     const source = map.current.getSource("game-crews") as maplibregl.GeoJSONSource;
     if (source) {

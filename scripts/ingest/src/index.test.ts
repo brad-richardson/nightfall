@@ -51,7 +51,7 @@ describe("ingest roads query", () => {
     const classList = query.slice(start, end);
 
     expect(classList).toContain("'motorway'");
-    expect(classList).toContain("'track'");
+    expect(classList).toContain("'service'");
   });
 
   it("uses the expected h3 resolution", () => {
@@ -66,7 +66,7 @@ describe("ingest roads query", () => {
       "secondary",
       "tertiary",
       "residential",
-      "track"
+      "service"
     ]);
   });
 });

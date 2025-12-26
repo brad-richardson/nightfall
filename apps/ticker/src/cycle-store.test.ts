@@ -23,7 +23,7 @@ describe("syncCycleState", () => {
         ]
       });
 
-    await syncCycleState({ query }, logger, now);
+    await syncCycleState({ query }, logger, 1, now);
 
     expect(query).toHaveBeenCalledTimes(1);
     expect(query.mock.calls[0][0]).toContain("cycle_state");
@@ -46,7 +46,7 @@ describe("syncCycleState", () => {
       })
       .mockResolvedValue({ rows: [] });
 
-    await syncCycleState({ query }, logger, now);
+    await syncCycleState({ query }, logger, 1, now);
 
     const notifyCall = query.mock.calls.find((call) =>
       String(call[0]).includes("pg_notify") && call[1]?.[0] === "phase_change"
