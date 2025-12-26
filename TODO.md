@@ -11,6 +11,7 @@
 - [ ] Re-enable CORS with explicit allowlist + tests once deployment targets are stable.
 
 ## Future Immersion & Polish (Post-MVP)
+- [ ] Regional Broadcast Channels: Implement a second SSE channel per-region that broadcasts resource and crew movements specifically for real-time animations.
 - [ ] Map Performance: Implement clustering or advanced MapLibre styling for high feature density.
 - [ ] Soundscape: Add dynamic ambient audio that shifts with the day/night cycle.
 - [ ] Real-time Feedback: Implement optimistic UI and animations (e.g., framer-motion) for user actions.
