@@ -11,7 +11,7 @@ import type { EventStream } from "./event-stream";
 import { ROAD_CLASSES } from "@nightfall/config";
 
 const LAMBDA = 0.1;
-const CONTRIBUTION_LIMIT = 100;
+const CONTRIBUTION_LIMIT = 1000;
 const TAX_MULTIPLIER = 0.8;
 const MAX_CLIENT_ID_LENGTH = 64;
 const MAX_DISPLAY_NAME_LENGTH = 32;
