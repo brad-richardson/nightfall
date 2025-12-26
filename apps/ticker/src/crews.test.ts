@@ -102,7 +102,7 @@ describe("completeFinishedTasks", () => {
     const result = await completeFinishedTasks({ query }, multipliers);
 
     expect(result.taskDeltas).toEqual([
-      { task_id: "task-1", status: "done", priority_score: 10 }
+      { task_id: "task-1", status: "done", priority_score: 10, region_id: "region-1" }
     ]);
     expect(result.featureDeltas).toEqual([
       { gers_id: "road-1", health: 80, status: "normal" }

@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { Hammer, Package, Vote, X } from "lucide-react";
+import { toast } from "sonner";
 import { useStore } from "../store";
 
 type SelectedFeature = {
@@ -58,9 +59,23 @@ export default function FeaturePanel({ onContribute, onVote, activeTasks, canCon
     setIsSubmitting(true);
     setStatusMsg(null);
     Promise.resolve(onContribute(labor, materials))
-      .then(() => setStatusMsg("Contribution sent"))
-      .catch(() => setStatusMsg("Contribution failed"))
+      .then(() => {
+        setStatusMsg("Contribution sent");
+        toast.success(
+          labor > 0 ? `+${labor} Labor contributed` : `+${materials} Materials contributed`,
+          { description: "Resources added to regional pool" }
+        );
+      })
+      .catch(() => {
+        setStatusMsg("Contribution failed");
+        toast.error("Contribution failed", { description: "Please try again" });
+      })
       .finally(() => setIsSubmitting(false));
+  };
+
+  const handleVoteClick = (taskId: string) => {
+    onVote(taskId, 1);
+    toast.success("Vote cast", { description: "Your vote helps prioritize repairs" });
   };
 
   return (
@@ -137,9 +152,9 @@ export default function FeaturePanel({ onContribute, onVote, activeTasks, canCon
                 <p className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--night-teal)] mb-2">Active Task</p>
                 <div className="flex justify-between items-center">
                   <span className="text-xs text-white/80 font-medium">Repair needed</span>
-                  <button 
-                    onClick={() => onVote(task.task_id, 1)}
-                    className="flex items-center gap-2 rounded-full bg-[color:var(--night-teal)] px-3 py-1.5 text-xs font-bold text-white shadow-[0_0_15px_rgba(44,101,117,0.4)]"
+                  <button
+                    onClick={() => handleVoteClick(task.task_id)}
+                    className="flex items-center gap-2 rounded-full bg-[color:var(--night-teal)] px-3 py-1.5 text-xs font-bold text-white shadow-[0_0_15px_rgba(44,101,117,0.4)] transition-transform active:scale-95"
                   >
                     <Vote className="h-3.5 w-3.5" />
                     Vote

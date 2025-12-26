@@ -1,8 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   buildRoadsQuery,
+  buildBuildingsQuery,
+  buildBuildingsUpsertQuery,
+  applyResourceFallback,
   getRegionConfig,
+  getResourcesFromCategories,
   H3_RESOLUTION,
+  normalizeCategories,
   ROAD_CLASS_FILTER,
   REGION_CONFIGS,
   shouldSeedDemo
@@ -137,5 +142,83 @@ describe("demo seed flag", () => {
   it("returns true when --demo is present", () => {
     process.argv = [...originalArgv, "--demo"];
     expect(shouldSeedDemo()).toBe(true);
+  });
+});
+
+describe("building ingest query", () => {
+  it("groups places by building id", () => {
+    const query = buildBuildingsQuery();
+
+    expect(query).toContain("list(p.categories)");
+    expect(query).toContain("GROUP BY");
+    expect(query).toContain("b.id");
+  });
+
+  it("upserts building records on conflict", () => {
+    const query = buildBuildingsUpsertQuery(["($1, 'building', $2)"]);
+
+    expect(query).toContain("ON CONFLICT (gers_id) DO UPDATE");
+    expect(query).toContain("place_category = EXCLUDED.place_category");
+    expect(query).toContain("generates_labor = EXCLUDED.generates_labor");
+    expect(query).toContain("generates_materials = EXCLUDED.generates_materials");
+  });
+});
+
+describe("category resource mapping", () => {
+  it("matches labor from alternates", () => {
+    const categories = { primary: "museum", alternate: ["food_court"] };
+    const res = getResourcesFromCategories(categories);
+
+    expect(res.labor).toBe(true);
+    expect(res.materials).toBe(false);
+  });
+
+  it("matches materials from category lists", () => {
+    const raw = JSON.stringify([
+      { primary: "museum", alternate: null },
+      { primary: "warehouse", alternate: ["building_supply_store"] }
+    ]);
+    const res = getResourcesFromCategories(normalizeCategories(raw));
+
+    expect(res.materials).toBe(true);
+    expect(res.cat).toBe("warehouse");
+  });
+
+  it("matches materials from hardware and home improvement categories", () => {
+    const categories = [
+      { primary: "hardware_store", alternate: null },
+      { primary: "home_improvement_store", alternate: ["garden_center"] }
+    ];
+    const res = getResourcesFromCategories(categories);
+
+    expect(res.materials).toBe(true);
+    expect(res.labor).toBe(false);
+  });
+});
+
+describe("fallback resource assignment", () => {
+  it("assigns labor or materials for a deterministic slice of ids", () => {
+    let fallbackFound = false;
+    for (let i = 0; i < 1000; i += 1) {
+      const id = `fallback-test-${i}`;
+      const res = applyResourceFallback(id, { labor: false, materials: false, cat: null });
+      if (res.labor || res.materials) {
+        fallbackFound = true;
+        break;
+      }
+    }
+
+    expect(fallbackFound).toBe(true);
+  });
+
+  it("does not override existing resource flags", () => {
+    const res = applyResourceFallback("fallback-test-override", {
+      labor: true,
+      materials: false,
+      cat: "cafe"
+    });
+
+    expect(res.labor).toBe(true);
+    expect(res.materials).toBe(false);
   });
 });

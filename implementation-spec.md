@@ -244,11 +244,15 @@ Places are spatially joined to their containing building at ingest time.
 | `office`, `coworking` | TRUE | FALSE |
 | `retail`, `shop_*`, `store` | TRUE | FALSE |
 | `industrial`, `factory`, `warehouse`, `manufacturing` | FALSE | TRUE |
-| `construction`, `building_supplies` | FALSE | TRUE |
+| `construction`, `building_supply*`, `hardware*`, `home_improvement*`, `garden_center`, `nursery_and_gardening`, `lumber*`, `wood*`, `flooring*`, `automotive_repair`, `auto_body_shop`, `industrial_equipment` | FALSE | TRUE |
 | `hospital`, `school`, `university` | TRUE | FALSE |
 | All others | FALSE | FALSE |
 
 Buildings without a matched place generate nothing.
+
+Fallback: if a building has no matching category, assign labor or materials to 5% of buildings using a deterministic hash of the GERS id.
+
+If a place category matches both labor and materials patterns, treat it as materials only.
 
 ### Generation rates (per tick, per building)
 

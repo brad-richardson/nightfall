@@ -135,7 +135,7 @@ describe("api endpoints", () => {
           health: 80,
           status: "normal",
           road_class: "primary",
-          place_category: "industrial",
+          place_category: "building_supply_store",
           generates_labor: false,
           generates_materials: true
         }
@@ -153,6 +153,25 @@ describe("api endpoints", () => {
     expect(payload.features).toHaveLength(1);
     expect(payload.features[0].bbox).toEqual([-71, 42, -70, 43]);
     expect(payload.features[0].generates_materials).toBe(true); // inferred from place_category
+
+    await app.close();
+  });
+
+  it("avoids inferring labor from material categories", async () => {
+    let capturedQuery = "";
+    queryMock.mockImplementation((text: string) => {
+      capturedQuery = text;
+      return Promise.resolve({ rows: [] });
+    });
+
+    const app = buildServer();
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/features?bbox=-71,42,-70,43&types=building"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(capturedQuery).toContain("NOT LOWER(COALESCE(wf.place_category");
 
     await app.close();
   });

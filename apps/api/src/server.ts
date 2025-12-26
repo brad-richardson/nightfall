@@ -37,7 +37,18 @@ const MATERIAL_CATEGORIES = [
   "factory",
   "warehouse",
   "manufacturing",
-  "construction"
+  "construction",
+  "building_supply",
+  "hardware",
+  "home_improvement",
+  "garden_center",
+  "nursery_and_gardening",
+  "lumber",
+  "wood",
+  "flooring",
+  "automotive_repair",
+  "auto_body_shop",
+  "industrial_equipment"
 ];
 
 const OVERTURE_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // daily refresh is sufficient; releases are monthly
@@ -559,19 +570,16 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         fs.status,
         wf.road_class,
         wf.place_category,
-        COALESCE(
-          wf.generates_labor,
-          CASE
-            WHEN LOWER(COALESCE(wf.place_category, '')) LIKE ANY($${laborIdx}) THEN TRUE
-            ELSE FALSE
-          END
+        (
+          wf.generates_labor IS TRUE OR
+          (
+            LOWER(COALESCE(wf.place_category, '')) LIKE ANY($${laborIdx}) AND
+            NOT LOWER(COALESCE(wf.place_category, '')) LIKE ANY($${materialsIdx})
+          )
         ) AS generates_labor,
-        COALESCE(
-          wf.generates_materials,
-          CASE
-            WHEN LOWER(COALESCE(wf.place_category, '')) LIKE ANY($${materialsIdx}) THEN TRUE
-            ELSE FALSE
-          END
+        (
+          wf.generates_materials IS TRUE OR
+          LOWER(COALESCE(wf.place_category, '')) LIKE ANY($${materialsIdx})
         ) AS generates_materials
       FROM world_features AS wf
       LEFT JOIN feature_state AS fs ON fs.gers_id = wf.gers_id

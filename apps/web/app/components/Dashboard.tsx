@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import DemoMap from "./DemoMap";
 import PhaseIndicator from "./PhaseIndicator";
 import ActivityFeed, { type FeedItem } from "./ActivityFeed";
@@ -152,6 +153,8 @@ export default function Dashboard({
   
   const [lastEvent, setLastEvent] = useState<string | null>(null);
   const [resourceDeltas, setResourceDeltas] = useState<ResourceDelta[]>([]);
+  const [completedTaskIds, setCompletedTaskIds] = useState<string[]>([]);
+  const prevTasksRef = useRef<Map<string, string>>(new Map());
 
   // Hydrate store
   useEffect(() => {
@@ -318,19 +321,49 @@ export default function Dashboard({
           target_gers_id?: string;
           region_id?: string;
         };
+
+        // Check if this task just completed
+        const prevStatus = prevTasksRef.current.get(delta.task_id);
+        if (delta.status === 'done' && prevStatus && prevStatus !== 'done') {
+          // Task just completed - show toast and trigger animation
+          toast.success("Repair Complete!", {
+            description: `Road segment restored to full health`,
+            duration: 4000
+          });
+
+          // Track completed task for map animation
+          if (delta.target_gers_id) {
+            setCompletedTaskIds(prev => [...prev, delta.target_gers_id!]);
+            // Clear after animation
+            setTimeout(() => {
+              setCompletedTaskIds(prev => prev.filter(id => id !== delta.target_gers_id));
+            }, 3000);
+
+            // Emit event for map animation
+            window.dispatchEvent(new CustomEvent("nightfall:task_completed", {
+              detail: { gers_id: delta.target_gers_id }
+            }));
+          }
+        }
+
+        // Track status for next comparison
+        prevTasksRef.current.set(delta.task_id, delta.status);
+
         setRegion((prev) => {
           const taskExists = prev.tasks.some(t => t.task_id === delta.task_id);
           if (taskExists) {
             return {
               ...prev,
-              tasks: prev.tasks.map(t => 
-                t.task_id === delta.task_id 
-                  ? { ...t, ...delta } 
+              tasks: prev.tasks.map(t =>
+                t.task_id === delta.task_id
+                  ? { ...t, ...delta }
                   : t
               ).filter(t => t.status !== 'done' && t.status !== 'expired')
             };
           }
           if (delta.region_id && delta.target_gers_id) {
+            // New task - track it
+            prevTasksRef.current.set(delta.task_id, delta.status);
             return {
               ...prev,
               tasks: [

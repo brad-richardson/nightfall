@@ -39,6 +39,195 @@ const DB_CONFIG = {
 };
 
 const DEFAULT_REGION_ID = "boston_ma_usa";
+const LABOR_CATEGORY_PATTERNS = [
+  "restaurant",
+  "cafe",
+  "bar",
+  "food",
+  "office",
+  "retail",
+  "shop",
+  "store",
+  "school",
+  "university",
+  "hospital"
+];
+const MATERIAL_CATEGORY_PATTERNS = [
+  "industrial",
+  "factory",
+  "warehouse",
+  "manufacturing",
+  "construction",
+  "building_supply",
+  "hardware",
+  "home_improvement",
+  "garden_center",
+  "nursery_and_gardening",
+  "lumber",
+  "wood",
+  "flooring",
+  "automotive_repair",
+  "auto_body_shop",
+  "industrial_equipment"
+];
+
+const FALLBACK_RESOURCE_MOD = 20;
+
+export function normalizeCategories(raw: unknown) {
+  if (!raw) {
+    return null;
+  }
+  if (typeof raw === "string") {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  return raw;
+}
+
+function hashString(value: string) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+}
+
+export function applyResourceFallback(
+  gersId: string,
+  resources: { labor: boolean; materials: boolean; cat: string | null }
+) {
+  if (resources.labor || resources.materials) {
+    return resources;
+  }
+
+  const hash = hashString(gersId);
+  if (hash % FALLBACK_RESOURCE_MOD !== 0) {
+    return resources;
+  }
+
+  const assignMaterials = hash % 2 === 0;
+  return {
+    ...resources,
+    labor: !assignMaterials,
+    materials: assignMaterials
+  };
+}
+
+function collectCategoryStrings(categories: unknown): string[] {
+  if (!categories) {
+    return [];
+  }
+
+  const entries = Array.isArray(categories) ? categories : [categories];
+  const results: string[] = [];
+
+  for (const entry of entries) {
+    if (!entry) {
+      continue;
+    }
+    if (typeof entry === "string") {
+      results.push(entry);
+      continue;
+    }
+    if (typeof entry.primary === "string") {
+      results.push(entry.primary);
+    }
+    if (typeof entry.main?.primary === "string") {
+      results.push(entry.main.primary);
+    }
+    if (Array.isArray(entry.alternate)) {
+      for (const alt of entry.alternate) {
+        if (typeof alt === "string") {
+          results.push(alt);
+        }
+      }
+    }
+  }
+
+  return results;
+}
+
+export function getResourcesFromCategories(categories: unknown) {
+  const values = collectCategoryStrings(categories);
+  if (values.length === 0) {
+    return { labor: false, materials: false, cat: null };
+  }
+
+  let labor = false;
+  let materials = false;
+  let matchedCategory: string | null = null;
+
+  for (const value of values) {
+    const lower = value.toLowerCase();
+    const laborMatch = LABOR_CATEGORY_PATTERNS.some((pattern) => lower.includes(pattern));
+    const materialMatch = MATERIAL_CATEGORY_PATTERNS.some((pattern) => lower.includes(pattern));
+
+    if ((laborMatch || materialMatch) && matchedCategory === null) {
+      matchedCategory = value;
+    }
+    if (materialMatch) {
+      materials = true;
+    }
+    if (laborMatch && !materialMatch) {
+      labor = true;
+    }
+  }
+
+  return { labor, materials, cat: matchedCategory ?? values[0] ?? null };
+}
+
+export function buildBuildingsUpsertQuery(placeHolders: string[]) {
+  return `
+        INSERT INTO world_features (
+          gers_id,
+          feature_type,
+          region_id,
+          bbox_xmin,
+          bbox_ymin,
+          bbox_xmax,
+          bbox_ymax,
+          properties,
+          road_class,
+          place_category,
+          generates_labor,
+          generates_materials
+        ) VALUES ${placeHolders.join(", ")}
+        ON CONFLICT (gers_id) DO UPDATE SET
+          region_id = EXCLUDED.region_id,
+          bbox_xmin = EXCLUDED.bbox_xmin,
+          bbox_ymin = EXCLUDED.bbox_ymin,
+          bbox_xmax = EXCLUDED.bbox_xmax,
+          bbox_ymax = EXCLUDED.bbox_ymax,
+          properties = EXCLUDED.properties,
+          road_class = EXCLUDED.road_class,
+          place_category = EXCLUDED.place_category,
+          generates_labor = EXCLUDED.generates_labor,
+          generates_materials = EXCLUDED.generates_materials
+      `;
+}
+
+export function buildBuildingsQuery() {
+  return `
+    SELECT 
+      b.id, 
+      b.bbox.xmin as xmin,
+      b.bbox.ymin as ymin,
+      b.bbox.xmax as xmax,
+      b.bbox.ymax as ymax,
+      to_json(list(p.categories)) as categories
+    FROM buildings_raw b
+    LEFT JOIN places_raw p ON ST_Intersects(b.geometry, p.geometry)
+    GROUP BY 
+      b.id, 
+      b.bbox.xmin, 
+      b.bbox.ymin, 
+      b.bbox.xmax, 
+      b.bbox.ymax
+  `;
+}
 
 export function getRegionConfig() {
   const argRegion = process.argv.find((arg) => arg.startsWith("--region="));
@@ -680,66 +869,24 @@ async function ingestBuildings(
       bbox.ymax < ${region.bbox.ymax}
   `);
 
-  // 3. Join
-  const buildings = await runDuckDB(`
-    SELECT 
-      b.id, 
-      b.bbox.xmin as xmin,
-      b.bbox.ymin as ymin,
-      b.bbox.xmax as xmax,
-      b.bbox.ymax as ymax,
-      p.categories
-    FROM buildings_raw b
-    LEFT JOIN places_raw p ON ST_Contains(b.geometry, p.geometry)
-  `);
+  const placeCount = await runDuckDB("SELECT COUNT(*) as count FROM places_raw");
+  console.log(`Loaded ${placeCount[0].count} places.`);
 
-  console.log(`Processing ${buildings.length} buildings...`);
+  // 3. Join
+  const buildings = await runDuckDB(buildBuildingsQuery());
+
+  const matchedCount = buildings.reduce((count: number, building: any) => {
+    const categories = normalizeCategories(building.categories);
+    const res = getResourcesFromCategories(categories);
+    return res.cat ? count + 1 : count;
+  }, 0);
+  console.log(`Processing ${buildings.length} buildings (${matchedCount} matched with places)...`);
 
   const client = await pgPool.connect();
   try {
     const CHUNK_SIZE = 1000;
     let count = 0;
     
-    function normalizeCategories(raw: unknown) {
-      if (!raw) {
-        return null;
-      }
-      if (typeof raw === "string") {
-        try {
-          return JSON.parse(raw);
-        } catch {
-          return null;
-        }
-      }
-      return raw;
-    }
-
-    function getPrimaryCategory(categories: any) {
-      if (!categories) {
-        return null;
-      }
-      if (typeof categories.primary === "string") {
-        return categories.primary;
-      }
-      if (Array.isArray(categories) && typeof categories[0]?.primary === "string") {
-        return categories[0].primary;
-      }
-      return null;
-    }
-
-    function getResources(categories: any) {
-      const primary = getPrimaryCategory(categories);
-      if (!primary) {
-        return { labor: false, materials: false, cat: null };
-      }
-      const cat = primary.toLowerCase();
-      
-      const labor = ["restaurant", "cafe", "bar", "food", "office", "retail", "shop", "store", "school", "university", "hospital"].some(k => cat.includes(k));
-      const materials = ["industrial", "factory", "warehouse", "manufacturing", "construction"].some(k => cat.includes(k));
-      
-      return { labor, materials, cat };
-    }
-
     await client.query("BEGIN");
     
     for (let i = 0; i < buildings.length; i += CHUNK_SIZE) {
@@ -752,7 +899,7 @@ async function ingestBuildings(
       chunk.forEach((b: any, idx: number) => {
         const offset = idx * 11;
         const categories = normalizeCategories(b.categories);
-        const res = getResources(categories);
+        const res = applyResourceFallback(b.id, getResourcesFromCategories(categories));
         const bbox = { xmin: b.xmin, ymin: b.ymin, xmax: b.xmax, ymax: b.ymax };
         const cells = bboxToCells(bbox, H3_RESOLUTION);
 
@@ -788,23 +935,7 @@ async function ingestBuildings(
         centerLon
       );
       
-      await client.query(`
-        INSERT INTO world_features (
-          gers_id,
-          feature_type,
-          region_id,
-          bbox_xmin,
-          bbox_ymin,
-          bbox_xmax,
-          bbox_ymax,
-          properties,
-          road_class,
-          place_category,
-          generates_labor,
-          generates_materials
-        ) VALUES ${placeHolders.join(", ")}
-        ON CONFLICT (gers_id) DO NOTHING
-      `, values);
+      await client.query(buildBuildingsUpsertQuery(placeHolders), values);
 
       await client.query(
         "DELETE FROM world_feature_hex_cells WHERE gers_id = ANY($1::text[])",

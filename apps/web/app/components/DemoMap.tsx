@@ -63,6 +63,14 @@ type DemoMapProps = {
   pmtilesRelease: string;
 };
 
+// Crew status colors
+const CREW_COLORS = {
+  idle: "#888888",
+  traveling: "#f0ddc2",
+  working: "#3eb0c0",
+  returning: "#f08a4e"
+};
+
 const DEFAULT_RELEASE = "2025-12-17";
 
 const PHASE_FILTERS = {
@@ -105,10 +113,23 @@ export default function DemoMap({
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [completedRoadIds, setCompletedRoadIds] = useState<string[]>([]);
+  const repairPulseRef = useRef<number | null>(null);
   const pmtilesBase = useMemo(
     () => `https://d3c1b7bog2u1nn.cloudfront.net/${pmtilesRelease || DEFAULT_RELEASE}`,
     [pmtilesRelease]
   );
+
+  // Get IDs of roads currently being repaired (in_progress tasks)
+  const repairingRoadIds = useMemo(() => {
+    return tasks
+      .filter(t => t.status === 'in_progress')
+      .map(t => {
+        const task = tasks.find(task => task.task_id === t.task_id);
+        return task?.target_gers_id;
+      })
+      .filter((id): id is string => Boolean(id));
+  }, [tasks]);
 
   useEffect(() => {
     if (!mapContainer.current) return;
@@ -409,6 +430,36 @@ export default function DemoMap({
             }
           },
 
+          // === REPAIR PULSE LAYER ===
+          {
+            id: "game-roads-repair-pulse",
+            source: "overture_transportation",
+            "source-layer": "segment",
+            type: "line",
+            filter: ["==", ["get", "id"], "none"],
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: {
+              "line-color": "#3eb0c0",
+              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 10, 16, 24],
+              "line-blur": 8,
+              "line-opacity": 0.4
+            }
+          },
+          // === COMPLETION FLASH LAYER ===
+          {
+            id: "game-roads-completion-flash",
+            source: "overture_transportation",
+            "source-layer": "segment",
+            type: "line",
+            filter: ["==", ["get", "id"], "none"],
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: {
+              "line-color": "#ffffff",
+              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 20, 16, 40],
+              "line-blur": 12,
+              "line-opacity": 0.8
+            }
+          },
           // === INTERACTION LAYERS ===
           {
             id: "game-feature-hover",
@@ -513,6 +564,7 @@ export default function DemoMap({
             0.5, COLORS.warning,
             1, COLORS.degraded
           ],
+          "fill-color-transition": { duration: 1500, delay: 0 },
           "fill-opacity": [
             "interpolate",
             ["linear"],
@@ -520,7 +572,8 @@ export default function DemoMap({
             0, 0.08,
             0.5, 0.16,
             1, 0.26
-          ]
+          ],
+          "fill-opacity-transition": { duration: 1500, delay: 0 }
         }
       }, "game-roads-healthy-glow");
 
@@ -538,6 +591,7 @@ export default function DemoMap({
             0.5, COLORS.warning,
             1, COLORS.degraded
           ],
+          "line-color-transition": { duration: 1500, delay: 0 },
           "line-width": [
             "interpolate",
             ["linear"],
@@ -546,6 +600,7 @@ export default function DemoMap({
             0.5, 1.2,
             1, 2
           ],
+          "line-width-transition": { duration: 1500, delay: 0 },
           "line-opacity": [
             "interpolate",
             ["linear"],
@@ -553,7 +608,8 @@ export default function DemoMap({
             0, 0.18,
             0.5, 0.32,
             1, 0.5
-          ]
+          ],
+          "line-opacity-transition": { duration: 1500, delay: 0 }
         }
       }, "game-roads-healthy-glow");
 
@@ -568,12 +624,35 @@ export default function DemoMap({
         type: "circle",
         source: "game-crews",
         paint: {
-          "circle-radius": 6,
-          "circle-color": "#ffffff",
-          "circle-stroke-width": 2,
-          "circle-stroke-color": COLORS.healthy
+          "circle-radius": 8,
+          "circle-color": [
+            "match",
+            ["get", "status"],
+            "idle", CREW_COLORS.idle,
+            "traveling", CREW_COLORS.traveling,
+            "working", CREW_COLORS.working,
+            "returning", CREW_COLORS.returning,
+            "#ffffff"
+          ],
+          "circle-stroke-width": 3,
+          "circle-stroke-color": "#ffffff",
+          "circle-opacity": 0.9
         }
       });
+
+      // Add crew glow layer for working crews
+      map.current?.addLayer({
+        id: "game-crews-glow",
+        type: "circle",
+        source: "game-crews",
+        filter: ["==", ["get", "status"], "working"],
+        paint: {
+          "circle-radius": 16,
+          "circle-color": CREW_COLORS.working,
+          "circle-blur": 1,
+          "circle-opacity": 0.4
+        }
+      }, "game-crews-point");
 
       setIsLoaded(true);
     });
@@ -744,6 +823,80 @@ export default function DemoMap({
         });
     }
   }, [crews, tasks, features, isLoaded]);
+
+  // Listen for task completion events and animate
+  useEffect(() => {
+    const handleTaskCompleted = (e: Event) => {
+      const customEvent = e as CustomEvent<{ gers_id: string }>;
+      const gersId = customEvent.detail.gers_id;
+
+      if (!map.current || !isLoaded) return;
+
+      // Flash the completion layer
+      const baseFilter: maplibregl.FilterSpecification = ["all",
+        ["==", ["get", "subtype"], "road"],
+        ["==", ["get", "id"], gersId]
+      ];
+
+      map.current.setFilter("game-roads-completion-flash", baseFilter);
+      map.current.setPaintProperty("game-roads-completion-flash", "line-opacity", 0.9);
+
+      // Animate fade out
+      let opacity = 0.9;
+      const fadeInterval = setInterval(() => {
+        opacity -= 0.05;
+        if (opacity <= 0 || !map.current) {
+          clearInterval(fadeInterval);
+          map.current?.setFilter("game-roads-completion-flash", ["==", ["get", "id"], "none"]);
+        } else {
+          map.current?.setPaintProperty("game-roads-completion-flash", "line-opacity", opacity);
+        }
+      }, 50);
+    };
+
+    window.addEventListener("nightfall:task_completed", handleTaskCompleted);
+    return () => window.removeEventListener("nightfall:task_completed", handleTaskCompleted);
+  }, [isLoaded]);
+
+  // Animate repair pulse for roads being repaired
+  useEffect(() => {
+    if (!isLoaded || !map.current) return;
+
+    const baseFilter: maplibregl.FilterSpecification = ["all",
+      ["==", ["get", "subtype"], "road"],
+      ["in", ["get", "id"], ["literal", repairingRoadIds.length ? repairingRoadIds : ["__none__"]]]
+    ];
+
+    map.current.setFilter("game-roads-repair-pulse", baseFilter);
+
+    // Start pulse animation
+    if (repairingRoadIds.length > 0) {
+      let pulsePhase = 0;
+      const pulseAnimation = () => {
+        if (!map.current) return;
+        pulsePhase = (pulsePhase + 0.05) % (2 * Math.PI);
+        const opacity = 0.2 + 0.25 * Math.sin(pulsePhase);
+        const width = 12 + 6 * Math.sin(pulsePhase);
+        map.current.setPaintProperty("game-roads-repair-pulse", "line-opacity", opacity);
+        map.current.setPaintProperty("game-roads-repair-pulse", "line-width",
+          ["interpolate", ["linear"], ["zoom"], 12, width, 16, width * 2]
+        );
+        repairPulseRef.current = requestAnimationFrame(pulseAnimation);
+      };
+      repairPulseRef.current = requestAnimationFrame(pulseAnimation);
+    } else {
+      if (repairPulseRef.current) {
+        cancelAnimationFrame(repairPulseRef.current);
+        repairPulseRef.current = null;
+      }
+    }
+
+    return () => {
+      if (repairPulseRef.current) {
+        cancelAnimationFrame(repairPulseRef.current);
+      }
+    };
+  }, [repairingRoadIds, isLoaded]);
 
   return (
     <div className="relative overflow-hidden rounded-3xl border border-[var(--night-outline)] bg-[#101216] shadow-[0_20px_60px_rgba(0,0,0,0.5)]">

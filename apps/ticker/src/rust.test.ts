@@ -93,7 +93,7 @@ describe("applyRustSpread", () => {
 
     const result = await applyRustSpread({ query }, multipliers);
 
-    expect(result).toContain(baseCell);
+    expect(result.some((update) => update.h3_index === baseCell)).toBe(true);
     expect(query).toHaveBeenCalledTimes(3);
     expect(String(query.mock.calls[2][0])).toContain("UPDATE hex_cells");
   });

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Fraunces, Space_Grotesk } from "next/font/google";
+import { Toaster } from "sonner";
 import "./globals.css";
 
 const display = Fraunces({
@@ -26,7 +27,20 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`${display.variable} ${sans.variable}`}>
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        {children}
+        <Toaster
+          position="top-right"
+          toastOptions={{
+            style: {
+              background: 'rgba(25, 23, 16, 0.95)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              color: '#fff',
+              backdropFilter: 'blur(12px)',
+            },
+          }}
+        />
+      </body>
     </html>
   );
 }
