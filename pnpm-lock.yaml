@@ -118,6 +118,9 @@ importers:
       '@nightfall/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@types/geojson':
+        specifier: ^7946.0.16
+        version: 7946.0.16
       h3-js:
         specifier: ^4.4.0
         version: 4.4.0

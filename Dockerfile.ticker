@@ -1,0 +1,17 @@
+FROM node:24-slim
+
+WORKDIR /app
+ENV NODE_ENV=production
+
+RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
+
+COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages ./packages
+COPY apps/ticker ./apps/ticker
+COPY db ./db
+COPY dbmate.yml ./
+
+RUN pnpm install --frozen-lockfile
+RUN pnpm --filter @nightfall/ticker build
+
+CMD ["pnpm", "--filter", "@nightfall/ticker", "start"]

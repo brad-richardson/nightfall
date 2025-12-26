@@ -10,10 +10,12 @@ import TaskList from "./TaskList";
 import FeaturePanel from "./FeaturePanel";
 import MobileSidebar from "./MobileSidebar";
 import RegionalHealthRing from "./RegionalHealthRing";
+import { MapOverlay } from "./MapOverlay";
 import { useEventStream, type EventPayload } from "../hooks/useEventStream";
 import { useStore, type Region, type Feature, type Hex, type CycleState } from "../store";
 import { BAR_HARBOR_DEMO_BBOX, type Bbox } from "@nightfall/config";
 import { fetchWithRetry } from "../lib/retry";
+import { formatNumber, formatPercent } from "../lib/formatters";
 
 type ResourceDelta = {
   type: "labor" | "materials";
@@ -43,14 +45,6 @@ type DashboardProps = {
   apiBaseUrl: string;
   pmtilesRelease: string;
 };
-
-function formatNumber(value: number) {
-  return new Intl.NumberFormat("en-US").format(value);
-}
-
-function formatPercent(value: number) {
-  return `${Math.round(value * 100)}%`;
-}
 
 function formatTime(seconds: number) {
   const m = Math.floor(seconds / 60);
@@ -192,6 +186,8 @@ export default function Dashboard({
   const [lastEvent, setLastEvent] = useState<string | null>(null);
   const [resourceDeltas, setResourceDeltas] = useState<ResourceDelta[]>([]);
   const prevTasksRef = useRef<Map<string, string>>(new Map());
+  const eventProcessingRef = useRef(false);
+  const lastEventTimestampRef = useRef<Map<string, number>>(new Map());
 
   // Hydrate store
   useEffect(() => {
@@ -278,10 +274,33 @@ export default function Dashboard({
     setResourceDeltas((prev) => [{ type, delta, source, ts: Date.now() }, ...prev].slice(0, 6));
   }, []);
 
-  const handleEvent = useCallback((payload: EventPayload) => {
-    setLastEvent(`${payload.event} @ ${new Date().toLocaleTimeString()}`);
+  // Use ref to avoid stale closure issues in event handler
+  const regionRef = useRef(region);
+  useEffect(() => {
+    regionRef.current = region;
+  }, [region]);
 
-    switch (payload.event) {
+  const handleEvent = useCallback((payload: EventPayload) => {
+    // Prevent reentrant calls (guard against infinite loops)
+    if (eventProcessingRef.current) {
+      return;
+    }
+
+    // Simple time-based deduplication per event type (no JSON.stringify)
+    const now = Date.now();
+    const lastTimestamp = lastEventTimestampRef.current.get(payload.event) ?? 0;
+    if (now - lastTimestamp < 100) { // 100ms minimum between same event types
+      return; // Skip duplicate event
+    }
+    lastEventTimestampRef.current.set(payload.event, now);
+
+    // Mark as processing
+    eventProcessingRef.current = true;
+
+    try {
+      setLastEvent(`${payload.event} @ ${new Date().toLocaleTimeString()}`);
+
+      switch (payload.event) {
       case "phase_change":
         setCycle((prev) => {
           const incoming = payload.data as Partial<CycleState>;
@@ -317,22 +336,24 @@ export default function Dashboard({
         }
 
         if (data.region_updates?.length) {
-          const match = data.region_updates.find((r) => r.region_id === region.region_id);
+          const match = data.region_updates.find((r) => r.region_id === regionRef.current.region_id);
           if (match) {
-            const laborDelta = match.pool_labor - region.pool_labor;
-            const materialDelta = match.pool_materials - region.pool_materials;
-            if (laborDelta !== 0) pushResourceDelta("labor", laborDelta, "Daily ops");
-            if (materialDelta !== 0) pushResourceDelta("materials", materialDelta, "Daily ops");
-            setRegion((prev) => ({
-              ...prev,
-              pool_labor: match.pool_labor,
-              pool_materials: match.pool_materials,
-              stats: {
-                ...prev.stats,
-                rust_avg: match.rust_avg ?? prev.stats.rust_avg,
-                health_avg: match.health_avg ?? prev.stats.health_avg
-              }
-            }));
+            setRegion((prev) => {
+              const laborDelta = match.pool_labor - prev.pool_labor;
+              const materialDelta = match.pool_materials - prev.pool_materials;
+              if (laborDelta !== 0) pushResourceDelta("labor", laborDelta, "Daily ops");
+              if (materialDelta !== 0) pushResourceDelta("materials", materialDelta, "Daily ops");
+              return {
+                ...prev,
+                pool_labor: match.pool_labor,
+                pool_materials: match.pool_materials,
+                stats: {
+                  ...prev.stats,
+                  rust_avg: match.rust_avg ?? prev.stats.rust_avg,
+                  health_avg: match.health_avg ?? prev.stats.health_avg
+                }
+              };
+            });
           }
         }
 
@@ -345,7 +366,7 @@ export default function Dashboard({
       }
       case "resource_transfer": {
         const transfer = payload.data as ResourceTransferPayload;
-        if (transfer.region_id !== region.region_id) break;
+        if (transfer.region_id !== regionRef.current.region_id) break;
         window.dispatchEvent(new CustomEvent("nightfall:resource_transfer", { detail: transfer }));
         break;
       }
@@ -435,7 +456,11 @@ export default function Dashboard({
         break;
       }
     }
-  }, [region.region_id, setCycle, setFeatures, setHexes, setRegion]);
+    } finally {
+      // Always clear the processing flag
+      eventProcessingRef.current = false;
+    }
+  }, [setCycle, setFeatures, setHexes, setRegion, pushResourceDelta]);
 
   useEventStream(apiBaseUrl, handleEvent);
 
@@ -585,10 +610,13 @@ export default function Dashboard({
     night: "shadow-[inset_0_0_150px_rgba(127,29,29,0.3)]"
   };
 
+  // Memoize boundary to prevent map re-initialization
+  const stableBoundary = useMemo(() => region.boundary, [region.region_id]);
+
   return (
     <div className={`relative min-h-screen transition-all duration-[2500ms] ease-in-out ${phaseGlow[cycle.phase]}`}>
       <DemoMap
-        boundary={region.boundary}
+        boundary={stableBoundary}
         features={features}
         hexes={hexes}
         crews={region.crews}
@@ -658,7 +686,7 @@ export default function Dashboard({
             </div>
           </div>
 
-          <div className="pointer-events-auto absolute right-4 top-24 hidden w-72 flex-col gap-4 lg:flex">
+          <MapOverlay position="top-right" className="!top-24 hidden w-72 flex-col gap-4 lg:flex">
             <MapPanel title="Resource Pools">
               <div className="space-y-3 text-xs text-white/70">
                 <div className="space-y-1">
@@ -737,18 +765,29 @@ export default function Dashboard({
             </MapPanel>
 
             <ResourceTicker deltas={resourceDeltas} />
-          </div>
+          </MapOverlay>
 
-          <div className="pointer-events-auto absolute bottom-20 left-4 hidden w-[360px] max-h-[55vh] lg:block">
+          <MapOverlay position="bottom-left" className="!bottom-20 hidden w-[360px] max-h-[55vh] lg:block">
             <MapPanel title="Operations Queue" className="h-full overflow-hidden">
               <TaskList tasks={region.tasks} onVote={handleVote} />
             </MapPanel>
-          </div>
+          </MapOverlay>
 
-          <div className="pointer-events-auto absolute bottom-12 left-4 hidden text-[10px] text-white/40 lg:block">
-            <p className="uppercase tracking-widest">Attribution</p>
-            <p>Overture Maps Foundation • H3 • OpenStreetMap</p>
-          </div>
+          <MapOverlay position="bottom-left" className="!bottom-12 z-40">
+            <details className="group relative">
+              <summary className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-full border border-white/10 bg-black/40 text-xs font-semibold uppercase tracking-widest text-white/70 shadow-[0_8px_20px_rgba(0,0,0,0.4)] backdrop-blur-sm transition hover:border-white/30 hover:text-white [&::-webkit-details-marker]:hidden">
+                i
+              </summary>
+              <div className="absolute bottom-full left-0 mb-3 w-72 rounded-2xl border border-white/10 bg-[#0f1216]/90 p-4 text-[11px] text-white/70 shadow-[0_14px_28px_rgba(0,0,0,0.5)] backdrop-blur-md">
+                <p className="text-[10px] uppercase tracking-[0.3em] text-white/40">Attribution</p>
+                <p className="mt-2 leading-relaxed">
+                  Data from Overture Maps Foundation (CDLA Permissive v2.0), OpenStreetMap contributors,
+                  and the H3 geospatial indexing system (Apache 2.0).
+                </p>
+                <p className="mt-2 text-white/40">Required software + data provider notice.</p>
+              </div>
+            </details>
+          </MapOverlay>
 
           <div className="pointer-events-auto absolute bottom-0 left-0 right-0 hidden lg:block">
             <ActivityFeed />

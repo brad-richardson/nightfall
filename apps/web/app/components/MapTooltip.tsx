@@ -2,6 +2,7 @@
 
 import React, { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { getHealthColor, getRustColor } from "../lib/metricColors";
+import { formatLabel } from "../lib/formatters";
 
 export type TooltipData = {
   type: "road" | "building" | "hex";
@@ -32,12 +33,6 @@ type MapTooltipProps = {
 
 const DEFAULT_SIZE = { width: 200, height: 120 };
 const PADDING = 12;
-
-function formatLabel(value: string) {
-  return value
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
-}
 
 export function MapTooltip({ tooltip, containerSize }: MapTooltipProps) {
   const tooltipRef = useRef<HTMLDivElement>(null);

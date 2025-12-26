@@ -14,6 +14,7 @@ import {
   interpolatePath,
   easeInOutCubic
 } from "../lib/resourceAnimation";
+import { AnimationManager } from "../lib/animationManager";
 
 type Feature = {
   gers_id: string;
@@ -193,13 +194,13 @@ export default function DemoMap({
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [crewPaths, setCrewPaths] = useState<CrewPath[]>([]);
-  const repairPulseRef = useRef<number | null>(null);
-  const resourceAnimationRef = useRef<number | null>(null);
-  const rustAnimationRef = useRef<number | null>(null);
-  const crewAnimationRef = useRef<number | null>(null);
+
+  // Centralized animation manager for all requestAnimationFrame loops
+  const animationManager = useMemo(() => new AnimationManager(60), []);
+
   const breathePhaseRef = useRef(0);
-  const hoverTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
-  const tooltipDismissRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const hoverTimeoutRef = useRef<number | null>(null);
+  const tooltipDismissRef = useRef<number | null>(null);
   const pmtilesBase = useMemo(
     () => `https://d3c1b7bog2u1nn.cloudfront.net/${pmtilesRelease}`,
     [pmtilesRelease]
@@ -261,21 +262,12 @@ export default function DemoMap({
 
     update();
 
-    if ("addEventListener" in motionQuery) {
-      motionQuery.addEventListener("change", update);
-      mobileQuery.addEventListener("change", update);
-      return () => {
-        motionQuery.removeEventListener("change", update);
-        mobileQuery.removeEventListener("change", update);
-      };
-    }
-
-    // Safari fallback
-    motionQuery.addListener(update);
-    mobileQuery.addListener(update);
+    // Use standard addEventListener (supported by all modern browsers)
+    motionQuery.addEventListener("change", update);
+    mobileQuery.addEventListener("change", update);
     return () => {
-      motionQuery.removeListener(update);
-      mobileQuery.removeListener(update);
+      motionQuery.removeEventListener("change", update);
+      mobileQuery.removeEventListener("change", update);
     };
   }, []);
 
@@ -318,6 +310,9 @@ export default function DemoMap({
 
   useEffect(() => {
     if (!mapContainer.current) return;
+
+    // Prevent re-initialization if map already exists
+    if (map.current) return;
 
     const protocol = new pmtiles.Protocol();
     maplibregl.addProtocol("pmtiles", protocol.tile);
@@ -1166,15 +1161,15 @@ export default function DemoMap({
     };
 
     const scheduleTooltip = (point: maplibregl.Point) => {
-      if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+      if (hoverTimeoutRef.current) window.clearTimeout(hoverTimeoutRef.current);
       hoverTimeoutRef.current = window.setTimeout(() => {
         resolveTooltip(point);
       }, 200);
     };
 
     const clearTooltip = () => {
-      if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
-      if (tooltipDismissRef.current) clearTimeout(tooltipDismissRef.current);
+      if (hoverTimeoutRef.current) window.clearTimeout(hoverTimeoutRef.current);
+      if (tooltipDismissRef.current) window.clearTimeout(tooltipDismissRef.current);
       setTooltipData(null);
     };
 
@@ -1190,7 +1185,7 @@ export default function DemoMap({
     const handleClick = (e: maplibregl.MapMouseEvent) => {
       if (!isMobile) return;
       resolveTooltip(e.point);
-      if (tooltipDismissRef.current) clearTimeout(tooltipDismissRef.current);
+      if (tooltipDismissRef.current) window.clearTimeout(tooltipDismissRef.current);
       tooltipDismissRef.current = window.setTimeout(() => {
         setTooltipData(null);
       }, 3000);
@@ -1504,10 +1499,8 @@ export default function DemoMap({
   useEffect(() => {
     if (!isLoaded || !map.current) return;
 
-    if (crewAnimationRef.current) {
-      cancelAnimationFrame(crewAnimationRef.current);
-      crewAnimationRef.current = null;
-    }
+    // Stop any existing crew animation
+    animationManager.stop('crew-paths');
 
     if (crewPaths.length === 0) return;
 
@@ -1523,10 +1516,10 @@ export default function DemoMap({
         const position = interpolatePath(cp.path, clampedProgress);
 
         return {
-          type: "Feature",
+          type: "Feature" as const,
           properties: { crew_id: cp.crew_id },
           geometry: {
-            type: "Point",
+            type: "Point" as const,
             coordinates: position
           }
         };
@@ -1546,7 +1539,7 @@ export default function DemoMap({
     let dashIndex = 0;
     let lastDashTime = 0;
 
-    const animate = (time: number) => {
+    animationManager.start('crew-paths', (time: number) => {
       if (!mapInstance) return;
 
       if (time - lastDashTime > 120) {
@@ -1556,18 +1549,10 @@ export default function DemoMap({
       }
 
       updateMarkers(Date.now());
-      crewAnimationRef.current = requestAnimationFrame(animate);
-    };
+    });
 
-    crewAnimationRef.current = requestAnimationFrame(animate);
-
-    return () => {
-      if (crewAnimationRef.current) {
-        cancelAnimationFrame(crewAnimationRef.current);
-        crewAnimationRef.current = null;
-      }
-    };
-  }, [crewPaths, isLoaded, prefersReducedMotion]);
+    return () => animationManager.stop('crew-paths');
+  }, [crewPaths, isLoaded, prefersReducedMotion, animationManager]);
 
   // Listen for task completion events and animate
   useEffect(() => {
@@ -1628,9 +1613,11 @@ export default function DemoMap({
     map.current.setFilter("game-roads-repair-pulse", baseFilter);
 
     // Start pulse animation
+    animationManager.stop('repair-pulse');
+
     if (repairingRoadIds.length > 0) {
       let pulsePhase = 0;
-      const pulseAnimation = () => {
+      animationManager.start('repair-pulse', () => {
         if (!map.current) return;
         pulsePhase = (pulsePhase + 0.05) % (2 * Math.PI);
         const opacity = 0.2 + 0.25 * Math.sin(pulsePhase);
@@ -1639,22 +1626,11 @@ export default function DemoMap({
         map.current.setPaintProperty("game-roads-repair-pulse", "line-width",
           ["interpolate", ["linear"], ["zoom"], 12, width, 16, width * 2]
         );
-        repairPulseRef.current = requestAnimationFrame(pulseAnimation);
-      };
-      repairPulseRef.current = requestAnimationFrame(pulseAnimation);
-    } else {
-      if (repairPulseRef.current) {
-        cancelAnimationFrame(repairPulseRef.current);
-        repairPulseRef.current = null;
-      }
+      });
     }
 
-    return () => {
-      if (repairPulseRef.current) {
-        cancelAnimationFrame(repairPulseRef.current);
-      }
-    };
-  }, [repairingRoadIds, isLoaded]);
+    return () => animationManager.stop('repair-pulse');
+  }, [repairingRoadIds, isLoaded, animationManager]);
 
   // Prepare rust opacity transitions
   useEffect(() => {
@@ -1690,34 +1666,23 @@ export default function DemoMap({
       );
     };
 
-    if (rustAnimationRef.current) {
-      cancelAnimationFrame(rustAnimationRef.current);
-      rustAnimationRef.current = null;
-    }
+    // Stop any existing rust animation
+    animationManager.stop('rust-breathing');
 
     if (prefersReducedMotion || (cycle.phase !== "night" && cycle.phase !== "dusk")) {
       applyStaticOpacity(phaseMultiplier);
       return;
     }
 
-    const animate = () => {
+    animationManager.start('rust-breathing', () => {
       breathePhaseRef.current += 0.015;
       const pulse = 1 + 0.1 * Math.sin(breathePhaseRef.current);
       const multiplier = pulse * phaseMultiplier;
-
       applyStaticOpacity(multiplier);
-      rustAnimationRef.current = requestAnimationFrame(animate);
-    };
+    });
 
-    rustAnimationRef.current = requestAnimationFrame(animate);
-
-    return () => {
-      if (rustAnimationRef.current) {
-        cancelAnimationFrame(rustAnimationRef.current);
-        rustAnimationRef.current = null;
-      }
-    };
-  }, [cycle.phase, isLoaded, prefersReducedMotion]);
+    return () => animationManager.stop('rust-breathing');
+  }, [cycle.phase, isLoaded, prefersReducedMotion, animationManager]);
 
   const spawnResourceTransfer = useCallback((transfer: ResourceTransferPayload) => {
     if (!isLoaded) return;
@@ -1776,6 +1741,9 @@ export default function DemoMap({
   // Animate resource packages
   useEffect(() => {
     if (!isLoaded || !map.current || resourcePackages.length === 0) {
+      // Stop animation if no packages
+      animationManager.stop('resource-packages');
+
       // Clean up source if no packages
       if (isLoaded && map.current) {
         const source = map.current.getSource("game-resource-packages") as maplibregl.GeoJSONSource;
@@ -1786,7 +1754,11 @@ export default function DemoMap({
       return;
     }
 
-    const animate = () => {
+    const mapInstance = map.current;
+
+    animationManager.start('resource-packages', () => {
+      if (!mapInstance) return;
+
       const now = Date.now();
       const activePackages: ResourcePackage[] = [];
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1836,7 +1808,7 @@ export default function DemoMap({
       }
 
       // Update source
-      const source = map.current?.getSource("game-resource-packages") as maplibregl.GeoJSONSource;
+      const source = mapInstance.getSource("game-resource-packages") as maplibregl.GeoJSONSource;
       if (source) {
         source.setData({ type: "FeatureCollection", features: geoFeatures });
       }
@@ -1846,20 +1818,14 @@ export default function DemoMap({
         setResourcePackages(activePackages);
       }
 
-      // Continue animation if there are active packages
-      if (activePackages.length > 0) {
-        resourceAnimationRef.current = requestAnimationFrame(animate);
+      // Stop animation if all packages completed
+      if (activePackages.length === 0) {
+        animationManager.stop('resource-packages');
       }
-    };
+    });
 
-    resourceAnimationRef.current = requestAnimationFrame(animate);
-
-    return () => {
-      if (resourceAnimationRef.current) {
-        cancelAnimationFrame(resourceAnimationRef.current);
-      }
-    };
-  }, [resourcePackages, isLoaded]);
+    return () => animationManager.stop('resource-packages');
+  }, [resourcePackages, isLoaded, animationManager]);
 
   useEffect(() => {
     if (!map.current || !isLoaded) return;
@@ -1877,6 +1843,11 @@ export default function DemoMap({
   ]
     .filter(Boolean)
     .join(" ");
+
+  // Cleanup all animations on unmount
+  useEffect(() => {
+    return () => animationManager.stopAll();
+  }, [animationManager]);
 
   return (
     <div className={rootClassName}>

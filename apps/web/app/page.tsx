@@ -1,16 +1,18 @@
+"use client";
+
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Dashboard from "./components/Dashboard";
 import { type Region, type Feature, type Hex } from "./store";
 import { BAR_HARBOR_DEMO_BBOX, type Bbox } from "@nightfall/config";
 import { fetchWithRetry } from "./lib/retry";
-
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
 type Boundary =
   | { type: "Polygon"; coordinates: number[][][] }
   | { type: "MultiPolygon"; coordinates: number[][][][] };
 
 type RegionResponse = Region;
+
 type OvertureResponse = { ok: boolean; release?: string };
 
 type WorldResponse = {
@@ -29,14 +31,13 @@ type WorldResponse = {
 };
 
 const DEMO_REGION_ID = "bar_harbor_me_usa_demo";
-const SERVER_API_BASE_URL = process.env.API_BASE_URL || "http://localhost:3001";
-const CLIENT_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 const FETCH_RETRY_OPTIONS = { attempts: 3, baseDelayMs: 250, maxDelayMs: 2000, jitter: 0.2 };
 
-async function fetchRegion(regionId: string): Promise<RegionResponse | null> {
+async function fetchRegion(apiBaseUrl: string, regionId: string): Promise<RegionResponse | null> {
   try {
     const res = await fetchWithRetry(
-      `${SERVER_API_BASE_URL}/api/region/${regionId}`,
+      `${apiBaseUrl}/api/region/${regionId}`,
       { cache: "no-store" },
       FETCH_RETRY_OPTIONS
     );
@@ -47,10 +48,10 @@ async function fetchRegion(regionId: string): Promise<RegionResponse | null> {
   }
 }
 
-async function fetchWorld(): Promise<WorldResponse | null> {
+async function fetchWorld(apiBaseUrl: string): Promise<WorldResponse | null> {
   try {
     const res = await fetchWithRetry(
-      `${SERVER_API_BASE_URL}/api/world`,
+      `${apiBaseUrl}/api/world`,
       { cache: "no-store" },
       FETCH_RETRY_OPTIONS
     );
@@ -61,11 +62,11 @@ async function fetchWorld(): Promise<WorldResponse | null> {
   }
 }
 
-async function fetchFeatures(bbox: Bbox): Promise<Feature[]> {
+async function fetchFeatures(apiBaseUrl: string, bbox: Bbox): Promise<Feature[]> {
   try {
     const bboxParam = `${bbox.xmin},${bbox.ymin},${bbox.xmax},${bbox.ymax}`;
     const res = await fetchWithRetry(
-      `${SERVER_API_BASE_URL}/api/features?bbox=${bboxParam}&types=road,building`,
+      `${apiBaseUrl}/api/features?bbox=${bboxParam}&types=road,building`,
       { cache: "no-store" },
       FETCH_RETRY_OPTIONS
     );
@@ -77,11 +78,11 @@ async function fetchFeatures(bbox: Bbox): Promise<Feature[]> {
   }
 }
 
-async function fetchHexes(bbox: Bbox): Promise<Hex[]> {
+async function fetchHexes(apiBaseUrl: string, bbox: Bbox): Promise<Hex[]> {
   try {
     const bboxParam = `${bbox.xmin},${bbox.ymin},${bbox.xmax},${bbox.ymax}`;
     const res = await fetchWithRetry(
-      `${SERVER_API_BASE_URL}/api/hexes?bbox=${bboxParam}`,
+      `${apiBaseUrl}/api/hexes?bbox=${bboxParam}`,
       { cache: "no-store" },
       FETCH_RETRY_OPTIONS
     );
@@ -93,10 +94,10 @@ async function fetchHexes(bbox: Bbox): Promise<Hex[]> {
   }
 }
 
-async function fetchOvertureRelease(): Promise<string | null> {
+async function fetchOvertureRelease(apiBaseUrl: string): Promise<string | null> {
   try {
     const res = await fetchWithRetry(
-      `${SERVER_API_BASE_URL}/api/overture-latest`,
+      `${apiBaseUrl}/api/overture-latest`,
       { cache: "no-store" },
       FETCH_RETRY_OPTIONS
     );
@@ -129,14 +130,54 @@ function getBoundaryBbox(boundary: Boundary | null): Bbox | null {
   return { xmin, ymin, xmax, ymax };
 }
 
-export default async function HomePage({ searchParams }: { searchParams: Promise<{ region?: string }> }) {
-  const { region: regionParam } = await searchParams;
-  const regionId = regionParam || DEMO_REGION_ID;
+function HomePageContent({ regionId }: { regionId: string }) {
 
-  const [region, world] = await Promise.all([
-    fetchRegion(regionId),
-    fetchWorld()
-  ]);
+  const [region, setRegion] = useState<Region | null>(null);
+  const [world, setWorld] = useState<WorldResponse | null>(null);
+  const [features, setFeatures] = useState<Feature[]>([]);
+  const [hexes, setHexes] = useState<Hex[]>([]);
+  const [overtureRelease, setOvertureRelease] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      setRegion(null);
+      setWorld(null);
+      setFeatures([]);
+      setHexes([]);
+      setOvertureRelease(null);
+
+      const [nextRegion, nextWorld] = await Promise.all([
+        fetchRegion(API_BASE_URL, regionId),
+        fetchWorld(API_BASE_URL)
+      ]);
+
+      if (cancelled) return;
+      setRegion(nextRegion);
+      setWorld(nextWorld);
+
+      if (!nextRegion || !nextWorld) return;
+
+      const regionBbox = getBoundaryBbox(nextRegion.boundary) ?? BAR_HARBOR_DEMO_BBOX;
+      const [nextFeatures, nextHexes, nextRelease] = await Promise.all([
+        fetchFeatures(API_BASE_URL, regionBbox),
+        fetchHexes(API_BASE_URL, regionBbox),
+        fetchOvertureRelease(API_BASE_URL)
+      ]);
+
+      if (cancelled) return;
+      setFeatures(nextFeatures);
+      setHexes(nextHexes);
+      setOvertureRelease(nextRelease);
+    }
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [regionId]);
 
   if (!region || !world) {
     return (
@@ -148,13 +189,6 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
       </main>
     );
   }
-
-  const regionBbox = getBoundaryBbox(region.boundary) ?? BAR_HARBOR_DEMO_BBOX;
-  const [features, hexes, overtureRelease] = await Promise.all([
-    fetchFeatures(regionBbox),
-    fetchHexes(regionBbox),
-    fetchOvertureRelease()
-  ]);
 
   if (!overtureRelease) {
     return (
@@ -176,9 +210,27 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
         initialCycle={world.cycle}
         availableRegions={world.regions}
         isDemoMode={world.demo_mode}
-        apiBaseUrl={CLIENT_API_BASE_URL}
+        apiBaseUrl={API_BASE_URL}
         pmtilesRelease={overtureRelease}
       />
     </main>
+  );
+}
+
+function SearchParamsWrapper() {
+  const searchParams = useSearchParams();
+  const regionId = searchParams.get("region") ?? DEMO_REGION_ID;
+  return <HomePageContent regionId={regionId} />;
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={
+      <main className="min-h-screen bg-[radial-gradient(circle_at_top,_var(--night-glow),_var(--night-sand))] flex items-center justify-center">
+        <div className="text-white">Loading...</div>
+      </main>
+    }>
+      <SearchParamsWrapper />
+    </Suspense>
   );
 }

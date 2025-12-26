@@ -278,9 +278,17 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     reply.status(500).send({ ok: false, error: "internal_error", message });
   });
 
-  app.get("/health", async () => {
+  app.get("/health", async (_request, reply) => {
     const db = await checkDb();
-    return { ok: db.ok, db };
+    if (!db.ok) {
+      reply.status(503);
+    }
+    return {
+      status: db.ok ? "ok" : "unhealthy",
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      db
+    };
   });
 
   app.get("/health/db", async (_request, reply) => {

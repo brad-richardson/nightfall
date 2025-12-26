@@ -1,0 +1,25 @@
+FROM node:24-slim
+
+WORKDIR /app
+ENV NODE_ENV=production
+
+RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
+
+COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages ./packages
+COPY apps/api ./apps/api
+COPY apps/ticker ./apps/ticker
+COPY db ./db
+COPY dbmate.yml ./
+COPY start-combined.sh ./
+
+RUN pnpm install --frozen-lockfile
+RUN pnpm --filter @nightfall/api build
+RUN pnpm --filter @nightfall/ticker build
+RUN chmod +x start-combined.sh
+
+EXPOSE 8080
+
+# Run both API and ticker in the same container
+# To undo: change CMD back to ["pnpm", "--filter", "@nightfall/api", "start"]
+CMD ["./start-combined.sh"]

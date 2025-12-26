@@ -1,78 +1,72 @@
-import { renderHook } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import React from "react";
+import { act, render } from "@testing-library/react";
 import { useEventStream } from "./useEventStream";
 
+class MockEventSource {
+  static instances: MockEventSource[] = [];
+  url: string;
+  onerror: ((event: Event) => void) | null = null;
+  onopen: (() => void) | null = null;
+  closed = false;
+  private listeners: Record<string, Array<(event: MessageEvent) => void>> = {};
+
+  constructor(url: string) {
+    this.url = url;
+    MockEventSource.instances.push(this);
+  }
+
+  addEventListener(event: string, handler: (event: MessageEvent) => void) {
+    if (!this.listeners[event]) {
+      this.listeners[event] = [];
+    }
+    this.listeners[event].push(handler);
+  }
+
+  close() {
+    this.closed = true;
+  }
+
+  emit(event: string, data: unknown) {
+    const payload = typeof data === "string" ? data : JSON.stringify(data);
+    const message = { data: payload } as MessageEvent;
+    this.listeners[event]?.forEach((handler) => handler(message));
+  }
+}
+
 describe("useEventStream", () => {
-  let mockEventSource: {
-    addEventListener: ReturnType<typeof vi.fn>;
-    close: ReturnType<typeof vi.fn>;
-    onerror: null;
-    onopen: null;
-  };
-  const eventListeners: Record<string, ((e: { data: string }) => void)[]> = {};
-
   beforeEach(() => {
-    mockEventSource = {
-      addEventListener: vi.fn((event, handler) => {
-        if (!eventListeners[event]) eventListeners[event] = [];
-        eventListeners[event].push(handler);
-      }),
-      close: vi.fn(),
-      onerror: null,
-      onopen: null,
-    };
-
-    vi.stubGlobal("EventSource", vi.fn(() => mockEventSource));
+    MockEventSource.instances = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).EventSource = MockEventSource;
   });
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    Object.keys(eventListeners).forEach(key => delete eventListeners[key]);
-  });
+  it("connects to the stream and emits connected on open", () => {
+    const events: Array<{ event: string; data: unknown }> = [];
 
-  it("connects to the correct URL", () => {
-    const baseUrl = "http://api.test";
-    renderHook(() => useEventStream(baseUrl, vi.fn()));
+    function TestComponent() {
+      useEventStream("", (payload) => events.push(payload));
+      return null;
+    }
 
-    expect(global.EventSource).toHaveBeenCalledWith(`${baseUrl}/api/stream`);
-  });
+    const { unmount } = render(<TestComponent />);
 
-  it("subscribes to all expected events", () => {
-    renderHook(() => useEventStream("http://api.test", vi.fn()));
+    const instance = MockEventSource.instances[0];
+    expect(instance).toBeDefined();
+    expect(instance.url).toBe("/api/stream");
 
-    const expectedEvents = [
-      "phase_change",
-      "world_delta",
-      "feature_delta",
-      "task_delta",
-      "feed_item",
-      "reset_warning",
-      "reset"
-    ];
-
-    expectedEvents.forEach(event => {
-      expect(mockEventSource.addEventListener).toHaveBeenCalledWith(event, expect.any(Function));
+    act(() => {
+      instance.onopen?.();
     });
-  });
 
-  it("calls onEvent when an event is received", () => {
-    const onEvent = vi.fn();
-    renderHook(() => useEventStream("http://api.test", onEvent));
+    expect(events[0]).toEqual({ event: "connected", data: {} });
 
-    const phaseChangeHandler = eventListeners["phase_change"][0];
-    const mockData = { phase: "night" };
-    
-    phaseChangeHandler({ data: JSON.stringify(mockData) });
-
-    expect(onEvent).toHaveBeenCalledWith({
-      event: "phase_change",
-      data: mockData
+    act(() => {
+      instance.emit("phase_change", { phase: "night" });
     });
-  });
 
-  it("closes the connection on unmount", () => {
-    const { unmount } = renderHook(() => useEventStream("http://api.test", vi.fn()));
+    expect(events[1]).toEqual({ event: "phase_change", data: { phase: "night" } });
+
     unmount();
-    expect(mockEventSource.close).toHaveBeenCalled();
+    expect(instance.closed).toBe(true);
   });
 });

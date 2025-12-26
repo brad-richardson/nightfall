@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { Hammer, Vote, Clock, AlertTriangle, Search, X } from "lucide-react";
+import { formatNumber, formatLabel } from "../lib/formatters";
 
 type Task = {
   task_id: string;
@@ -23,14 +24,6 @@ type TaskListProps = {
 
 type TaskFilter = "all" | "queued" | "in_progress" | "high_priority";
 type TaskSort = "priority" | "votes" | "cost" | "duration";
-
-function formatNumber(value: number) {
-  return new Intl.NumberFormat("en-US").format(value);
-}
-
-function formatFilterLabel(filter: TaskFilter): string {
-  return filter.split("_").map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
-}
 
 export default function TaskList({ tasks, onVote }: TaskListProps) {
   const [searchQuery, setSearchQuery] = useState("");
@@ -157,7 +150,7 @@ export default function TaskList({ tasks, onVote }: TaskListProps) {
               }`}
               aria-pressed={activeFilter === filter}
             >
-              {formatFilterLabel(filter)}
+              {formatLabel(filter)}
               <span className="min-w-[18px] rounded-full bg-white/10 px-1 text-[9px] font-semibold text-white/70">
                 {taskCounts[filter]}
               </span>

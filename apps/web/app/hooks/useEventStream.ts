@@ -12,16 +12,26 @@ export function useEventStream(
   onEvent: (payload: EventPayload) => void
 ) {
   const onEventRef = useRef(onEvent);
+  const eventSourceRef = useRef<EventSource | null>(null);
+  const retryTimeoutRef = useRef<number | null>(null);
+  const retryCountRef = useRef(0);
   onEventRef.current = onEvent;
 
   useEffect(() => {
-    let eventSource: EventSource | null = null;
-    let retryCount = 0;
+    let active = true;
     const maxRetries = 10;
+    const clearRetryTimeout = () => {
+      if (retryTimeoutRef.current !== null) {
+        window.clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = null;
+      }
+    };
 
     function connect() {
-      const url = `${baseUrl}/api/stream`;
-      eventSource = new EventSource(url);
+      if (!active) return;
+      const url = baseUrl ? `${baseUrl}/api/stream` : "/api/stream";
+      const eventSource = new EventSource(url);
+      eventSourceRef.current = eventSource;
 
       const handlers = [
         "phase_change",
@@ -47,25 +57,33 @@ export function useEventStream(
       });
 
       eventSource.onerror = (err) => {
+        if (!active || eventSourceRef.current !== eventSource) return;
         console.error("SSE error", err);
-        eventSource?.close();
-        
-        if (retryCount < maxRetries) {
-          retryCount++;
-          const delay = Math.min(1000 * Math.pow(2, retryCount), 30000);
-          setTimeout(connect, delay);
+        eventSource.close();
+        eventSourceRef.current = null;
+
+        if (retryCountRef.current < maxRetries) {
+          retryCountRef.current += 1;
+          const delay = Math.min(1000 * Math.pow(2, retryCountRef.current), 30000);
+          clearRetryTimeout();
+          retryTimeoutRef.current = window.setTimeout(connect, delay);
         }
       };
 
       eventSource.onopen = () => {
-        retryCount = 0;
+        if (!active || eventSourceRef.current !== eventSource) return;
+        retryCountRef.current = 0;
+        onEventRef.current({ event: "connected", data: {} });
       };
     }
 
     connect();
 
     return () => {
-      eventSource?.close();
+      active = false;
+      clearRetryTimeout();
+      eventSourceRef.current?.close();
+      eventSourceRef.current = null;
     };
   }, [baseUrl]);
 }

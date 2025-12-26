@@ -295,6 +295,8 @@ If a place category matches both labor and materials patterns, treat it as mater
 - Labor: `1 * (1 - local_rust_level) * day_multiplier` per labor-generating building
 - Materials: `1 * (1 - local_rust_level) * day_multiplier` per material-generating building
 
+Generated resources are enqueued as in-transit transfers to the region hub and do not appear in pools until arrival.
+
 Resources accumulate in the building's region pool. Generation is higher during the day.
 
 ---
@@ -882,23 +884,21 @@ POST /api/admin/set-phase
 
 ### Map Layers
 
-1. **Base**: OpenStreetMap or Stadia tiles (with day/night style variants)
-2. **Buildings**: Overture buildings, colored by generation type
+1. **Base**: Overture PMTiles layers (land use, water, transportation, buildings)
+2. **Buildings**: Colored by generation type + hub glow
    - Gray: no generation
    - Blue: labor (offices, restaurants)
    - Orange: materials (industrial)
-3. **Roads**: Colored by health
+3. **Roads**: Colored by health + repair pulse
    - Green: 80-100
    - Yellow: 50-79
    - Orange: 30-49
    - Red: 0-29
-   - Animated pulse: currently repairing
-4. **Rust overlay**: H3 hexagons with semi-transparent amber/brown fill
-   - Opacity = rust_level
-   - Subtle grain/noise texture animation
-   - Stronger visual at night
-5. **Tasks**: Dashed outline on target road segments
-6. **Crews**: Small animated icon on active repair location
+4. **Tasks**: Queued/pending dashed outline + glow on target road segments
+5. **Rust overlay**: H3 hexagons with semi-transparent amber/brown fill + breathing animation at dusk/night
+6. **Crews**: Animated travel paths with moving markers
+7. **Resource transfers**: Animated packages with path trails (arrive after travel delay)
+8. **Hub marker**: Central hub ring for the region
 
 ### Rust Visual Treatment
 
@@ -940,6 +940,7 @@ POST /api/admin/set-phase
 
 **Tasks tab**:
 - Sorted by priority_score DESC
+- Search + filter + sort controls for quick triage
 - Each task shows:
   - Road name (if available) or "Road segment"
   - Road class icon
@@ -949,7 +950,7 @@ POST /api/admin/set-phase
 
 ### Activity Feed
 
-Horizontal scrolling ticker (desktop) or vertical list in sheet (mobile).
+Horizontal scrolling ticker (desktop, in-map overlay) or vertical list in sheet (mobile).
 
 Event types:
 - "A road in [Region] was repaired"
@@ -970,19 +971,20 @@ Event types:
 - **Mobile**: Responsive design, no native app needed
 
 ### Backend
-- **API**: Next.js API routes (simpler) OR Fastify (if tick loop needs isolation)
-- **Database**: PostgreSQL on Fly.io (with PostGIS)
-- **Realtime**: Server-Sent Events (SSE)
-- **Tick loop**: Separate Node.js process or Fly Machine
+- **API**: Fastify service (`apps/api`)
+- **Database**: PostgreSQL + PostGIS
+- **Realtime**: Server-Sent Events (SSE) fed by Postgres LISTEN/NOTIFY
+- **Tick loop**: Separate Node.js process (`apps/ticker`)
 
 ### Infrastructure
 - **Hosting**: Fly.io
-- **Database**: Fly Postgres (with pgvector for future, PostGIS for geo)
-- **CDN**: Fly's built-in edge caching for tiles
+- **Database**: Fly Postgres (PostGIS for geo)
+- **Tiles**: Overture PMTiles hosted on CDN; no application-side tile caching
 
 ### Recommended Fly setup
 ```
-- fly-api (Next.js, 1-2 instances, auto-scale)
+- fly-web (Next.js, 1-2 instances, auto-scale)
+- fly-api (Fastify, 1 instance, always-on)
 - fly-ticker (Node.js, 1 instance, always-on)
 - fly-postgres (shared-cpu-1x, 1GB RAM minimum)
 ```

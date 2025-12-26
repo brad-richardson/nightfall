@@ -1,0 +1,82 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  # Ensure tests pass before deploying
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run tests
+        run: pnpm run ci
+
+      - name: Verify Docker image builds
+        run: docker build -f Dockerfile.api -t nightfall-api:test .
+
+  deploy-fly:
+    runs-on: ubuntu-latest
+    needs: verify  # Only deploy if tests pass
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy API (includes ticker)
+        run: flyctl deploy -c fly.api.toml --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Verify health endpoint
+        run: |
+          echo "Waiting for deployment to stabilize..."
+          sleep 15
+          curl -f https://nightfall-api.fly.dev/health || exit 1
+          echo "Health check passed!"
+
+      # Note: fly.ticker.toml deployment removed - ticker now runs in API container
+
+  deploy-pages:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build static site
+        run: pnpm --filter @nightfall/web build
+        env:
+          NEXT_EXPORT: "1"
+          NEXT_PUBLIC_API_BASE_URL: ${{ secrets.NEXT_PUBLIC_API_BASE_URL }}
+          NEXT_PUBLIC_BASE_PATH: /${{ github.event.repository.name }}
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/web/out
+
+      - uses: actions/deploy-pages@v4

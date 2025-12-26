@@ -1,0 +1,50 @@
+app = "nightfall-api"
+primary_region = "ord"
+
+# Note: This container now runs both API and ticker processes
+# See start-combined.sh for details
+# To revert to API-only: change Dockerfile.api CMD back to running API only
+
+[build]
+  dockerfile = "Dockerfile.api"
+
+[deploy]
+  release_command = "pnpm run db:up"
+
+[env]
+  HOST = "0.0.0.0"
+  PORT = "8080"
+  NODE_ENV = "production"
+  LOG_LEVEL = "info"
+
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+
+  [services.concurrency]
+    type = "connections"
+    hard_limit = 50
+    soft_limit = 40
+
+  [[services.ports]]
+    handlers = ["http"]
+    port = 80
+
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port = 443
+
+  # Health check for API availability
+  [[services.http_checks]]
+    interval = "10s"
+    timeout = "5s"
+    grace_period = "30s"
+    method = "GET"
+    path = "/health"
+    protocol = "http"
+    [services.http_checks.headers]
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 2  # Increased from 1 to handle both API + ticker
+  memory_mb = 512  # Increased from 256 to handle both processes
