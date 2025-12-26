@@ -560,6 +560,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       place_category: string | null;
       generates_labor: boolean;
       generates_materials: boolean;
+      is_hub: boolean;
     }>(
       `
       SELECT
@@ -580,7 +581,8 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         (
           wf.generates_materials IS TRUE OR
           LOWER(COALESCE(wf.place_category, '')) LIKE ANY($${materialsIdx})
-        ) AS generates_materials
+        ) AS generates_materials,
+        COALESCE(wf.is_hub, FALSE) AS is_hub
       FROM world_features AS wf
       LEFT JOIN feature_state AS fs ON fs.gers_id = wf.gers_id
       WHERE wf.bbox_xmin <= $3

@@ -1,18 +1,24 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import * as pmtiles from "pmtiles";
-import { cellToBoundary } from "h3-js";
+import { cellToBoundary, latLngToCell } from "h3-js";
 import { ROAD_CLASS_FILTER } from "@nightfall/config";
+import {
+  type ResourcePackage,
+  buildResourcePath,
+  interpolatePath,
+  easeInOutCubic
+} from "../lib/resourceAnimation";
 
 type Feature = {
   gers_id: string;
   feature_type: string;
   bbox: [number, number, number, number] | null;
-  geometry?: { 
-    type: "Point" | "LineString" | "Polygon" | "MultiPolygon"; 
+  geometry?: {
+    type: "Point" | "LineString" | "Polygon" | "MultiPolygon";
     coordinates: number[] | number[][] | number[][][] | number[][][][];
   } | null;
   health?: number | null;
@@ -20,6 +26,7 @@ type Feature = {
   road_class?: string | null;
   generates_labor?: boolean;
   generates_materials?: boolean;
+  is_hub?: boolean;
 };
 
 type Crew = {
@@ -31,6 +38,7 @@ type Crew = {
 type Task = {
   task_id: string;
   target_gers_id: string;
+  status?: string;
 };
 
 type Hex = {
@@ -113,8 +121,9 @@ export default function DemoMap({
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
-  const [completedRoadIds, setCompletedRoadIds] = useState<string[]>([]);
+  const [resourcePackages, setResourcePackages] = useState<ResourcePackage[]>([]);
   const repairPulseRef = useRef<number | null>(null);
+  const resourceAnimationRef = useRef<number | null>(null);
   const pmtilesBase = useMemo(
     () => `https://d3c1b7bog2u1nn.cloudfront.net/${pmtilesRelease || DEFAULT_RELEASE}`,
     [pmtilesRelease]
@@ -277,6 +286,31 @@ export default function DemoMap({
           "fill-color": COLORS.buildingsMaterials,
           "fill-opacity": 0.85,
           "fill-outline-color": COLORS.buildingOutline
+        }
+      },
+      // Hub building glow layer
+      {
+        id: "buildings-hub-glow",
+        source: "overture_buildings",
+        "source-layer": "building",
+        type: "fill",
+        filter: ["==", ["get", "id"], "none"],
+        paint: {
+          "fill-color": "#ffffff",
+          "fill-opacity": 0.15
+        }
+      },
+      // Hub building highlight layer
+      {
+        id: "buildings-hub",
+        source: "overture_buildings",
+        "source-layer": "building",
+        type: "line",
+        filter: ["==", ["get", "id"], "none"],
+        paint: {
+          "line-color": "#ffffff",
+          "line-width": 2,
+          "line-opacity": 0.8
         }
       },
 
@@ -654,6 +688,73 @@ export default function DemoMap({
         }
       }, "game-crews-point");
 
+      // Add resource packages source and layers
+      map.current?.addSource("game-resource-packages", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] }
+      });
+
+      // Trail/path layer
+      map.current?.addLayer({
+        id: "game-resource-trail",
+        type: "line",
+        source: "game-resource-packages",
+        filter: ["==", ["get", "featureType"], "trail"],
+        paint: {
+          "line-color": [
+            "match",
+            ["get", "resourceType"],
+            "labor", "#3eb0c0",
+            "materials", "#f08a4e",
+            "#ffffff"
+          ],
+          "line-width": 3,
+          "line-opacity": 0.4,
+          "line-dasharray": [2, 2]
+        }
+      });
+
+      // Package glow layer
+      map.current?.addLayer({
+        id: "game-resource-package-glow",
+        type: "circle",
+        source: "game-resource-packages",
+        filter: ["==", ["get", "featureType"], "package"],
+        paint: {
+          "circle-radius": 14,
+          "circle-color": [
+            "match",
+            ["get", "resourceType"],
+            "labor", "#3eb0c0",
+            "materials", "#f08a4e",
+            "#ffffff"
+          ],
+          "circle-blur": 1,
+          "circle-opacity": ["get", "opacity"]
+        }
+      });
+
+      // Package point layer
+      map.current?.addLayer({
+        id: "game-resource-package",
+        type: "circle",
+        source: "game-resource-packages",
+        filter: ["==", ["get", "featureType"], "package"],
+        paint: {
+          "circle-radius": 6,
+          "circle-color": [
+            "match",
+            ["get", "resourceType"],
+            "labor", "#3eb0c0",
+            "materials", "#f08a4e",
+            "#ffffff"
+          ],
+          "circle-stroke-width": 2,
+          "circle-stroke-color": "#ffffff",
+          "circle-opacity": ["get", "opacity"]
+        }
+      });
+
       setIsLoaded(true);
     });
 
@@ -746,6 +847,11 @@ export default function DemoMap({
 
     map.current.setFilter("buildings-labor", makeIdFilter(laborIds) as maplibregl.FilterSpecification);
     map.current.setFilter("buildings-materials", makeIdFilter(materialIds) as maplibregl.FilterSpecification);
+
+    // Hub buildings
+    const hubIds = features.filter(f => f.feature_type === "building" && f.is_hub).map(f => f.gers_id);
+    map.current.setFilter("buildings-hub", makeIdFilter(hubIds) as maplibregl.FilterSpecification);
+    map.current.setFilter("buildings-hub-glow", makeIdFilter(hubIds) as maplibregl.FilterSpecification);
 
   }, [features, isLoaded]);
 
@@ -897,6 +1003,201 @@ export default function DemoMap({
       }
     };
   }, [repairingRoadIds, isLoaded]);
+
+  // Helper to get building center
+  const getBuildingCenter = useCallback((building: Feature): [number, number] | null => {
+    if (building.bbox) {
+      return [
+        (building.bbox[0] + building.bbox[2]) / 2,
+        (building.bbox[1] + building.bbox[3]) / 2
+      ];
+    } else if (building.geometry) {
+      const g = building.geometry;
+      if (g.type === "Point") return g.coordinates as [number, number];
+      else if (g.type === "Polygon") {
+        const ring = (g.coordinates as number[][][])[0];
+        const sumLng = ring.reduce((s, c) => s + c[0], 0);
+        const sumLat = ring.reduce((s, c) => s + c[1], 0);
+        return [sumLng / ring.length, sumLat / ring.length];
+      }
+    }
+    return null;
+  }, []);
+
+  // Function to spawn a resource package animation
+  const spawnResourcePackage = useCallback((
+    buildingGersId: string,
+    resourceType: "labor" | "materials"
+  ) => {
+    if (!isLoaded) return;
+
+    // Find the source building
+    const building = features.find(f => f.gers_id === buildingGersId && f.feature_type === "building");
+    if (!building) return;
+
+    // Get building center
+    const buildingCenter = getBuildingCenter(building);
+    if (!buildingCenter) return;
+
+    // Find the hub building for this hex
+    // First, get the hex for this building's location
+    const h3Index = latLngToCell(buildingCenter[1], buildingCenter[0], 8);
+
+    // Find a hub building in the same hex (or nearby)
+    const hubBuilding = features.find(f =>
+      f.feature_type === "building" &&
+      f.is_hub &&
+      f.gers_id !== buildingGersId
+    );
+
+    // Determine target: hub building center if found, otherwise hex centroid
+    let targetCenter: [number, number];
+    if (hubBuilding) {
+      const hubCenter = getBuildingCenter(hubBuilding);
+      if (hubCenter) {
+        targetCenter = hubCenter;
+      } else {
+        // Fallback to hex centroid
+        const hexBoundary = cellToBoundary(h3Index);
+        targetCenter = [
+          hexBoundary.reduce((s, c) => s + c[1], 0) / hexBoundary.length,
+          hexBoundary.reduce((s, c) => s + c[0], 0) / hexBoundary.length
+        ];
+      }
+    } else {
+      // No hub found, use hex centroid
+      const hexBoundary = cellToBoundary(h3Index);
+      targetCenter = [
+        hexBoundary.reduce((s, c) => s + c[1], 0) / hexBoundary.length,
+        hexBoundary.reduce((s, c) => s + c[0], 0) / hexBoundary.length
+      ];
+    }
+
+    // Get road features for pathfinding
+    const roads = features
+      .filter(f => f.feature_type === "road" && f.geometry?.type === "LineString")
+      .map(f => ({ geometry: { coordinates: f.geometry!.coordinates as number[][] } }));
+
+    // Build path
+    const path = buildResourcePath(buildingCenter, targetCenter, roads);
+
+    // Create package
+    const newPackage: ResourcePackage = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      type: resourceType,
+      path,
+      progress: 0,
+      startTime: Date.now(),
+      duration: 2500 // 2.5 seconds
+    };
+
+    setResourcePackages(prev => [...prev, newPackage]);
+  }, [features, isLoaded, getBuildingCenter]);
+
+  // Listen for contribution events
+  useEffect(() => {
+    const handleContribution = (e: Event) => {
+      const customEvent = e as CustomEvent<{
+        buildingGersId: string;
+        resourceType: "labor" | "materials";
+      }>;
+      spawnResourcePackage(
+        customEvent.detail.buildingGersId,
+        customEvent.detail.resourceType
+      );
+    };
+
+    window.addEventListener("nightfall:resource_contributed", handleContribution);
+    return () => window.removeEventListener("nightfall:resource_contributed", handleContribution);
+  }, [spawnResourcePackage]);
+
+  // Animate resource packages
+  useEffect(() => {
+    if (!isLoaded || !map.current || resourcePackages.length === 0) {
+      // Clean up source if no packages
+      if (isLoaded && map.current) {
+        const source = map.current.getSource("game-resource-packages") as maplibregl.GeoJSONSource;
+        if (source) {
+          source.setData({ type: "FeatureCollection", features: [] });
+        }
+      }
+      return;
+    }
+
+    const animate = () => {
+      const now = Date.now();
+      const activePackages: ResourcePackage[] = [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const geoFeatures: any[] = [];
+
+      for (const pkg of resourcePackages) {
+        const elapsed = now - pkg.startTime;
+        const rawProgress = Math.min(1, elapsed / pkg.duration);
+
+        if (rawProgress < 1) {
+          // Update progress with easing
+          const easedProgress = easeInOutCubic(rawProgress);
+          const position = interpolatePath(pkg.path, easedProgress);
+
+          // Calculate opacity (fade in/out at edges)
+          let opacity = 1;
+          if (rawProgress < 0.1) opacity = rawProgress / 0.1;
+          else if (rawProgress > 0.9) opacity = (1 - rawProgress) / 0.1;
+
+          // Add trail (completed portion of path)
+          const trailCoords = [];
+          for (let t = 0; t <= easedProgress; t += 0.02) {
+            trailCoords.push(interpolatePath(pkg.path, t));
+          }
+          if (trailCoords.length > 1) {
+            geoFeatures.push({
+              type: "Feature",
+              geometry: { type: "LineString", coordinates: trailCoords },
+              properties: { featureType: "trail", resourceType: pkg.type }
+            });
+          }
+
+          // Add package point
+          geoFeatures.push({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: position },
+            properties: {
+              featureType: "package",
+              resourceType: pkg.type,
+              opacity
+            }
+          });
+
+          activePackages.push({ ...pkg, progress: easedProgress });
+        }
+        // Package completed - don't add to active list
+      }
+
+      // Update source
+      const source = map.current?.getSource("game-resource-packages") as maplibregl.GeoJSONSource;
+      if (source) {
+        source.setData({ type: "FeatureCollection", features: geoFeatures });
+      }
+
+      // Update state if packages changed
+      if (activePackages.length !== resourcePackages.length) {
+        setResourcePackages(activePackages);
+      }
+
+      // Continue animation if there are active packages
+      if (activePackages.length > 0) {
+        resourceAnimationRef.current = requestAnimationFrame(animate);
+      }
+    };
+
+    resourceAnimationRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (resourceAnimationRef.current) {
+        cancelAnimationFrame(resourceAnimationRef.current);
+      }
+    };
+  }, [resourcePackages, isLoaded]);
 
   return (
     <div className="relative overflow-hidden rounded-3xl border border-[var(--night-outline)] bg-[#101216] shadow-[0_20px_60px_rgba(0,0,0,0.5)]">

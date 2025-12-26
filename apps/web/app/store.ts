@@ -13,8 +13,8 @@ export type Feature = {
   gers_id: string;
   feature_type: string;
   bbox: [number, number, number, number] | null;
-  geometry?: { 
-    type: "Point" | "LineString" | "Polygon" | "MultiPolygon"; 
+  geometry?: {
+    type: "Point" | "LineString" | "Polygon" | "MultiPolygon";
     coordinates: number[] | number[][] | number[][][] | number[][][][];
   } | null;
   health?: number | null;
@@ -23,6 +23,7 @@ export type Feature = {
   place_category?: string | null;
   generates_labor?: boolean;
   generates_materials?: boolean;
+  is_hub?: boolean;
 };
 
 export type Task = {

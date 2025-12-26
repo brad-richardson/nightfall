@@ -6,7 +6,6 @@
  */
 
 type Point = [number, number]; // [lng, lat]
-type LineString = Point[];
 
 export type ResourcePackage = {
   id: string;

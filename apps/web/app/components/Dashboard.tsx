@@ -153,7 +153,6 @@ export default function Dashboard({
   
   const [lastEvent, setLastEvent] = useState<string | null>(null);
   const [resourceDeltas, setResourceDeltas] = useState<ResourceDelta[]>([]);
-  const [completedTaskIds, setCompletedTaskIds] = useState<string[]>([]);
   const prevTasksRef = useRef<Map<string, string>>(new Map());
 
   // Hydrate store
@@ -211,6 +210,7 @@ export default function Dashboard({
     }
   }, [apiBaseUrl]);
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const refreshRegionData = useCallback(async (regionId: string) => {
     const regionData = await fetchRegionData(regionId);
     if (!regionData) return;
@@ -331,15 +331,8 @@ export default function Dashboard({
             duration: 4000
           });
 
-          // Track completed task for map animation
+          // Emit event for map animation
           if (delta.target_gers_id) {
-            setCompletedTaskIds(prev => [...prev, delta.target_gers_id!]);
-            // Clear after animation
-            setTimeout(() => {
-              setCompletedTaskIds(prev => prev.filter(id => id !== delta.target_gers_id));
-            }, 3000);
-
-            // Emit event for map animation
             window.dispatchEvent(new CustomEvent("nightfall:task_completed", {
               detail: { gers_id: delta.target_gers_id }
             }));

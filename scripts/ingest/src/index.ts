@@ -639,6 +639,136 @@ async function updateLandRatios(
   }
 }
 
+async function assignHubBuildings(pgPool: Pool, region: RegionConfig) {
+  console.log("--- Assigning Hub Buildings ---");
+  const client = await pgPool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    // Reset existing hub assignments for this region
+    await client.query(`
+      UPDATE world_features
+      SET is_hub = FALSE
+      WHERE region_id = $1 AND is_hub = TRUE
+    `, [region.regionId]);
+
+    await client.query(`
+      UPDATE hex_cells
+      SET hub_building_gers_id = NULL
+      WHERE region_id = $1
+    `, [region.regionId]);
+
+    // Get all hexes in the region
+    const hexResult = await client.query<{ h3_index: string }>(
+      "SELECT h3_index FROM hex_cells WHERE region_id = $1",
+      [region.regionId]
+    );
+
+    if (hexResult.rows.length === 0) {
+      console.log("No hexes found for region");
+      await client.query("COMMIT");
+      return;
+    }
+
+    // Compute hex centroids using h3-js
+    const hexCentroids: Map<string, [number, number]> = new Map();
+    for (const row of hexResult.rows) {
+      const [lat, lon] = cellToLatLng(row.h3_index);
+      hexCentroids.set(row.h3_index, [lon, lat]); // [lng, lat] for consistency
+    }
+
+    // Get all building-to-hex mappings for this region
+    const buildingResult = await client.query<{
+      h3_index: string;
+      gers_id: string;
+      center_lon: number;
+      center_lat: number;
+    }>(`
+      SELECT
+        wfh.h3_index,
+        wf.gers_id,
+        (wf.bbox_xmin + wf.bbox_xmax) / 2 AS center_lon,
+        (wf.bbox_ymin + wf.bbox_ymax) / 2 AS center_lat
+      FROM world_features wf
+      JOIN world_feature_hex_cells wfh ON wf.gers_id = wfh.gers_id
+      WHERE wf.feature_type = 'building'
+        AND wf.region_id = $1
+    `, [region.regionId]);
+
+    // Group buildings by hex
+    const buildingsByHex: Map<string, Array<{ gers_id: string; lon: number; lat: number }>> = new Map();
+    for (const row of buildingResult.rows) {
+      if (!buildingsByHex.has(row.h3_index)) {
+        buildingsByHex.set(row.h3_index, []);
+      }
+      buildingsByHex.get(row.h3_index)!.push({
+        gers_id: row.gers_id,
+        lon: row.center_lon,
+        lat: row.center_lat
+      });
+    }
+
+    // Find the closest building to each hex centroid
+    const hubAssignments: Array<{ h3_index: string; building_gers_id: string }> = [];
+
+    for (const [h3Index, centroid] of hexCentroids) {
+      const buildings = buildingsByHex.get(h3Index);
+      if (!buildings || buildings.length === 0) continue;
+
+      let closestBuilding = buildings[0];
+      let minDist = Math.pow(closestBuilding.lon - centroid[0], 2) + Math.pow(closestBuilding.lat - centroid[1], 2);
+
+      for (let i = 1; i < buildings.length; i++) {
+        const dist = Math.pow(buildings[i].lon - centroid[0], 2) + Math.pow(buildings[i].lat - centroid[1], 2);
+        if (dist < minDist) {
+          minDist = dist;
+          closestBuilding = buildings[i];
+        }
+      }
+
+      hubAssignments.push({ h3_index: h3Index, building_gers_id: closestBuilding.gers_id });
+    }
+
+    console.log(`Found ${hubAssignments.length} hub building assignments`);
+
+    if (hubAssignments.length > 0) {
+      // Update hex_cells with hub building
+      const hexIndices = hubAssignments.map(r => r.h3_index);
+      const buildingIds = hubAssignments.map(r => r.building_gers_id);
+
+      await client.query(`
+        UPDATE hex_cells h
+        SET hub_building_gers_id = data.building_gers_id
+        FROM (
+          SELECT
+            UNNEST($1::text[]) AS h3_index,
+            UNNEST($2::text[]) AS building_gers_id
+        ) AS data
+        WHERE h.h3_index = data.h3_index
+          AND h.region_id = $3
+      `, [hexIndices, buildingIds, region.regionId]);
+
+      // Mark buildings as hubs (deduplicated)
+      const uniqueHubIds = [...new Set(buildingIds)];
+      await client.query(`
+        UPDATE world_features
+        SET is_hub = TRUE
+        WHERE gers_id = ANY($1::text[])
+      `, [uniqueHubIds]);
+
+      console.log(`Assigned ${uniqueHubIds.length} unique hub buildings across ${hubAssignments.length} hexes`);
+    }
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function seedDemoData(pgPool: Pool, region: RegionConfig) {
   const client = await pgPool.connect();
   try {
@@ -1114,6 +1244,9 @@ async function main() {
 
     console.log("--- Land Ratio Update ---");
     await updateLandRatios(pgPool, region, dataDir, regionHexes);
+
+    // Assign hub buildings per hex
+    await assignHubBuildings(pgPool, region);
 
     if (shouldSeedDemo()) {
       await seedDemoData(pgPool, region);

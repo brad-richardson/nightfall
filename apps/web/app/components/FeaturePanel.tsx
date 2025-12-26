@@ -55,7 +55,7 @@ export default function FeaturePanel({ onContribute, onVote, activeTasks, canCon
   const contributionDisabled = !canContribute || isSubmitting || (!canGenerateLabor && !canGenerateMaterials);
 
   const handleContributeClick = (labor: number, materials: number) => {
-    if (contributionDisabled) return;
+    if (contributionDisabled || !selected) return;
     setIsSubmitting(true);
     setStatusMsg(null);
     Promise.resolve(onContribute(labor, materials))
@@ -65,6 +65,14 @@ export default function FeaturePanel({ onContribute, onVote, activeTasks, canCon
           labor > 0 ? `+${labor} Labor contributed` : `+${materials} Materials contributed`,
           { description: "Resources added to regional pool" }
         );
+
+        // Emit event for map animation
+        window.dispatchEvent(new CustomEvent("nightfall:resource_contributed", {
+          detail: {
+            buildingGersId: selected.gers_id,
+            resourceType: labor > 0 ? "labor" : "materials"
+          }
+        }));
       })
       .catch(() => {
         setStatusMsg("Contribution failed");
