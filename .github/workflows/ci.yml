@@ -8,6 +8,21 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    services:
+      db:
+        image: postgis/postgis:16-3.4-alpine
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_USER: nightfall
+          POSTGRES_PASSWORD: nightfall
+          POSTGRES_DB: nightfall
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v4
 
@@ -19,4 +34,21 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run ci
+      
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run CI (Lint, Unit Tests, Build)
+        run: pnpm run ci
+        env:
+          DATABASE_URL: postgresql://nightfall:nightfall@localhost:5432/nightfall
+
+      - name: Run Database Migrations
+        run: pnpm run db:up
+        env:
+          DATABASE_URL: postgresql://nightfall:nightfall@localhost:5432/nightfall
+
+      - name: Run UI Tests
+        run: pnpm run test:ui
+        env:
+          DATABASE_URL: postgresql://nightfall:nightfall@localhost:5432/nightfall
