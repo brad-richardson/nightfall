@@ -19,10 +19,10 @@ export const BOSTON_BBOX: Bbox = {
 };
 
 export const BAR_HARBOR_DEMO_BBOX: Bbox = {
-  xmin: -68.35,
-  ymin: 44.31,
-  xmax: -68.15,
-  ymax: 44.45,
+  xmin: -68.30,
+  ymin: 44.35,
+  xmax: -68.20,
+  ymax: 44.42,
 };
 
 export const H3_RESOLUTION = 7;

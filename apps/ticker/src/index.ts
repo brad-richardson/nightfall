@@ -144,7 +144,12 @@ async function runTick(client: PoolLike) {
   await publishWorldDelta(
     client,
     [...rustHexes, ...completionResult.rustHexes],
-    [...arrivalResult.regionIds, ...dispatchResult.regionIds, ...completionResult.regionIds]
+    [
+      ...arrivalResult.regionIds, 
+      ...dispatchResult.regionIds, 
+      ...completionResult.regionIds,
+      ...decayFeatureDeltas.map(d => d.region_id)
+    ]
   );
 
   await publishFeatureDeltas(client, [

@@ -31,6 +31,7 @@ export async function applyRoadDecay(pool: PoolLike, multipliers: PhaseMultiplie
     FROM (
       SELECT
         wf.gers_id,
+        wf.region_id,
         (
           CASE wf.road_class
             ${decayCases}
@@ -42,7 +43,7 @@ export async function applyRoadDecay(pool: PoolLike, multipliers: PhaseMultiplie
       WHERE wf.feature_type = 'road'
     ) AS decay
     WHERE fs.gers_id = decay.gers_id
-    RETURNING fs.gers_id, fs.health, fs.status
+    RETURNING fs.gers_id, decay.region_id, fs.health, fs.status
     `,
     [multipliers.decay]
   );

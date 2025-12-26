@@ -671,25 +671,16 @@ async function assignHubBuildings(pgPool: Pool, region: RegionConfig) {
       return;
     }
 
-    // Compute hex centroids using h3-js
-    const hexCentroids: Map<string, [number, number]> = new Map();
-    for (const row of hexResult.rows) {
-      const [lat, lon] = cellToLatLng(row.h3_index);
-      hexCentroids.set(row.h3_index, [lon, lat]); // [lng, lat] for consistency
-    }
-
-    // Get all building-to-hex mappings for this region
+    // Get all building-to-hex mappings for this region with footprint area proxy
     const buildingResult = await client.query<{
       h3_index: string;
       gers_id: string;
-      center_lon: number;
-      center_lat: number;
+      area: number;
     }>(`
       SELECT
         wfh.h3_index,
         wf.gers_id,
-        (wf.bbox_xmin + wf.bbox_xmax) / 2 AS center_lon,
-        (wf.bbox_ymin + wf.bbox_ymax) / 2 AS center_lat
+        (wf.bbox_xmax - wf.bbox_xmin) * (wf.bbox_ymax - wf.bbox_ymin) AS area
       FROM world_features wf
       JOIN world_feature_hex_cells wfh ON wf.gers_id = wfh.gers_id
       WHERE wf.feature_type = 'building'
@@ -697,37 +688,31 @@ async function assignHubBuildings(pgPool: Pool, region: RegionConfig) {
     `, [region.regionId]);
 
     // Group buildings by hex
-    const buildingsByHex: Map<string, Array<{ gers_id: string; lon: number; lat: number }>> = new Map();
+    const buildingsByHex: Map<string, Array<{ gers_id: string; area: number }>> = new Map();
     for (const row of buildingResult.rows) {
       if (!buildingsByHex.has(row.h3_index)) {
         buildingsByHex.set(row.h3_index, []);
       }
       buildingsByHex.get(row.h3_index)!.push({
         gers_id: row.gers_id,
-        lon: row.center_lon,
-        lat: row.center_lat
+        area: row.area
       });
     }
 
-    // Find the closest building to each hex centroid
+    // Find the building with the largest footprint in each hex
     const hubAssignments: Array<{ h3_index: string; building_gers_id: string }> = [];
 
-    for (const [h3Index, centroid] of hexCentroids) {
-      const buildings = buildingsByHex.get(h3Index);
+    for (const [h3Index, buildings] of buildingsByHex.entries()) {
       if (!buildings || buildings.length === 0) continue;
 
-      let closestBuilding = buildings[0];
-      let minDist = Math.pow(closestBuilding.lon - centroid[0], 2) + Math.pow(closestBuilding.lat - centroid[1], 2);
-
+      let largestBuilding = buildings[0];
       for (let i = 1; i < buildings.length; i++) {
-        const dist = Math.pow(buildings[i].lon - centroid[0], 2) + Math.pow(buildings[i].lat - centroid[1], 2);
-        if (dist < minDist) {
-          minDist = dist;
-          closestBuilding = buildings[i];
+        if (buildings[i].area > largestBuilding.area) {
+          largestBuilding = buildings[i];
         }
       }
 
-      hubAssignments.push({ h3_index: h3Index, building_gers_id: closestBuilding.gers_id });
+      hubAssignments.push({ h3_index: h3Index, building_gers_id: largestBuilding.gers_id });
     }
 
     console.log(`Found ${hubAssignments.length} hub building assignments`);

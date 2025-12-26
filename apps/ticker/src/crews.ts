@@ -119,7 +119,14 @@ export async function dispatchCrews(pool: PoolLike, multipliers: PhaseMultiplier
       );
 
       const featureUpdate = await pool.query<FeatureDelta>(
-        "UPDATE feature_state SET status = 'repairing', updated_at = now() WHERE gers_id = $1 RETURNING gers_id, health, status",
+        `
+        UPDATE feature_state AS fs
+        SET status = 'repairing', updated_at = now()
+        FROM world_features AS wf
+        WHERE fs.gers_id = wf.gers_id
+          AND fs.gers_id = $1
+        RETURNING fs.gers_id, wf.region_id, fs.health, fs.status
+        `,
         [task.target_gers_id]
       );
 
@@ -205,7 +212,7 @@ export async function completeFinishedTasks(
         updated_at = now()
       FROM due
       WHERE fs.gers_id = due.target_gers_id
-      RETURNING fs.gers_id, fs.health, fs.status
+      RETURNING fs.gers_id, due.region_id, fs.health, fs.status
     ),
     updated_crews AS (
       UPDATE crews AS c
@@ -243,6 +250,7 @@ export async function completeFinishedTasks(
       COALESCE(
         jsonb_agg(DISTINCT jsonb_build_object(
           'gers_id', updated_features.gers_id,
+          'region_id', updated_features.region_id,
           'health', updated_features.health,
           'status', updated_features.status
         )) FILTER (WHERE updated_features.gers_id IS NOT NULL),

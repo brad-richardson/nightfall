@@ -56,7 +56,7 @@ const FETCH_RETRY_OPTIONS = { attempts: 3, baseDelayMs: 250, maxDelayMs: 2000, j
 
 function ResourceTicker({ deltas }: { deltas: ResourceDelta[] }) {
   return (
-    <div className="flex flex-col gap-2 rounded-2xl border border-white/20 bg-[rgba(12,16,20,0.65)] px-4 py-3 shadow-[0_12px_30px_rgba(0,0,0,0.35)] backdrop-blur-md">
+    <div className="flex flex-col gap-2 rounded-2xl border border-white/20 bg-[rgba(12,16,20,0.45)] px-4 py-3 shadow-[0_12px_30px_rgba(0,0,0,0.35)] backdrop-blur-md">
       <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-white/60">
         <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-[color:var(--night-teal)] shadow-[0_0_8px_var(--night-teal)]" />
         Resource Events
@@ -103,7 +103,7 @@ function MapPanel({
 }) {
   return (
     <div
-      className={`rounded-2xl border border-white/10 bg-[#0f1216]/75 p-4 text-white shadow-[0_12px_30px_rgba(0,0,0,0.45)] backdrop-blur-md${className ? ` ${className}` : ""}`}
+      className={`rounded-2xl border border-white/10 bg-[#0f1216]/60 p-4 text-white shadow-[0_12px_30px_rgba(0,0,0,0.45)] backdrop-blur-md${className ? ` ${className}` : ""}`}
     >
       {title ? (
         <p className="text-[10px] uppercase tracking-[0.35em] text-white/50">
@@ -187,7 +187,6 @@ export default function Dashboard({
   const [resourceDeltas, setResourceDeltas] = useState<ResourceDelta[]>([]);
   const prevTasksRef = useRef<Map<string, string>>(new Map());
   const eventProcessingRef = useRef(false);
-  const lastEventTimestampRef = useRef<Map<string, number>>(new Map());
 
   // Hydrate store
   useEffect(() => {
@@ -286,14 +285,6 @@ export default function Dashboard({
       return;
     }
 
-    // Simple time-based deduplication per event type (no JSON.stringify)
-    const now = Date.now();
-    const lastTimestamp = lastEventTimestampRef.current.get(payload.event) ?? 0;
-    if (now - lastTimestamp < 100) { // 100ms minimum between same event types
-      return; // Skip duplicate event
-    }
-    lastEventTimestampRef.current.set(payload.event, now);
-
     // Mark as processing
     eventProcessingRef.current = true;
 
@@ -366,7 +357,13 @@ export default function Dashboard({
       }
       case "resource_transfer": {
         const transfer = payload.data as ResourceTransferPayload;
-        if (transfer.region_id !== regionRef.current.region_id) break;
+        if (transfer.region_id !== regionRef.current.region_id) {
+          console.debug("Skipping transfer for other region", { 
+            transferRegion: transfer.region_id, 
+            currentRegion: regionRef.current.region_id 
+          });
+          break;
+        }
         window.dispatchEvent(new CustomEvent("nightfall:resource_transfer", { detail: transfer }));
         break;
       }
@@ -480,7 +477,11 @@ export default function Dashboard({
         setRegion(prev => ({
           ...prev,
           tasks: prev.tasks.map(t => 
-            t.task_id === taskId ? { ...t, vote_score: data.new_vote_score } : t
+            t.task_id === taskId ? { 
+              ...t, 
+              vote_score: data.new_vote_score,
+              priority_score: data.priority_score ?? t.priority_score
+            } : t
           )
         }));
       }
@@ -544,7 +545,7 @@ export default function Dashboard({
 
   const SidebarContent = ({ resourceFeed }: { resourceFeed: ResourceDelta[] }) => (
     <>
-      <div className="rounded-3xl border border-[var(--night-outline)] bg-white/70 p-6 shadow-[0_18px_40px_rgba(24,20,14,0.12)]">
+      <div className="rounded-3xl border border-[var(--night-outline)] bg-white/60 p-5 shadow-[0_18px_40px_rgba(24,20,14,0.12)]">
         <p className="text-xs uppercase tracking-[0.4em] text-[color:var(--night-ash)]">
           Resource Pools
         </p>
@@ -577,11 +578,11 @@ export default function Dashboard({
 
       <ResourceTicker deltas={resourceFeed} />
 
-      <div className="rounded-3xl border border-[var(--night-outline)] bg-[color:var(--night-ink)] p-6 text-white shadow-[0_18px_40px_rgba(24,20,14,0.2)]">
+      <div className="rounded-3xl border border-[var(--night-outline)] bg-[color:var(--night-ink)]/80 p-5 text-white shadow-[0_18px_40px_rgba(24,20,14,0.2)]">
         <TaskList tasks={region.tasks} crews={region.crews} features={features} onVote={handleVote} />
       </div>
 
-      <div className="rounded-3xl border border-[var(--night-outline)] bg-white/70 p-6 shadow-[0_18px_40px_rgba(24,20,14,0.12)]">
+      <div className="rounded-3xl border border-[var(--night-outline)] bg-white/60 p-5 shadow-[0_18px_40px_rgba(24,20,14,0.12)]">
         <p className="text-xs uppercase tracking-[0.4em] text-[color:var(--night-ash)]">
           Region Health
         </p>

@@ -1697,13 +1697,18 @@ export default function DemoMap({
   const spawnResourceTransfer = useCallback((transfer: ResourceTransferPayload) => {
     if (!isLoaded) return;
 
+    console.debug("[spawnResourceTransfer] Received transfer", transfer);
+
     const departAt = Date.parse(transfer.depart_at);
     const arriveAt = Date.parse(transfer.arrive_at);
     const startTime = Number.isNaN(departAt) ? Date.now() : departAt;
     // Add 10s buffer to endTime to handle potential client/server clock desync
     const endTime = (Number.isNaN(arriveAt) ? startTime + 4000 : arriveAt) + 10000;
 
-    if (Date.now() >= endTime) return;
+    if (Date.now() >= endTime) {
+      console.debug("[spawnResourceTransfer] Skipping transfer: already arrived", { now: Date.now(), endTime });
+      return;
+    }
 
     const sourceFeature = transfer.source_gers_id
       ? features.find((f) => f.gers_id === transfer.source_gers_id)
@@ -1718,10 +1723,11 @@ export default function DemoMap({
       : getNearestHubCenter(sourceCenter) ?? fallbackCenter;
 
     if (!sourceCenter || !hubCenter) {
-      console.warn("Transfer missing source or hub center", { sourceCenter, hubCenter, transfer });
+      console.warn("[spawnResourceTransfer] Transfer missing source or hub center", { sourceCenter, hubCenter, transfer });
       return;
     }
 
+    console.debug("[spawnResourceTransfer] Building path", { sourceCenter, hubCenter, roadCount: roadFeaturesForPath.length });
     const path = buildResourcePath(sourceCenter, hubCenter, roadFeaturesForPath);
     const duration = Math.max(1000, endTime - startTime);
 
@@ -1729,6 +1735,7 @@ export default function DemoMap({
       if (prev.some((pkg) => pkg.id === transfer.transfer_id)) {
         return prev;
       }
+      console.debug("[spawnResourceTransfer] Adding package to state", transfer.transfer_id);
       return [
         ...prev,
         {
@@ -1831,7 +1838,10 @@ export default function DemoMap({
 
       // Update state if packages changed
       if (activePackages.length !== resourcePackages.length) {
-        setResourcePackages(activePackages);
+        setResourcePackages((prev) => {
+          const activeIds = new Set(activePackages.map(p => p.id));
+          return prev.filter(p => activeIds.has(p.id));
+        });
       }
 
       // Stop animation if all packages completed

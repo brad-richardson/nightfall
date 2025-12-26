@@ -77,6 +77,7 @@ export function buildResourcePath(
 ): Point[] {
   const directPath: Point[] = [buildingLocation, hexCentroid];
   if (roads.length === 0) {
+    console.debug("[buildResourcePath] No roads provided for routing");
     return directPath;
   }
 
@@ -84,16 +85,19 @@ export function buildResourcePath(
   const endRoadPoint = findClosestRoadPoint(hexCentroid, roads);
 
   if (!startRoadPoint || !endRoadPoint) {
+    console.debug("[buildResourcePath] Could not find start or end road points", { startRoadPoint, endRoadPoint });
     return directPath;
   }
 
   const graph = buildRoadGraph(roads);
   if (graph.nodes.size === 0) {
+    console.debug("[buildResourcePath] Road graph is empty");
     return directPath;
   }
 
   const route = routeGraph(graph, startRoadPoint, endRoadPoint);
   if (!route) {
+    console.debug("[buildResourcePath] No path found between road points", { startRoadPoint, endRoadPoint });
     return [buildingLocation, startRoadPoint, endRoadPoint, hexCentroid];
   }
 

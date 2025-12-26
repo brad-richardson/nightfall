@@ -1,5 +1,6 @@
 export type FeatureDelta = {
   gers_id: string;
+  region_id: string;
   health: number;
   status: string;
 };
