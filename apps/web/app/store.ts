@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 export type Phase = "dawn" | "day" | "dusk" | "night";
 
@@ -106,56 +107,64 @@ type Actions = {
   addFeedItem: (item: FeedItem) => void;
 };
 
-export const useStore = create<State & Actions>((set) => ({
-  // Initial dummy state (will be hydrated)
-  region: {
-    region_id: "",
-    name: "",
-    boundary: null,
-    pool_labor: 0,
-    pool_materials: 0,
-    crews: [],
-    tasks: [],
-    stats: {
-      total_roads: 0,
-      healthy_roads: 0,
-      degraded_roads: 0,
-      rust_avg: 0,
-      health_avg: 0
-    }
-  },
-  features: [],
-  hexes: [],
-  cycle: {
-    phase: "day",
-    phase_progress: 0,
-    next_phase: "dusk",
-    next_phase_in_seconds: 0
-  },
-  isDemoMode: false,
-  availableRegions: [],
-  auth: { clientId: "", token: "" },
-  feedItems: [],
+export const useStore = create<State & Actions>()(
+  persist(
+    (set) => ({
+      // Initial dummy state (will be hydrated)
+      region: {
+        region_id: "",
+        name: "",
+        boundary: null,
+        pool_labor: 0,
+        pool_materials: 0,
+        crews: [],
+        tasks: [],
+        stats: {
+          total_roads: 0,
+          healthy_roads: 0,
+          degraded_roads: 0,
+          rust_avg: 0,
+          health_avg: 0
+        }
+      },
+      features: [],
+      hexes: [],
+      cycle: {
+        phase: "day",
+        phase_progress: 0,
+        next_phase: "dusk",
+        next_phase_in_seconds: 0
+      },
+      isDemoMode: false,
+      availableRegions: [],
+      auth: { clientId: "", token: "" },
+      feedItems: [],
 
-  setRegion: (updater) =>
-    set((state) => ({
-      region: typeof updater === "function" ? updater(state.region) : updater
-    })),
-  setFeatures: (updater) =>
-    set((state) => ({
-      features: typeof updater === "function" ? updater(state.features) : updater
-    })),
-  setHexes: (updater) =>
-    set((state) => ({
-      hexes: typeof updater === "function" ? updater(state.hexes) : updater
-    })),
-  setCycle: (updater) =>
-    set((state) => ({
-      cycle: typeof updater === "function" ? updater(state.cycle) : updater
-    })),
-  setAuth: (auth) => set({ auth }),
-  addFeedItem: (item) =>
-    set((state) => ({
-      feedItems: [item, ...state.feedItems].slice(0, 50)
-    }))
-}));
+      setRegion: (updater) =>
+        set((state) => ({
+          region: typeof updater === "function" ? updater(state.region) : updater
+        })),
+      setFeatures: (updater) =>
+        set((state) => ({
+          features: typeof updater === "function" ? updater(state.features) : updater
+        })),
+      setHexes: (updater) =>
+        set((state) => ({
+          hexes: typeof updater === "function" ? updater(state.hexes) : updater
+        })),
+      setCycle: (updater) =>
+        set((state) => ({
+          cycle: typeof updater === "function" ? updater(state.cycle) : updater
+        })),
+      setAuth: (auth) => set({ auth }),
+      addFeedItem: (item) =>
+        set((state) => ({
+          feedItems: [item, ...state.feedItems].slice(0, 50)
+        }))
+    }),
+    {
+      name: "nightfall-auth",
+      partialize: (state) => ({ auth: state.auth })
+    }
+  )
+);
