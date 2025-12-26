@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyServerOptions } from "fastify";
 import Fastify from "fastify";
-import { createHmac } from "crypto";
+import { createHmac, timingSafeEqual } from "crypto";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import { getConfig } from "./config";
@@ -170,7 +170,40 @@ function verifyToken(clientId: string, token: string): boolean {
   // Handle "Bearer <token>" format
   const actualToken = token.startsWith("Bearer ") ? token.slice(7) : token;
   const expected = signClientId(clientId);
-  return actualToken === expected;
+
+  // Prevent timing attacks with constant-time comparison
+  if (actualToken.length !== expected.length) {
+    return false;
+  }
+
+  try {
+    return timingSafeEqual(
+      Buffer.from(actualToken, 'utf-8'),
+      Buffer.from(expected, 'utf-8')
+    );
+  } catch {
+    return false;
+  }
+}
+
+function verifyAdminSecret(authHeader: string | undefined, secret: string | undefined): boolean {
+  if (!secret || !authHeader) return false;
+
+  const expected = `Bearer ${secret}`;
+
+  // Prevent timing attacks with constant-time comparison
+  if (authHeader.length !== expected.length) {
+    return false;
+  }
+
+  try {
+    return timingSafeEqual(
+      Buffer.from(authHeader, 'utf-8'),
+      Buffer.from(expected, 'utf-8')
+    );
+  } catch {
+    return false;
+  }
 }
 
 function normalizeOvertureRelease(raw?: string | null): string | null {
@@ -1286,11 +1319,17 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
 
   // Admin Endpoints
 
-  app.post("/api/admin/demo-mode", async (request, reply) => {
+  app.post("/api/admin/demo-mode", {
+    config: {
+      rateLimit: {
+        max: 10,
+        timeWindow: '1 minute'
+      }
+    }
+  }, async (request, reply) => {
     const authHeader = request.headers["authorization"];
-    const secret = config.ADMIN_SECRET;
 
-    if (!secret || authHeader !== `Bearer ${secret}`) {
+    if (!verifyAdminSecret(authHeader, config.ADMIN_SECRET)) {
       reply.status(401);
       return { ok: false, error: "unauthorized" };
     }
@@ -1320,11 +1359,17 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     return { ok: true };
   });
 
-  app.post("/api/admin/reset", async (request, reply) => {
+  app.post("/api/admin/reset", {
+    config: {
+      rateLimit: {
+        max: 5,
+        timeWindow: '1 minute'
+      }
+    }
+  }, async (request, reply) => {
     const authHeader = request.headers["authorization"];
-    const secret = config.ADMIN_SECRET;
 
-    if (!secret || authHeader !== `Bearer ${secret}`) {
+    if (!verifyAdminSecret(authHeader, config.ADMIN_SECRET)) {
       reply.status(401);
       return { ok: false, error: "unauthorized" };
     }

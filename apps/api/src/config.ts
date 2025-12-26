@@ -9,8 +9,13 @@ const configSchema = z.object({
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60 * 1000), // 1 minute
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(200), // 200 requests per window
   SSE_MAX_CLIENTS: z.coerce.number().int().positive().default(1000),
-  ADMIN_SECRET: z.string().optional(),
-  JWT_SECRET: z.string().default("dev-secret-do-not-use-in-prod"),
+  ADMIN_SECRET: z.string().min(32, "ADMIN_SECRET must be at least 32 characters").optional(),
+  JWT_SECRET: z.string()
+    .default("dev-secret-do-not-use-in-prod")
+    .refine(
+      (val) => process.env.NODE_ENV !== 'production' || val !== 'dev-secret-do-not-use-in-prod',
+      { message: 'JWT_SECRET must be set to a secure value in production (not the default)' }
+    ),
   RESOURCE_TRAVEL_MPS: z.coerce.number().positive().default(8),
   RESOURCE_TRAVEL_MIN_S: z.coerce.number().positive().default(4),
   RESOURCE_TRAVEL_MAX_S: z.coerce.number().positive().default(45),

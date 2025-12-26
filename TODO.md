@@ -11,9 +11,9 @@
 - [ ] Clean up SSE listeners and add reconnect handling/backpressure strategy.
 
 ## UI/UX Polish
-- [ ] Map Visibility: Reduce UI component sizes or increase translucency to minimize map obscuration.
-- [ ] Add a MapLibre lifecycle test harness (Strict Mode mount/unmount) to catch map init regressions.
-- [ ] Add a UI test that asserts map pan/zoom still work with overlays active (pointer-events guard).
+- [x] Map Visibility: Reduce UI component sizes or increase translucency to minimize map obscuration.
+- [x] Add a MapLibre lifecycle test harness (Strict Mode mount/unmount) to catch map init regressions.
+- [x] Add a UI test that asserts map pan/zoom still work with overlays active (pointer-events guard).
 
 ## Mechanics & Balancing
 - [ ] Contribution Minigame: Implement a quick interactive element when contributing resources.
