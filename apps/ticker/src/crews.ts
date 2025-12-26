@@ -6,10 +6,12 @@ const MIN_REPAIR_THRESHOLD = 30;
 
 type CompletedTask = TaskDelta & { region_id: string };
 
+type HexUpdate = { h3_index: string; rust_level: number };
+
 type CompletedRow = {
   tasks: CompletedTask[];
   features: FeatureDelta[];
-  hexes: string[];
+  hexes: HexUpdate[];
 };
 
 export type DispatchResult = {
@@ -21,7 +23,7 @@ export type DispatchResult = {
 export type CompletionResult = {
   taskDeltas: TaskDelta[];
   featureDeltas: FeatureDelta[];
-  rustHexes: string[];
+  rustHexes: HexUpdate[];
   regionIds: string[];
   feedItems: FeedItem[];
 };
@@ -96,7 +98,23 @@ export async function dispatchCrews(pool: PoolLike, multipliers: PhaseMultiplier
       );
 
       const taskUpdate = await pool.query<TaskDelta>(
-        "UPDATE tasks SET status = 'active' WHERE task_id = $1 RETURNING task_id, status, priority_score",
+        `
+        UPDATE tasks
+        SET status = 'active'
+        WHERE task_id = $1
+        RETURNING
+          task_id,
+          status,
+          priority_score,
+          vote_score,
+          cost_labor,
+          cost_materials,
+          duration_s,
+          repair_amount,
+          task_type,
+          target_gers_id,
+          region_id
+        `,
         [task.task_id]
       );
 
@@ -163,7 +181,18 @@ export async function completeFinishedTasks(
       SET status = 'done', completed_at = now()
       FROM due
       WHERE t.task_id = due.active_task_id
-      RETURNING t.task_id, t.status, t.priority_score, t.region_id
+      RETURNING
+        t.task_id,
+        t.status,
+        t.priority_score,
+        t.region_id,
+        t.target_gers_id,
+        t.vote_score,
+        t.cost_labor,
+        t.cost_materials,
+        t.duration_s,
+        t.repair_amount,
+        t.task_type
     ),
     updated_features AS (
       UPDATE feature_state AS fs
@@ -192,7 +221,7 @@ export async function completeFinishedTasks(
         updated_at = now()
       FROM due_hexes AS d
       WHERE h.h3_index = d.h3_index
-      RETURNING h.h3_index
+      RETURNING h.h3_index, h.rust_level
     )
     SELECT
       COALESCE(
@@ -200,7 +229,14 @@ export async function completeFinishedTasks(
           'task_id', updated_tasks.task_id,
           'status', updated_tasks.status,
           'priority_score', updated_tasks.priority_score,
-          'region_id', updated_tasks.region_id
+          'region_id', updated_tasks.region_id,
+          'target_gers_id', updated_tasks.target_gers_id,
+          'vote_score', updated_tasks.vote_score,
+          'cost_labor', updated_tasks.cost_labor,
+          'cost_materials', updated_tasks.cost_materials,
+          'duration_s', updated_tasks.duration_s,
+          'repair_amount', updated_tasks.repair_amount,
+          'task_type', updated_tasks.task_type
         )) FILTER (WHERE updated_tasks.task_id IS NOT NULL),
         '[]'::jsonb
       ) AS tasks,
@@ -213,7 +249,10 @@ export async function completeFinishedTasks(
         '[]'::jsonb
       ) AS features,
       COALESCE(
-        jsonb_agg(DISTINCT updated_hex.h3_index) FILTER (WHERE updated_hex.h3_index IS NOT NULL),
+        jsonb_agg(DISTINCT jsonb_build_object(
+          'h3_index', updated_hex.h3_index,
+          'rust_level', updated_hex.rust_level
+        )) FILTER (WHERE updated_hex.h3_index IS NOT NULL),
         '[]'::jsonb
       ) AS hexes
     FROM updated_tasks
@@ -225,13 +264,9 @@ export async function completeFinishedTasks(
 
   const row = result.rows[0];
   const completedTasks = (row?.tasks ?? []) as CompletedTask[];
-  const taskDeltas = completedTasks.map(({ task_id, status, priority_score }) => ({
-    task_id,
-    status,
-    priority_score
-  }));
+  const taskDeltas = completedTasks;
   const featureDeltas = (row?.features ?? []) as FeatureDelta[];
-  const rustHexes = (row?.hexes ?? []) as string[];
+  const rustHexes = (row?.hexes ?? []) as HexUpdate[];
   const regionIds = completedTasks.map((task) => task.region_id);
 
   for (const task of completedTasks) {

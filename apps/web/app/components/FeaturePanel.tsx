@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Hammer, Package, Vote, X } from "lucide-react";
+import { useStore } from "../store";
 
 type SelectedFeature = {
   gers_id: string;
@@ -20,10 +21,14 @@ type FeaturePanelProps = {
   onContribute: (labor: number, materials: number) => void;
   onVote: (taskId: string, weight: number) => void;
   activeTasks: Task[];
+  canContribute: boolean;
 };
 
-export default function FeaturePanel({ onContribute, onVote, activeTasks }: FeaturePanelProps) {
+export default function FeaturePanel({ onContribute, onVote, activeTasks, canContribute }: FeaturePanelProps) {
   const [selected, setSelected] = useState<SelectedFeature | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const features = useStore((state) => state.features);
 
   useEffect(() => {
     const handleSelection = (e: Event) => {
@@ -35,9 +40,28 @@ export default function FeaturePanel({ onContribute, onVote, activeTasks }: Feat
     return () => window.removeEventListener("nightfall:feature_selected", handleSelection);
   }, []);
 
+  const selectedDetails = useMemo(() => {
+    if (!selected) return null;
+    const feature = features.find((f) => f.gers_id === selected.gers_id);
+    return feature ?? null;
+  }, [features, selected]);
+
   if (!selected) return null;
 
   const task = activeTasks.find(t => t.target_gers_id === selected.gers_id);
+  const canGenerateLabor = selectedDetails?.generates_labor ?? false;
+  const canGenerateMaterials = selectedDetails?.generates_materials ?? false;
+  const contributionDisabled = !canContribute || isSubmitting || (!canGenerateLabor && !canGenerateMaterials);
+
+  const handleContributeClick = (labor: number, materials: number) => {
+    if (contributionDisabled) return;
+    setIsSubmitting(true);
+    setStatusMsg(null);
+    Promise.resolve(onContribute(labor, materials))
+      .then(() => setStatusMsg("Contribution sent"))
+      .catch(() => setStatusMsg("Contribution failed"))
+      .finally(() => setIsSubmitting(false));
+  };
 
   return (
     <div className="absolute z-20 left-4 right-4 bottom-4 md:left-auto md:bottom-auto md:right-6 md:top-24 md:w-80 rounded-3xl border border-white/10 bg-[color:var(--night-ink)]/90 p-6 text-white shadow-[0_20px_50px_rgba(0,0,0,0.5)] backdrop-blur-xl">
@@ -68,21 +92,40 @@ export default function FeaturePanel({ onContribute, onVote, activeTasks }: Feat
             </p>
             <div className="grid grid-cols-2 gap-3">
               <button 
-                onClick={() => onContribute(10, 0)}
-                className="flex flex-col items-center rounded-2xl bg-white/5 p-3 transition-colors hover:bg-white/10"
+                onClick={() => handleContributeClick(10, 0)}
+                disabled={contributionDisabled || !canGenerateLabor}
+                className={`flex flex-col items-center rounded-2xl p-3 transition-colors ${
+                  contributionDisabled || !canGenerateLabor
+                    ? "bg-white/5 text-white/30 cursor-not-allowed"
+                    : "bg-white/5 hover:bg-white/10"
+                }`}
               >
                 <Hammer className="mb-2 h-5 w-5 text-[color:var(--night-teal)]" />
                 <span className="text-[10px] font-bold uppercase text-white/40">Add Labor</span>
                 <span className="text-xs font-bold">+10</span>
               </button>
               <button 
-                onClick={() => onContribute(0, 10)}
-                className="flex flex-col items-center rounded-2xl bg-white/5 p-3 transition-colors hover:bg-white/10"
+                onClick={() => handleContributeClick(0, 10)}
+                disabled={contributionDisabled || !canGenerateMaterials}
+                className={`flex flex-col items-center rounded-2xl p-3 transition-colors ${
+                  contributionDisabled || !canGenerateMaterials
+                    ? "bg-white/5 text-white/30 cursor-not-allowed"
+                    : "bg-white/5 hover:bg-white/10"
+                }`}
               >
                 <Package className="mb-2 h-5 w-5 text-[color:var(--night-glow)]" />
                 <span className="text-[10px] font-bold uppercase text-white/40">Add Materials</span>
                 <span className="text-xs font-bold">+10</span>
               </button>
+            </div>
+            <div className="text-[10px] uppercase tracking-[0.2em] text-white/40">
+              {isSubmitting
+                ? "Sending..."
+                : contributionDisabled && !canGenerateLabor && !canGenerateMaterials
+                  ? "This building does not generate resources"
+                  : canContribute
+                    ? statusMsg ?? "Tap to contribute"
+                    : "Authorizing..."}
             </div>
           </div>
         )}

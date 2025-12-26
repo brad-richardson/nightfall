@@ -36,6 +36,7 @@ export type Task = {
   duration_s: number;
   repair_amount: number;
   task_type: string;
+  region_id?: string;
 };
 
 export type Crew = {
@@ -97,8 +98,8 @@ type State = {
 type Actions = {
   setRegion: (region: Region | ((prev: Region) => Region)) => void;
   setFeatures: (features: Feature[] | ((prev: Feature[]) => Feature[])) => void;
-  setHexes: (hexes: Hex[]) => void;
-  setCycle: (cycle: CycleState) => void;
+  setHexes: (hexes: Hex[] | ((prev: Hex[]) => Hex[])) => void;
+  setCycle: (cycle: CycleState | ((prev: CycleState) => CycleState)) => void;
   setAuth: (auth: AuthState) => void;
   addFeedItem: (item: FeedItem) => void;
 };
@@ -142,8 +143,14 @@ export const useStore = create<State & Actions>((set) => ({
     set((state) => ({
       features: typeof updater === "function" ? updater(state.features) : updater
     })),
-  setHexes: (hexes) => set({ hexes }),
-  setCycle: (cycle) => set({ cycle }),
+  setHexes: (updater) =>
+    set((state) => ({
+      hexes: typeof updater === "function" ? updater(state.hexes) : updater
+    })),
+  setCycle: (updater) =>
+    set((state) => ({
+      cycle: typeof updater === "function" ? updater(state.cycle) : updater
+    })),
   setAuth: (auth) => set({ auth }),
   addFeedItem: (item) =>
     set((state) => ({

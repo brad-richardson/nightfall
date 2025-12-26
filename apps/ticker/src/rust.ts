@@ -24,7 +24,7 @@ type ComputeArgs = {
   getNeighbors: (index: string) => string[];
 };
 
-type RustUpdate = {
+export type RustUpdate = {
   h3_index: string;
   rust_level: number;
 };
@@ -90,7 +90,7 @@ function getNeighborIndexes(index: string) {
   }
 }
 
-export async function applyRustSpread(pool: PoolLike, multipliers: PhaseMultipliers) {
+export async function applyRustSpread(pool: PoolLike, multipliers: PhaseMultipliers): Promise<RustUpdate[]> {
   const cellsResult = await pool.query<RustCell>(
     "SELECT h3_index, rust_level, distance_from_center FROM hex_cells"
   );
@@ -158,5 +158,5 @@ export async function applyRustSpread(pool: PoolLike, multipliers: PhaseMultipli
     [indices, rustLevels]
   );
 
-  return indices;
+  return updates;
 }

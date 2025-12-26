@@ -8,7 +8,7 @@ import type { PoolLike } from "./ticker";
 import { logger } from "./logger";
 import { syncCycleState } from "./cycle-store";
 import { getPhaseMultipliers, applyDemoMultiplier } from "./multipliers";
-import { applyRustSpread } from "./rust";
+import { applyRustSpread, type RustUpdate } from "./rust";
 import { applyRoadDecay } from "./decay";
 import { generateRegionResources } from "./resources";
 import { dispatchCrews, completeFinishedTasks } from "./crews";
@@ -26,21 +26,61 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL
 });
 
+type RegionSnapshot = {
+  region_id: string;
+  pool_labor: number;
+  pool_materials: number;
+  rust_avg: number | null;
+  health_avg: number | null;
+};
+
+async function fetchRegionSnapshots(client: PoolLike, regionIds: string[]): Promise<RegionSnapshot[]> {
+  if (regionIds.length === 0) return [];
+
+  const result = await client.query<RegionSnapshot>(
+    `
+    SELECT
+      r.region_id,
+      r.pool_labor::float AS pool_labor,
+      r.pool_materials::float AS pool_materials,
+      (
+        SELECT AVG(rust_level)::float FROM hex_cells WHERE region_id = r.region_id
+      ) AS rust_avg,
+      (
+        SELECT AVG(fs.health)::float
+        FROM world_features AS wf
+        JOIN feature_state AS fs ON fs.gers_id = wf.gers_id
+        WHERE wf.region_id = r.region_id
+          AND wf.feature_type = 'road'
+      ) AS health_avg
+    FROM regions AS r
+    WHERE r.region_id = ANY($1::text[])
+    `,
+    [regionIds]
+  );
+
+  return result.rows;
+}
+
 async function publishWorldDelta(
   client: PoolLike,
-  rustHexes: string[],
+  rustHexes: RustUpdate[],
   regionIds: string[]
 ) {
-  const rustChanged = Array.from(new Set(rustHexes));
+  const hexUpdates = Array.from(new Map(rustHexes.map((h) => [h.h3_index, h])).values());
   const regionsChanged = Array.from(new Set(regionIds));
 
-  if (rustChanged.length === 0 && regionsChanged.length === 0) {
+  const regionUpdates = regionsChanged.length > 0 ? await fetchRegionSnapshots(client, regionsChanged) : [];
+
+  if (hexUpdates.length === 0 && regionUpdates.length === 0) {
     return;
   }
 
   await notifyEvent(client, "world_delta", {
-    rust_changed: rustChanged,
-    regions_changed: regionsChanged
+    rust_changed: hexUpdates.map((h) => h.h3_index),
+    hex_updates: hexUpdates,
+    regions_changed: regionsChanged,
+    region_updates: regionUpdates
   });
 }
 

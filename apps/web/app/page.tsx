@@ -1,18 +1,13 @@
 import Dashboard from "./components/Dashboard";
 import { type Region, type Feature, type Hex } from "./store";
-
-type Bbox = {
-  xmin: number;
-  ymin: number;
-  xmax: number;
-  ymax: number;
-};
+import { BAR_HARBOR_DEMO_BBOX, type Bbox } from "@nightfall/config";
 
 type Boundary =
   | { type: "Polygon"; coordinates: number[][][] }
   | { type: "MultiPolygon"; coordinates: number[][][][] };
 
 type RegionResponse = Region;
+type OvertureResponse = { ok: boolean; release?: string };
 
 type WorldResponse = {
   demo_mode: boolean;
@@ -30,14 +25,8 @@ type WorldResponse = {
 };
 
 const DEMO_REGION_ID = "bar_harbor_me_usa_demo";
-const DEMO_BBOX: Bbox = {
-  xmin: -68.35,
-  ymin: 44.31,
-  xmax: -68.15,
-  ymax: 44.45
-};
-
 const API_BASE_URL = process.env.API_BASE_URL || "http://localhost:3001";
+const DEFAULT_RELEASE = "2025-12-17";
 
 async function fetchRegion(regionId: string): Promise<RegionResponse | null> {
   try {
@@ -86,6 +75,19 @@ async function fetchHexes(bbox: Bbox): Promise<Hex[]> {
   }
 }
 
+async function fetchOvertureRelease(): Promise<string> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/overture-latest`, { cache: "no-store" });
+    if (res.ok) {
+      const data = (await res.json()) as OvertureResponse;
+      if (data.release) return data.release;
+    }
+  } catch {
+    // ignore and fall back
+  }
+  return DEFAULT_RELEASE;
+}
+
 function getBoundaryBbox(boundary: Boundary | null): Bbox | null {
   if (!boundary) return null;
   const coords = boundary.type === "Polygon" ? boundary.coordinates.flat() : boundary.coordinates.flat(2);
@@ -125,10 +127,11 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
     );
   }
 
-  const regionBbox = getBoundaryBbox(region.boundary) ?? DEMO_BBOX;
-  const [features, hexes] = await Promise.all([
+  const regionBbox = getBoundaryBbox(region.boundary) ?? BAR_HARBOR_DEMO_BBOX;
+  const [features, hexes, overtureRelease] = await Promise.all([
     fetchFeatures(regionBbox),
-    fetchHexes(regionBbox)
+    fetchHexes(regionBbox),
+    fetchOvertureRelease()
   ]);
 
   return (
@@ -141,6 +144,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
         availableRegions={world.regions}
         isDemoMode={world.demo_mode}
         apiBaseUrl={API_BASE_URL}
+        pmtilesRelease={overtureRelease}
       />
     </main>
   );

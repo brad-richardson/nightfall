@@ -45,7 +45,8 @@ export async function syncCycleState(
     await notifyEvent(pool, "phase_change", {
       phase: snapshot.phase,
       next_phase: snapshot.nextPhase,
-      next_phase_in_seconds: Math.round(snapshot.nextPhaseInMs / 1000)
+      next_phase_in_seconds: Math.round(snapshot.nextPhaseInMs / 1000),
+      phase_progress: snapshot.phaseProgress
     });
   }
 

@@ -10,6 +10,14 @@ import FeaturePanel from "./FeaturePanel";
 import MobileSidebar from "./MobileSidebar";
 import { useEventStream, type EventPayload } from "../hooks/useEventStream";
 import { useStore, type Region, type Feature, type Hex, type CycleState } from "../store";
+import { BAR_HARBOR_DEMO_BBOX, type Bbox } from "@nightfall/config";
+
+type ResourceDelta = {
+  type: "labor" | "materials";
+  delta: number;
+  source: string;
+  ts: number;
+};
 
 type DashboardProps = {
   initialRegion: Region;
@@ -19,6 +27,7 @@ type DashboardProps = {
   availableRegions: { region_id: string; name: string }[];
   isDemoMode: boolean;
   apiBaseUrl: string;
+  pmtilesRelease: string;
 };
 
 function formatNumber(value: number) {
@@ -33,6 +42,63 @@ function formatTime(seconds: number) {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function ResourceTicker({ deltas }: { deltas: ResourceDelta[] }) {
+  return (
+    <div className="flex flex-col gap-2 rounded-2xl border border-white/20 bg-[rgba(12,16,20,0.65)] px-4 py-3 shadow-[0_12px_30px_rgba(0,0,0,0.35)] backdrop-blur-md">
+      <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-white/60">
+        <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-[color:var(--night-teal)] shadow-[0_0_8px_var(--night-teal)]" />
+        Resource Events
+      </div>
+      <div className="space-y-1">
+        {deltas.length === 0 ? (
+          <div className="text-[11px] text-white/40">Awaiting activity...</div>
+        ) : (
+          deltas.slice(0, 4).map((item, idx) => (
+            <div
+              key={item.ts + idx}
+              className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2 text-[11px] text-white/80 animate-[fade-in_400ms_ease]"
+            >
+              <div className="flex items-center gap-2">
+                <span className={`h-6 w-6 rounded-lg bg-gradient-to-br ${item.delta > 0 ? "from-[color:var(--night-teal)]/70 to-[color:var(--night-glow)]/60" : "from-red-500/60 to-orange-400/50"} text-xs font-bold text-white shadow-[0_0_12px_rgba(0,0,0,0.35)] flex items-center justify-center`}>
+                  {item.delta > 0 ? "+" : "−"}
+                </span>
+                <div className="leading-tight">
+                  <div className="font-semibold">
+                    {item.type === "labor" ? "Labor" : "Materials"} {item.delta > 0 ? "added" : "spent"} {Math.abs(Math.round(item.delta))}
+                  </div>
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-white/40">{item.source}</div>
+                </div>
+              </div>
+              <span className="text-[10px] text-white/40">
+                {new Date(item.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              </span>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function getBoundaryBbox(boundary: Region["boundary"] | null): Bbox | null {
+  if (!boundary) return null;
+  const coords = boundary.type === "Polygon" ? boundary.coordinates.flat() : boundary.coordinates.flat(2);
+  if (coords.length === 0) return null;
+
+  let xmin = Number.POSITIVE_INFINITY;
+  let ymin = Number.POSITIVE_INFINITY;
+  let xmax = Number.NEGATIVE_INFINITY;
+  let ymax = Number.NEGATIVE_INFINITY;
+
+  for (const [lon, lat] of coords) {
+    xmin = Math.min(xmin, lon);
+    ymin = Math.min(ymin, lat);
+    xmax = Math.max(xmax, lon);
+    ymax = Math.max(ymax, lat);
+  }
+  return { xmin, ymin, xmax, ymax };
 }
 
 async function initializeSession(apiBaseUrl: string): Promise<{ clientId: string; token: string }> {
@@ -67,7 +133,8 @@ export default function Dashboard({
   initialCycle,
   availableRegions,
   isDemoMode,
-  apiBaseUrl
+  apiBaseUrl,
+  pmtilesRelease
 }: DashboardProps) {
   const router = useRouter();
   
@@ -77,12 +144,14 @@ export default function Dashboard({
   const features = useStore((state) => state.features);
   const setFeatures = useStore((state) => state.setFeatures);
   const hexes = useStore((state) => state.hexes);
+  const setHexes = useStore((state) => state.setHexes);
   const cycle = useStore((state) => state.cycle);
   const setCycle = useStore((state) => state.setCycle);
   const auth = useStore((state) => state.auth);
   const setAuth = useStore((state) => state.setAuth);
   
   const [lastEvent, setLastEvent] = useState<string | null>(null);
+  const [resourceDeltas, setResourceDeltas] = useState<ResourceDelta[]>([]);
 
   // Hydrate store
   useEffect(() => {
@@ -102,13 +171,123 @@ export default function Dashboard({
     });
   }, [apiBaseUrl, setAuth]);
 
+  const fetchRegionData = useCallback(async (regionId: string): Promise<Region | null> => {
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/region/${regionId}`, { cache: "no-store" });
+      if (!res.ok) return null;
+      return (await res.json()) as Region;
+    } catch {
+      return null;
+    }
+  }, [apiBaseUrl]);
+
+  const fetchFeaturesInBbox = useCallback(async (bbox: Bbox): Promise<Feature[]> => {
+    try {
+      const bboxParam = `${bbox.xmin},${bbox.ymin},${bbox.xmax},${bbox.ymax}`;
+      const res = await fetch(
+        `${apiBaseUrl}/api/features?bbox=${bboxParam}&types=road,building`,
+        { cache: "no-store" }
+      );
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.features ?? [];
+    } catch {
+      return [];
+    }
+  }, [apiBaseUrl]);
+
+  const fetchHexesInBbox = useCallback(async (bbox: Bbox): Promise<Hex[]> => {
+    try {
+      const bboxParam = `${bbox.xmin},${bbox.ymin},${bbox.xmax},${bbox.ymax}`;
+      const res = await fetch(`${apiBaseUrl}/api/hexes?bbox=${bboxParam}`, { cache: "no-store" });
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.hexes ?? [];
+    } catch {
+      return [];
+    }
+  }, [apiBaseUrl]);
+
+  const refreshRegionData = useCallback(async (regionId: string) => {
+    const regionData = await fetchRegionData(regionId);
+    if (!regionData) return;
+
+    const bbox = getBoundaryBbox(regionData.boundary) ?? BAR_HARBOR_DEMO_BBOX;
+    const [featureData, hexData] = await Promise.all([
+      fetchFeaturesInBbox(bbox),
+      fetchHexesInBbox(bbox)
+    ]);
+
+    setRegion(regionData);
+    setFeatures(featureData);
+    setHexes(hexData);
+  }, [fetchFeaturesInBbox, fetchHexesInBbox, fetchRegionData, setFeatures, setHexes, setRegion]);
+
+  const pushResourceDelta = useCallback((type: "labor" | "materials", delta: number, source: string) => {
+    if (delta === 0) return;
+    setResourceDeltas((prev) => [{ type, delta, source, ts: Date.now() }, ...prev].slice(0, 6));
+  }, []);
+
   const handleEvent = useCallback((payload: EventPayload) => {
     setLastEvent(`${payload.event} @ ${new Date().toLocaleTimeString()}`);
 
     switch (payload.event) {
       case "phase_change":
-        setCycle(payload.data as CycleState);
+        setCycle((prev) => {
+          const incoming = payload.data as Partial<CycleState>;
+          return {
+            ...prev,
+            ...incoming,
+            phase_progress: incoming.phase_progress ?? prev.phase_progress
+          };
+        });
         break;
+      case "world_delta": {
+        const data = payload.data as {
+          rust_changed?: string[];
+          hex_updates?: { h3_index: string; rust_level: number }[];
+          regions_changed?: string[];
+          region_updates?: {
+            region_id: string;
+            pool_labor: number;
+            pool_materials: number;
+            rust_avg?: number | null;
+            health_avg?: number | null;
+          }[];
+        };
+
+        if (data.hex_updates?.length) {
+          setHexes((prev) => {
+            const map = new Map(prev.map((h) => [h.h3_index, h]));
+            for (const update of data.hex_updates ?? []) {
+              map.set(update.h3_index, { h3_index: update.h3_index, rust_level: update.rust_level });
+            }
+            return Array.from(map.values());
+          });
+        }
+
+        if (data.region_updates?.length) {
+          const match = data.region_updates.find((r) => r.region_id === region.region_id);
+          if (match) {
+            const laborDelta = match.pool_labor - region.pool_labor;
+            const materialDelta = match.pool_materials - region.pool_materials;
+            if (laborDelta !== 0) pushResourceDelta("labor", laborDelta, "Daily ops");
+            if (materialDelta !== 0) pushResourceDelta("materials", materialDelta, "Daily ops");
+            setRegion((prev) => ({
+              ...prev,
+              pool_labor: match.pool_labor,
+              pool_materials: match.pool_materials,
+              stats: {
+                ...prev.stats,
+                rust_avg: match.rust_avg ?? prev.stats.rust_avg,
+                health_avg: match.health_avg ?? prev.stats.health_avg
+              }
+            }));
+          }
+        }
+
+        break;
+      }
       case "feed_item": {
         const item = payload.data as FeedItem;
         window.dispatchEvent(new CustomEvent("nightfall:feed_item", { detail: item }));
@@ -126,7 +305,19 @@ export default function Dashboard({
         break;
       }
       case "task_delta": {
-        const delta = payload.data as { task_id: string; status: string; priority_score: number };
+        const delta = payload.data as {
+          task_id: string;
+          status: string;
+          priority_score: number;
+          vote_score?: number;
+          cost_labor?: number;
+          cost_materials?: number;
+          duration_s?: number;
+          repair_amount?: number;
+          task_type?: string;
+          target_gers_id?: string;
+          region_id?: string;
+        };
         setRegion((prev) => {
           const taskExists = prev.tasks.some(t => t.task_id === delta.task_id);
           if (taskExists) {
@@ -134,9 +325,30 @@ export default function Dashboard({
               ...prev,
               tasks: prev.tasks.map(t => 
                 t.task_id === delta.task_id 
-                  ? { ...t, status: delta.status, priority_score: delta.priority_score } 
+                  ? { ...t, ...delta } 
                   : t
               ).filter(t => t.status !== 'done' && t.status !== 'expired')
+            };
+          }
+          if (delta.region_id && delta.target_gers_id) {
+            return {
+              ...prev,
+              tasks: [
+                ...prev.tasks,
+                {
+                  task_id: delta.task_id,
+                  status: delta.status,
+                  priority_score: delta.priority_score,
+                  vote_score: delta.vote_score ?? 0,
+                  cost_labor: delta.cost_labor ?? 0,
+                  cost_materials: delta.cost_materials ?? 0,
+                  duration_s: delta.duration_s ?? 0,
+                  repair_amount: delta.repair_amount ?? 0,
+                  task_type: delta.task_type ?? "unknown",
+                  target_gers_id: delta.target_gers_id,
+                  region_id: delta.region_id
+                }
+              ]
             };
           }
           return prev;
@@ -144,7 +356,7 @@ export default function Dashboard({
         break;
       }
     }
-  }, [setCycle, setFeatures, setRegion]);
+  }, [region.region_id, setCycle, setFeatures, setHexes, setRegion]);
 
   useEventStream(apiBaseUrl, handleEvent);
 
@@ -191,22 +403,30 @@ export default function Dashboard({
       });
       if (res.ok) {
         const data = await res.json();
-        setRegion(prev => ({
-          ...prev,
-          pool_labor: Number(data.new_pool_labor),
-          pool_materials: Number(data.new_pool_materials)
-        }));
+        setRegion(prev => {
+          const laborDelta = Number(data.new_pool_labor) - prev.pool_labor;
+          const materialDelta = Number(data.new_pool_materials) - prev.pool_materials;
+          if (laborDelta !== 0) pushResourceDelta("labor", laborDelta, "Player contribution");
+          if (materialDelta !== 0) pushResourceDelta("materials", materialDelta, "Player contribution");
+          return {
+            ...prev,
+            pool_labor: Number(data.new_pool_labor),
+            pool_materials: Number(data.new_pool_materials)
+          };
+        });
       }
     } catch (err) {
       console.error("Failed to contribute", err);
     }
-  }, [apiBaseUrl, auth, region.region_id, setRegion]);
+  }, [apiBaseUrl, auth, region.region_id, setRegion, pushResourceDelta]);
 
   const counts = useMemo(() => {
     let roads = 0;
     let buildings = 0;
     let healthy = 0;
     let degraded = 0;
+    let laborBuildings = 0;
+    let materialBuildings = 0;
 
     for (const f of features) {
       if (f.feature_type === "road") {
@@ -217,13 +437,15 @@ export default function Dashboard({
         }
       } else if (f.feature_type === "building") {
         buildings += 1;
+        if (f.generates_labor) laborBuildings += 1;
+        if (f.generates_materials) materialBuildings += 1;
       }
     }
 
-    return { roads, buildings, healthy, degraded };
+    return { roads, buildings, healthy, degraded, laborBuildings, materialBuildings };
   }, [features]);
 
-  const SidebarContent = () => (
+  const SidebarContent = ({ resourceFeed }: { resourceFeed: ResourceDelta[] }) => (
     <>
       <div className="rounded-3xl border border-[var(--night-outline)] bg-white/70 p-6 shadow-[0_18px_40px_rgba(24,20,14,0.12)]">
         <p className="text-xs uppercase tracking-[0.4em] text-[color:var(--night-ash)]">
@@ -249,7 +471,14 @@ export default function Dashboard({
             </div>
           </div>
         </div>
+
+        <div className="mt-4 text-[11px] text-[color:var(--night-ash)]">
+          <p className="font-semibold text-[color:var(--night-ink)]">Contributing buildings</p>
+          <p>Labor: {formatNumber(counts.laborBuildings)} • Materials: {formatNumber(counts.materialBuildings)}</p>
+        </div>
       </div>
+
+      <ResourceTicker deltas={resourceFeed} />
 
       <div className="rounded-3xl border border-[var(--night-outline)] bg-[color:var(--night-ink)] p-6 text-white shadow-[0_18px_40px_rgba(24,20,14,0.2)]">
         <TaskList tasks={region.tasks} onVote={handleVote} />
@@ -350,24 +579,27 @@ export default function Dashboard({
 
         <section className="mt-10 lg:grid lg:gap-8 lg:grid-cols-[320px_minmax(0,1fr)]">
           {/* Desktop Sidebar */}
-          <aside className="hidden space-y-6 lg:block">
-            <SidebarContent />
+      <aside className="hidden space-y-6 lg:block">
+            <SidebarContent resourceFeed={resourceDeltas} />
           </aside>
 
           <div className="relative space-y-6">
             <DemoMap 
+              boundary={region.boundary}
               features={features} 
               hexes={hexes}
               crews={region.crews}
               tasks={region.tasks}
-              fallbackBbox={{ xmin: -68.35, ymin: 44.31, xmax: -68.15, ymax: 44.45 }}
+              fallbackBbox={BAR_HARBOR_DEMO_BBOX}
               cycle={cycle}
+              pmtilesRelease={pmtilesRelease}
             />
             
             <FeaturePanel 
               activeTasks={region.tasks} 
               onVote={handleVote} 
-              onContribute={handleContribute} 
+              onContribute={handleContribute}
+              canContribute={Boolean(auth.token && auth.clientId)}
             />
 
             <div className="grid gap-4 sm:grid-cols-3">
@@ -400,7 +632,7 @@ export default function Dashboard({
             {/* Mobile Sidebar Trigger */}
             <div className="lg:hidden">
               <MobileSidebar>
-                <SidebarContent />
+                <SidebarContent resourceFeed={resourceDeltas} />
               </MobileSidebar>
             </div>
           </div>

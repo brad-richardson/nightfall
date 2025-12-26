@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import * as pmtiles from "pmtiles";
@@ -38,6 +38,10 @@ type Hex = {
   rust_level: number;
 };
 
+type Boundary =
+  | { type: "Polygon"; coordinates: number[][][] }
+  | { type: "MultiPolygon"; coordinates: number[][][][] };
+
 type Bbox = {
   xmin: number;
   ymin: number;
@@ -46,6 +50,7 @@ type Bbox = {
 };
 
 type DemoMapProps = {
+  boundary: Boundary | null;
   features: Feature[];
   hexes: Hex[];
   crews: Crew[];
@@ -55,10 +60,10 @@ type DemoMapProps = {
     phase: "dawn" | "day" | "dusk" | "night";
     phase_progress: number;
   };
+  pmtilesRelease: string;
 };
 
-const RELEASE = "2025-12-17";
-const PMTILES_BASE = `https://d3c1b7bog2u1nn.cloudfront.net/${RELEASE}`;
+const DEFAULT_RELEASE = "2025-12-17";
 
 const PHASE_FILTERS = {
   dawn: "brightness(1.05) saturate(0.9) contrast(1.1)",
@@ -87,10 +92,23 @@ const COLORS = {
   selection: "#ffffff"
 };
 
-export default function DemoMap({ features, hexes, crews, tasks, fallbackBbox, cycle }: DemoMapProps) {
+export default function DemoMap({
+  boundary,
+  features,
+  hexes,
+  crews,
+  tasks,
+  fallbackBbox,
+  cycle,
+  pmtilesRelease
+}: DemoMapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
+  const pmtilesBase = useMemo(
+    () => `https://d3c1b7bog2u1nn.cloudfront.net/${pmtilesRelease || DEFAULT_RELEASE}`,
+    [pmtilesRelease]
+  );
 
   useEffect(() => {
     if (!mapContainer.current) return;
@@ -100,6 +118,30 @@ export default function DemoMap({ features, hexes, crews, tasks, fallbackBbox, c
 
     const centerLon = (fallbackBbox.xmin + fallbackBbox.xmax) / 2;
     const centerLat = (fallbackBbox.ymin + fallbackBbox.ymax) / 2;
+
+    // Calculate maxBounds from boundary if available
+    let maxBounds: maplibregl.LngLatBoundsLike | undefined = undefined;
+    if (boundary) {
+      const coords = boundary.type === "Polygon" ? boundary.coordinates.flat() : boundary.coordinates.flat(2);
+      if (coords.length > 0) {
+        let xmin = Number.POSITIVE_INFINITY;
+        let ymin = Number.POSITIVE_INFINITY;
+        let xmax = Number.NEGATIVE_INFINITY;
+        let ymax = Number.NEGATIVE_INFINITY;
+
+        for (const [lon, lat] of coords) {
+          xmin = Math.min(xmin, lon);
+          ymin = Math.min(ymin, lat);
+          xmax = Math.max(xmax, lon);
+          ymax = Math.max(ymax, lat);
+        }
+        // Add a buffer (0.05 degrees) so the user can pan slightly outside
+        maxBounds = [
+          [xmin - 0.05, ymin - 0.05],
+          [xmax + 0.05, ymax + 0.05]
+        ];
+      }
+    }
 
     // Base road filter - roads in our class list
     const baseRoadFilter: maplibregl.FilterSpecification = ["all",
@@ -128,23 +170,24 @@ export default function DemoMap({ features, hexes, crews, tasks, fallbackBbox, c
 
     map.current = new maplibregl.Map({
       container: mapContainer.current,
+      maxBounds,
       style: {
         version: 8,
         name: "Nightfall Hex Dystopian",
         sources: {
           overture_base: {
             type: "vector",
-            url: `pmtiles://${PMTILES_BASE}/base.pmtiles`,
+            url: `pmtiles://${pmtilesBase}/base.pmtiles`,
             attribution: "Overture Maps"
           },
           overture_transportation: {
             type: "vector",
-            url: `pmtiles://${PMTILES_BASE}/transportation.pmtiles`,
+            url: `pmtiles://${pmtilesBase}/transportation.pmtiles`,
             attribution: "Overture Maps"
           },
           overture_buildings: {
             type: "vector",
-            url: `pmtiles://${PMTILES_BASE}/buildings.pmtiles`,
+            url: `pmtiles://${pmtilesBase}/buildings.pmtiles`,
             attribution: "Overture Maps"
           }
         },
@@ -191,30 +234,30 @@ export default function DemoMap({ features, hexes, crews, tasks, fallbackBbox, c
               "fill-outline-color": COLORS.buildingOutline
             }
           },
-          {
-            id: "buildings-labor",
-            source: "overture_buildings",
-            "source-layer": "building",
-            type: "fill",
-            filter: ["==", ["get", "id"], "none"],
-            paint: {
-              "fill-color": COLORS.buildingsLabor,
-              "fill-opacity": 0.9,
-              "fill-outline-color": COLORS.buildingOutline
-            }
-          },
-          {
-            id: "buildings-materials",
-            source: "overture_buildings",
-            "source-layer": "building",
-            type: "fill",
-            filter: ["==", ["get", "id"], "none"],
-            paint: {
-              "fill-color": COLORS.buildingsMaterials,
-              "fill-opacity": 0.9,
-              "fill-outline-color": COLORS.buildingOutline
-            }
-          },
+      {
+        id: "buildings-labor",
+        source: "overture_buildings",
+        "source-layer": "building",
+        type: "fill",
+        filter: ["==", ["get", "id"], "none"],
+        paint: {
+          "fill-color": COLORS.buildingsLabor,
+          "fill-opacity": 0.85,
+          "fill-outline-color": COLORS.buildingOutline
+        }
+      },
+      {
+        id: "buildings-materials",
+        source: "overture_buildings",
+        "source-layer": "building",
+        type: "fill",
+        filter: ["==", ["get", "id"], "none"],
+        paint: {
+          "fill-color": COLORS.buildingsMaterials,
+          "fill-opacity": 0.85,
+          "fill-outline-color": COLORS.buildingOutline
+        }
+      },
 
           // === ROAD LAYERS ===
           // Route roads - shown at lower zoom for connectivity
@@ -415,6 +458,38 @@ export default function DemoMap({ features, hexes, crews, tasks, fallbackBbox, c
     });
 
     map.current.on("load", () => {
+      // Add source for the boundary mask (The Fog)
+      if (boundary) {
+        map.current?.addSource("game-boundary-mask", {
+          type: "geojson",
+          data: {
+            type: "Feature",
+            geometry: {
+              type: "Polygon",
+              coordinates: [
+                // Outer ring: World
+                [[-180, -90], [180, -90], [180, 90], [-180, 90], [-180, -90]],
+                // Inner ring: Hole (the boundary)
+                ...(boundary.type === "Polygon" 
+                  ? boundary.coordinates 
+                  : boundary.coordinates.flat(1)) as number[][][]
+              ]
+            },
+            properties: {}
+          }
+        });
+
+        map.current?.addLayer({
+          id: "game-boundary-mask-layer",
+          type: "fill",
+          source: "game-boundary-mask",
+          paint: {
+            "fill-color": COLORS.background,
+            "fill-opacity": 0.45
+          }
+        });
+      }
+
       // Add source for hex cells
       map.current?.addSource("game-hexes", {
         type: "geojson",
@@ -424,7 +499,7 @@ export default function DemoMap({ features, hexes, crews, tasks, fallbackBbox, c
         }
       });
 
-      // Add hex fill layer with improved visibility (rust-based opacity)
+      // Add hex fill layer with reduced opacity so fog doesn't overwhelm
       map.current?.addLayer({
         id: "game-hex-fill",
         type: "fill",
@@ -442,9 +517,9 @@ export default function DemoMap({ features, hexes, crews, tasks, fallbackBbox, c
             "interpolate",
             ["linear"],
             ["get", "rust_level"],
-            0, 0.12,
-            0.5, 0.22,
-            1, 0.35
+            0, 0.08,
+            0.5, 0.16,
+            1, 0.26
           ]
         }
       }, "game-roads-healthy-glow");
@@ -468,16 +543,16 @@ export default function DemoMap({ features, hexes, crews, tasks, fallbackBbox, c
             ["linear"],
             ["get", "rust_level"],
             0, 1,
-            0.5, 1.5,
-            1, 2.5
+            0.5, 1.2,
+            1, 2
           ],
           "line-opacity": [
             "interpolate",
             ["linear"],
             ["get", "rust_level"],
-            0, 0.25,
-            0.5, 0.45,
-            1, 0.65
+            0, 0.18,
+            0.5, 0.32,
+            1, 0.5
           ]
         }
       }, "game-roads-healthy-glow");
@@ -560,7 +635,7 @@ export default function DemoMap({ features, hexes, crews, tasks, fallbackBbox, c
       map.current?.remove();
       maplibregl.removeProtocol("pmtiles");
     };
-  }, [fallbackBbox]);
+  }, [fallbackBbox, boundary, pmtilesBase]);
 
   // Sync health data to vector tile features
   useEffect(() => {
@@ -597,7 +672,7 @@ export default function DemoMap({ features, hexes, crews, tasks, fallbackBbox, c
 
   // Sync hex data to GeoJSON source
   useEffect(() => {
-    if (!isLoaded || !map.current || !hexes.length) return;
+    if (!isLoaded || !map.current) return;
 
     const source = map.current.getSource("game-hexes") as maplibregl.GeoJSONSource;
     if (source) {

@@ -68,7 +68,18 @@ export async function spawnDegradedRoadTasks(pool: PoolLike) {
         WHERE t.target_gers_id = wf.gers_id
           AND t.status IN ('queued', 'active')
       )
-    RETURNING task_id, status, priority_score
+    RETURNING
+      task_id,
+      status,
+      priority_score,
+      vote_score,
+      cost_labor,
+      cost_materials,
+      duration_s,
+      repair_amount,
+      task_type,
+      target_gers_id,
+      region_id
     `
   );
 
@@ -85,7 +96,7 @@ export async function updateTaskPriorities(pool: PoolLike, lambda = DEFAULT_LAMB
     WITH vote_scores AS (
       SELECT
         task_id,
-        SUM(weight * EXP(-$1 * EXTRACT(EPOCH FROM (now() - created_at)) / 3600.0)) AS vote_score
+        SUM(weight * EXP(-$1::float * EXTRACT(EPOCH FROM (now() - created_at::timestamptz)) / 3600.0)) AS vote_score
       FROM task_votes
       GROUP BY task_id
     ),
@@ -112,11 +123,21 @@ export async function updateTaskPriorities(pool: PoolLike, lambda = DEFAULT_LAMB
       ) + task_info.vote_score
     FROM task_info
     WHERE t.task_id = task_info.task_id
-    RETURNING t.task_id, t.status, t.priority_score
+    RETURNING
+      t.task_id,
+      t.status,
+      t.priority_score,
+      t.vote_score,
+      t.cost_labor,
+      t.cost_materials,
+      t.duration_s,
+      t.repair_amount,
+      t.task_type,
+      t.target_gers_id,
+      t.region_id
     `,
     [lambda]
   );
 
   return result.rows;
 }
-

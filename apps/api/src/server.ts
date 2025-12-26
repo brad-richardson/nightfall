@@ -9,6 +9,7 @@ import { closePool, getPool } from "./db";
 import { loadCycleState, loadCycleSummary } from "./cycle";
 import { createDbEventStream } from "./event-stream";
 import type { EventStream } from "./event-stream";
+import { ROAD_CLASSES } from "@nightfall/config";
 
 const LAMBDA = 0.1;
 const CONTRIBUTION_LIMIT = 100;
@@ -18,6 +19,29 @@ const MAX_DISPLAY_NAME_LENGTH = 32;
 const MAX_REGION_ID_LENGTH = 64;
 
 const FEATURE_TYPES = new Set(["road", "building", "park", "water", "intersection"]);
+const LABOR_CATEGORIES = [
+  "restaurant",
+  "cafe",
+  "bar",
+  "food",
+  "office",
+  "retail",
+  "shop",
+  "store",
+  "school",
+  "university",
+  "hospital"
+];
+const MATERIAL_CATEGORIES = [
+  "industrial",
+  "factory",
+  "warehouse",
+  "manufacturing",
+  "construction"
+];
+
+const OVERTURE_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // daily refresh is sufficient; releases are monthly
+let overtureLatestCache: { value: string; fetchedAt: number } | null = null;
 
 type DbHealth = {
   ok: boolean;
@@ -116,6 +140,47 @@ function verifyToken(clientId: string, token: string): boolean {
   return actualToken === expected;
 }
 
+function normalizeOvertureRelease(raw?: string | null): string | null {
+  if (!raw) return null;
+  const match = raw.match(/(\d{4}-\d{2}-\d{2})(?:\.\d+)?/);
+  return match ? match[1] : null;
+}
+
+async function fetchOvertureLatest(): Promise<string | null> {
+  const now = Date.now();
+  if (overtureLatestCache && now - overtureLatestCache.fetchedAt < OVERTURE_CACHE_TTL_MS) {
+    return overtureLatestCache.value;
+  }
+
+  try {
+    const response = await fetch("https://stac.overturemaps.org/");
+    if (!response.ok) {
+      throw new Error(`fetch failed: ${response.status}`);
+    }
+    const payload = (await response.json()) as {
+      latest?: string;
+      links?: Array<{ rel?: string; href?: string; latest?: boolean }>;
+    };
+
+    const fromLatestField = normalizeOvertureRelease(payload.latest ?? null);
+    const fromLinks = normalizeOvertureRelease(
+      payload.links?.find((link) => link.latest)?.href ??
+        payload.links?.find((link) => link.rel === "child")?.href ??
+        null
+    );
+
+    const release = fromLatestField ?? fromLinks;
+    if (release) {
+      overtureLatestCache = { value: release, fetchedAt: now };
+      return release;
+    }
+  } catch (error) {
+    // Swallow and fall back to cache; logger not available here
+  }
+
+  return overtureLatestCache?.value ?? null;
+}
+
 export function buildServer(options: ServerOptions = {}): FastifyInstance {
   const app = Fastify({ logger: resolveLogger(options.logger) });
   const config = getConfig();
@@ -154,7 +219,17 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     return { ok: true, service: "api", version: getAppVersion() };
   });
 
-    app.get("/api/stream", async (request, reply) => {
+  app.get("/api/overture-latest", async (_request, reply) => {
+    const release = await fetchOvertureLatest();
+    if (!release) {
+      reply.status(503);
+      return { ok: false, error: "overture_unavailable" };
+    }
+
+    return { ok: true, release };
+  });
+
+  app.get("/api/stream", async (request, reply) => {
     if (sseClients >= config.SSE_MAX_CLIENTS) {
       reply.status(503).send({ ok: false, error: "too_many_connections" });
       return;
@@ -404,12 +479,14 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       total_roads: number;
       healthy_roads: number;
       degraded_roads: number;
+      health_avg: number | null;
     }>(
       `
       SELECT
         COUNT(*) FILTER (WHERE wf.feature_type = 'road')::int AS total_roads,
         COUNT(*) FILTER (WHERE wf.feature_type = 'road' AND fs.health > 80)::int AS healthy_roads,
-        COUNT(*) FILTER (WHERE wf.feature_type = 'road' AND fs.health < 30)::int AS degraded_roads
+        COUNT(*) FILTER (WHERE wf.feature_type = 'road' AND fs.health < 30)::int AS degraded_roads,
+        AVG(fs.health)::float AS health_avg
       FROM world_features AS wf
       JOIN feature_state AS fs ON fs.gers_id = wf.gers_id
       WHERE wf.region_id = $1
@@ -434,7 +511,8 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         total_roads: Number(statsResult.rows[0]?.total_roads ?? 0),
         healthy_roads: Number(statsResult.rows[0]?.healthy_roads ?? 0),
         degraded_roads: Number(statsResult.rows[0]?.degraded_roads ?? 0),
-        rust_avg: Number(rustResult.rows[0]?.rust_avg ?? 0)
+        rust_avg: Number(rustResult.rows[0]?.rust_avg ?? 0),
+        health_avg: Number(statsResult.rows[0]?.health_avg ?? 0)
       }
     };
   });
@@ -458,6 +536,9 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       typesClause = `AND wf.feature_type = ANY($${values.length})`;
     }
 
+    const laborIdx = values.length + 1;
+    const materialsIdx = values.length + 2;
+
     const featuresResult = await pool.query<{
       gers_id: string;
       feature_type: string;
@@ -478,8 +559,20 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         fs.status,
         wf.road_class,
         wf.place_category,
-        wf.generates_labor,
-        wf.generates_materials
+        COALESCE(
+          wf.generates_labor,
+          CASE
+            WHEN LOWER(COALESCE(wf.place_category, '')) LIKE ANY($${laborIdx}) THEN TRUE
+            ELSE FALSE
+          END
+        ) AS generates_labor,
+        COALESCE(
+          wf.generates_materials,
+          CASE
+            WHEN LOWER(COALESCE(wf.place_category, '')) LIKE ANY($${materialsIdx}) THEN TRUE
+            ELSE FALSE
+          END
+        ) AS generates_materials
       FROM world_features AS wf
       LEFT JOIN feature_state AS fs ON fs.gers_id = wf.gers_id
       WHERE wf.bbox_xmin <= $3
@@ -488,7 +581,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         AND wf.bbox_ymax >= $2
       ${typesClause}
       `,
-      values
+      [...values, LABOR_CATEGORIES.map((c) => `%${c}%`), MATERIAL_CATEGORIES.map((c) => `%${c}%`)]
     );
 
     return { features: featuresResult.rows };
@@ -749,6 +842,10 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     await pool.query("BEGIN");
 
     try {
+      const weightCases = Object.entries(ROAD_CLASSES)
+        .map(([cls, info]) => `WHEN '${cls}' THEN ${info.priorityWeight}`)
+        .join("\n          ");
+
       const taskResult = await pool.query("SELECT 1 FROM tasks WHERE task_id = $1 FOR UPDATE", [
         taskId
       ]);
@@ -772,7 +869,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       const scoreResult = await pool.query<{ vote_score: number }>(
         `
         SELECT
-          COALESCE(SUM(weight * EXP(-$2::float * EXTRACT(EPOCH FROM (now() - created_at)) / 3600.0)), 0) AS vote_score
+          COALESCE(SUM(weight * EXP(-$2::float * EXTRACT(EPOCH FROM (now() - created_at::timestamptz)) / 3600.0)), 0) AS vote_score
         FROM task_votes
         WHERE task_id = $1
         `,
@@ -781,11 +878,58 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
 
       const voteScore = Number(scoreResult.rows[0]?.vote_score ?? 0);
 
-      await pool.query("UPDATE tasks SET vote_score = $2 WHERE task_id = $1", [taskId, voteScore]);
+      const updatedTask = await pool.query<{
+        task_id: string;
+        status: string;
+        priority_score: number;
+        vote_score: number;
+        cost_labor: number;
+        cost_materials: number;
+        duration_s: number;
+        repair_amount: number;
+        task_type: string;
+        target_gers_id: string;
+        region_id: string;
+      }>(
+        `
+        UPDATE tasks AS t
+        SET vote_score = $2,
+            priority_score = (100 - fs.health) * (
+              CASE wf.road_class
+                ${weightCases}
+                ELSE 1
+              END
+            ) + $2
+        FROM world_features AS wf
+        JOIN feature_state AS fs ON fs.gers_id = wf.gers_id
+        WHERE t.task_id = $1
+          AND wf.gers_id = t.target_gers_id
+        RETURNING
+          t.task_id,
+          t.status,
+          t.priority_score,
+          t.vote_score,
+          t.cost_labor,
+          t.cost_materials,
+          t.duration_s,
+          t.repair_amount,
+          t.task_type,
+          t.target_gers_id,
+          t.region_id
+        `,
+        [taskId, voteScore]
+      );
 
       await pool.query("COMMIT");
 
-      return { ok: true, new_vote_score: voteScore };
+      const taskDelta = updatedTask.rows[0];
+      if (taskDelta) {
+        await pool.query("SELECT pg_notify('task_delta', $1)", [
+          JSON.stringify(taskDelta)
+        ]);
+      }
+
+      return { ok: true, new_vote_score: voteScore, priority_score: taskDelta?.priority_score ?? null };
     } catch (error) {
       await pool.query("ROLLBACK");
       throw error;
@@ -837,7 +981,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     const voteScoreResult = await pool.query<{ vote_score: number }>(
       `
       SELECT
-        COALESCE(SUM(weight * EXP(-$2::float * EXTRACT(EPOCH FROM (now() - created_at)) / 3600.0)), 0) AS vote_score
+        COALESCE(SUM(weight * EXP(-$2::float * EXTRACT(EPOCH FROM (now() - created_at::timestamptz)) / 3600.0)), 0) AS vote_score
       FROM task_votes
       WHERE task_id = $1
       `,

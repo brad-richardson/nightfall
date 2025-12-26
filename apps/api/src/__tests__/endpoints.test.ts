@@ -24,6 +24,7 @@ describe("api endpoints", () => {
 
   afterEach(() => {
     delete process.env.DATABASE_URL;
+    vi.unstubAllGlobals();
   });
 
   it("returns world summary", async () => {
@@ -101,7 +102,9 @@ describe("api endpoints", () => {
         return Promise.resolve({ rows: [] });
       }
       if (text.includes("COUNT(*) FILTER")) {
-        return Promise.resolve({ rows: [{ total_roads: 1, healthy_roads: 1, degraded_roads: 0 }] });
+        return Promise.resolve({
+          rows: [{ total_roads: 1, healthy_roads: 1, degraded_roads: 0, health_avg: 95 }]
+        });
       }
       if (text.includes("FROM hex_cells")) {
         return Promise.resolve({ rows: [{ rust_avg: 0.1 }] });
@@ -117,6 +120,7 @@ describe("api endpoints", () => {
     expect(payload.region_id).toBe("region-1");
     expect(payload.crews).toHaveLength(1);
     expect(payload.stats.total_roads).toBe(1);
+    expect(payload.stats.health_avg).toBe(95);
 
     await app.close();
   });
@@ -131,9 +135,9 @@ describe("api endpoints", () => {
           health: 80,
           status: "normal",
           road_class: "primary",
-          place_category: null,
+          place_category: "industrial",
           generates_labor: false,
-          generates_materials: false
+          generates_materials: true
         }
       ]
     });
@@ -148,6 +152,7 @@ describe("api endpoints", () => {
     const payload = response.json();
     expect(payload.features).toHaveLength(1);
     expect(payload.features[0].bbox).toEqual([-71, 42, -70, 43]);
+    expect(payload.features[0].generates_materials).toBe(true); // inferred from place_category
 
     await app.close();
   });
@@ -226,7 +231,21 @@ describe("api endpoints", () => {
         return Promise.resolve({ rows: [{ vote_score: 2 }] });
       }
       if (text.includes("UPDATE tasks")) {
-        return Promise.resolve({ rows: [] });
+        return Promise.resolve({
+          rows: [{
+            task_id: "task-1",
+            status: "queued",
+            priority_score: 5,
+            vote_score: 2,
+            cost_labor: 10,
+            cost_materials: 10,
+            duration_s: 30,
+            repair_amount: 5,
+            task_type: "repair_road",
+            target_gers_id: "road-1",
+            region_id: "region-1"
+          }]
+        });
       }
       return Promise.resolve({ rows: [] });
     });
@@ -240,7 +259,31 @@ describe("api endpoints", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ ok: true, new_vote_score: 2 });
+    expect(response.json()).toEqual({ ok: true, new_vote_score: 2, priority_score: 5 });
+
+    await app.close();
+  });
+
+  it("returns overture latest and caches it", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        latest: "2025-12-17.0",
+        links: [{ rel: "child", href: "./2025-12-17.0/catalog.json", latest: true }]
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const app = buildServer();
+    const first = await app.inject({ method: "GET", url: "/api/overture-latest" });
+    expect(first.statusCode).toBe(200);
+    expect(first.json()).toEqual({ ok: true, release: "2025-12-17" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const second = await app.inject({ method: "GET", url: "/api/overture-latest" });
+    expect(second.statusCode).toBe(200);
+    expect(second.json()).toEqual({ ok: true, release: "2025-12-17" });
+    expect(fetchMock).toHaveBeenCalledTimes(1); // cached
 
     await app.close();
   });
