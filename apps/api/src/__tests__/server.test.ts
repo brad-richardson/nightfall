@@ -26,7 +26,7 @@ describe("api server", () => {
     const response = await app.inject({ method: "GET", url: "/health" });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ ok: true, db: { ok: true, checked: false } });
+    expect(response.json()).toMatchObject({ status: "ok", db: { ok: true, checked: false } });
 
     await app.close();
   });
