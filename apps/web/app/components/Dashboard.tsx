@@ -92,14 +92,35 @@ function formatPercent(value: number) {
   return `${Math.round(value * 100)}%`;
 }
 
-function getOrCreateClientId() {
-  if (typeof window === "undefined") return "server";
-  let id = localStorage.getItem("nightfall_client_id");
-  if (!id) {
-    id = `client_${Math.random().toString(36).slice(2, 11)}`;
-    localStorage.setItem("nightfall_client_id", id);
+function formatTime(seconds: number) {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+async function initializeSession(apiBaseUrl: string): Promise<{ clientId: string; token: string }> {
+  let clientId = localStorage.getItem("nightfall_client_id");
+  if (!clientId) {
+    clientId = `client_${Math.random().toString(36).slice(2, 11)}`;
+    localStorage.setItem("nightfall_client_id", clientId);
   }
-  return id;
+
+  try {
+    const res = await fetch(`${apiBaseUrl}/api/hello`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: clientId })
+    });
+    
+    if (res.ok) {
+      const data = await res.json();
+      return { clientId, token: data.token };
+    }
+  } catch (err) {
+    console.error("Session init failed", err);
+  }
+  
+  return { clientId, token: "" };
 }
 
 export default function Dashboard({
@@ -118,85 +139,39 @@ export default function Dashboard({
   const [cycle, setCycle] = useState<CycleState>(initialCycle);
   const [lastEvent, setLastEvent] = useState<string | null>(null);
   const [clientId, setClientId] = useState<string>("");
+  const [token, setToken] = useState<string>("");
 
   useEffect(() => {
-    setClientId(getOrCreateClientId());
-  }, []);
+    initializeSession(apiBaseUrl).then(({ clientId, token }) => {
+      setClientId(clientId);
+      setToken(token);
+    });
+  }, [apiBaseUrl]);
 
   const handleEvent = useCallback((payload: EventPayload) => {
-    setLastEvent(`${payload.event} @ ${new Date().toLocaleTimeString()}`);
-
-    switch (payload.event) {
-      case "phase_change":
-        setCycle(payload.data as CycleState);
-        break;
-      case "feed_item": {
-        const item = payload.data as FeedItem;
-        window.dispatchEvent(new CustomEvent("nightfall:feed_item", { detail: item }));
-        break;
-      }
-      case "feature_delta": {
-        const delta = payload.data as { gers_id: string; health: number; status: string };
-        setFeatures((prev) =>
-          prev.map((f) =>
-            f.gers_id === delta.gers_id
-              ? { ...f, health: delta.health, status: delta.status }
-              : f
-          )
-        );
-        break;
-      }
-      case "task_delta": {
-        const delta = payload.data as { task_id: string; status: string; priority_score: number };
-        setRegion((prev) => {
-          const taskExists = prev.tasks.some(t => t.task_id === delta.task_id);
-          if (taskExists) {
-            return {
-              ...prev,
-              tasks: prev.tasks.map(t => 
-                t.task_id === delta.task_id 
-                  ? { ...t, status: delta.status, priority_score: delta.priority_score } 
-                  : t
-              ).filter(t => t.status !== 'done' && t.status !== 'expired')
-            };
-          }
-          return prev;
-        });
-        break;
-      }
-    }
-  }, []);
-
-  useEventStream(apiBaseUrl, handleEvent);
-
+// ...
   const handleVote = useCallback(async (taskId: string, weight: number) => {
-    if (!clientId) return;
+    if (!clientId || !token) return;
     try {
       const res = await fetch(`${apiBaseUrl}/api/vote`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
         body: JSON.stringify({ client_id: clientId, task_id: taskId, weight })
       });
       if (res.ok) {
-        const data = await res.json();
-        setRegion(prev => ({
-          ...prev,
-          tasks: prev.tasks.map(t => 
-            t.task_id === taskId ? { ...t, vote_score: data.new_vote_score } : t
-          )
-        }));
-      }
-    } catch (err) {
-      console.error("Failed to vote", err);
-    }
-  }, [apiBaseUrl, clientId]);
-
+// ...
   const handleContribute = useCallback(async (labor: number, materials: number) => {
-    if (!clientId) return;
+    if (!clientId || !token) return;
     try {
       const res = await fetch(`${apiBaseUrl}/api/contribute`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
         body: JSON.stringify({ 
           client_id: clientId, 
           region_id: region.region_id, 
@@ -205,44 +180,44 @@ export default function Dashboard({
         })
       });
       if (res.ok) {
-        const data = await res.json();
-        setRegion(prev => ({
-          ...prev,
-          pool_labor: Number(data.new_pool_labor),
-          pool_materials: Number(data.new_pool_materials)
-        }));
-      }
-    } catch (err) {
-      console.error("Failed to contribute", err);
-    }
-  }, [apiBaseUrl, clientId, region.region_id]);
+
 
   const counts = useMemo(() => {
     let roads = 0;
-    let buildings = 0;
-    let healthy = 0;
-    let degraded = 0;
-
-    for (const f of features) {
-      if (f.feature_type === "road") {
-        roads += 1;
-        if (f.health !== undefined && f.health !== null) {
-          if (f.health > 80) healthy += 1;
-          if (f.health < 30) degraded += 1;
-        }
-      } else if (f.feature_type === "building") {
-        buildings += 1;
-      }
-    }
-
+// ...
     return { roads, buildings, healthy, degraded };
   }, [features]);
 
+  const phaseGlow = {
+    dawn: "shadow-[inset_0_0_100px_rgba(251,191,36,0.2)]",
+    day: "",
+    dusk: "shadow-[inset_0_0_100px_rgba(245,158,11,0.2)]",
+    night: "shadow-[inset_0_0_150px_rgba(127,29,29,0.3)]"
+  };
+
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className={`flex min-h-screen flex-col transition-all duration-[2000ms] ${phaseGlow[cycle.phase]}`}>
       <div className="relative flex-1 px-6 pb-16 pt-10 lg:px-12">
         <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_20%_20%,rgba(221,122,73,0.12),transparent_55%),radial-gradient(circle_at_80%_0%,rgba(44,101,117,0.16),transparent_50%)]" />
         
+        {cycle.phase === "dusk" && (
+          <div className="mb-6 flex w-full justify-center">
+            <div className="animate-pulse rounded-full border border-amber-500/50 bg-amber-900/80 px-6 py-2 text-xs font-bold uppercase tracking-[0.2em] text-amber-200 shadow-[0_0_20px_rgba(245,158,11,0.4)] backdrop-blur-md">
+              Warning: Nightfall Imminent ({formatTime(cycle.next_phase_in_seconds)})
+            </div>
+          </div>
+        )}
+
+        {cycle.phase === "dawn" && cycle.phase_progress < 0.2 && (
+          <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center">
+            <div className="animate-[fade-out_4s_ease-out_forwards] text-center">
+              <h2 className="text-4xl font-bold uppercase tracking-[0.5em] text-amber-100 opacity-0 blur-xl animate-[reveal_4s_ease-out_forwards]">
+                The Sun Rises
+              </h2>
+            </div>
+          </div>
+        )}
+
         <header className="flex flex-wrap items-center justify-between gap-6">
           <div>
             <p className="text-xs uppercase tracking-[0.5em] text-[color:var(--night-ash)]">
@@ -378,6 +353,15 @@ export default function Dashboard({
             </div>
           </div>
         </section>
+
+        <div className="mt-12 border-t border-[var(--night-outline)] pt-8 text-[10px] text-[color:var(--night-ash)] opacity-60">
+          <p className="mb-2 uppercase tracking-widest">Attribution</p>
+          <div className="space-y-1">
+            <p>Data from Overture Maps Foundation (CDLA Permissive v2.0)</p>
+            <p>H3 geospatial indexing system (Apache 2.0)</p>
+            <p>Map data © OpenStreetMap contributors</p>
+          </div>
+        </div>
       </div>
 
       <footer className="sticky bottom-0 z-50">

@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyServerOptions } from "fastify";
 import Fastify from "fastify";
+import { createHmac } from "crypto";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
@@ -98,6 +99,21 @@ function getNextReset(now: Date) {
   next.setUTCDate(next.getUTCDate() + daysUntil);
   next.setUTCHours(0, 0, 0, 0);
   return next.toISOString();
+}
+
+function signClientId(clientId: string): string {
+  const secret = getConfig().JWT_SECRET;
+  const hmac = createHmac("sha256", secret);
+  hmac.update(clientId);
+  return hmac.digest("hex");
+}
+
+function verifyToken(clientId: string, token: string): boolean {
+  if (!token) return false;
+  // Handle "Bearer <token>" format
+  const actualToken = token.startsWith("Bearer ") ? token.slice(7) : token;
+  const expected = signClientId(clientId);
+  return actualToken === expected;
 }
 
 export function buildServer(options: ServerOptions = {}): FastifyInstance {
@@ -239,6 +255,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
 
     return {
       ok: true,
+      token: signClientId(clientId),
       world_version: worldVersion,
       home_region_id: playerResult.rows[0]?.home_region_id ?? null,
       regions: regionsResult.rows,
@@ -516,10 +533,16 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     const body = request.body as { client_id?: string; region_id?: string } | undefined;
     const clientId = body?.client_id?.trim();
     const regionId = body?.region_id?.trim();
+    const authHeader = request.headers["authorization"];
 
     if (!clientId || !regionId) {
       reply.status(400);
       return { ok: false, error: "client_id_and_region_required" };
+    }
+
+    if (!authHeader || !verifyToken(clientId, authHeader)) {
+      reply.status(401);
+      return { ok: false, error: "unauthorized" };
     }
 
     if (clientId.length > MAX_CLIENT_ID_LENGTH) {
@@ -565,10 +588,16 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     const regionId = body?.region_id?.trim();
     const labor = Number(body?.labor ?? 0);
     const materials = Number(body?.materials ?? 0);
+    const authHeader = request.headers["authorization"];
 
     if (!clientId || !regionId) {
       reply.status(400);
       return { ok: false, error: "client_id_and_region_required" };
+    }
+
+    if (!authHeader || !verifyToken(clientId, authHeader)) {
+      reply.status(401);
+      return { ok: false, error: "unauthorized" };
     }
 
     if (clientId.length > MAX_CLIENT_ID_LENGTH) {
@@ -697,10 +726,16 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     const clientId = body?.client_id?.trim();
     const taskId = body?.task_id?.trim();
     const weight = Number(body?.weight ?? 0);
+    const authHeader = request.headers["authorization"];
 
     if (!clientId || !taskId || ![1, -1].includes(weight)) {
       reply.status(400);
       return { ok: false, error: "invalid_vote" };
+    }
+
+    if (!authHeader || !verifyToken(clientId, authHeader)) {
+      reply.status(401);
+      return { ok: false, error: "unauthorized" };
     }
 
     if (clientId.length > MAX_CLIENT_ID_LENGTH) {

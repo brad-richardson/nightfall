@@ -31,7 +31,8 @@ Working list to build the core loop and UI in a sensible order. Keep PRs small b
 - [x] MapLibre base with day/night grading, roads colored by health, buildings by generation type, rust hex overlay with animated grain.
 - [x] UI chrome: header with phase indicator + countdown, region selector, responsive layout (sidebar/bottom sheet), activity feed ticker.
 - [x] Interaction flows: feature selection panel, vote buttons, contribute action, task list sorted by priority with ETA, crews markers.
-- [/] Mobile polish: gestures, touch targets, bottom sheet behavior.
+- [x] Mobile polish: gestures, touch targets, bottom sheet behavior.
+- [x] Phase transition visuals: urgency banners, ambient glows, and countdowns.
 
 ## Operations & Reset (Week 4-5)
 - [x] Weekly reset job (cron/Fly Machine) updating roads/rust/pools/tasks/crews; update world version/reset metadata and broadcast.
@@ -45,17 +46,16 @@ Working list to build the core loop and UI in a sensible order. Keep PRs small b
 - [x] Admin endpoint hardening: secret rotation, optional allowlist, audit events for changes.
 
 ## Attribution & Compliance
-- [ ] Add in-product attribution for Overture Maps and upstream sources; include in docs/landing page.
-- [ ] License/NOTICE updates as needed for data and dependencies.
+- [x] Add in-product attribution for Overture Maps and upstream sources; include in docs/landing page.
+- [x] License/NOTICE updates as needed for data and dependencies.
 
 ## Code Review Follow-ups
 - [x] Fix NOTIFY payloads to use pg_notify(channel, payload).
-- [ ] Add auth/verification for client_id (prevent impersonation on all endpoints).
-- [ ] Wrap tick loop in a transaction/locking strategy to avoid multi-ticker races.
+- [x] Add auth/verification for client_id (prevent impersonation on all endpoints).
+- [x] Wrap tick loop in a transaction/locking strategy to avoid multi-ticker races.
 - [x] Make vote score updates atomic (lock row or update in one statement).
-- [ ] Close contribution limit bypass with row locks or constraints.
+- [x] Close contribution limit bypass with row locks or constraints.
 - [ ] Prevent rust spread lost updates (transaction or update-in-DB strategy).
 - [ ] Guard task spawn with locking to avoid duplicate degraded-road tasks.
 - [ ] Clean up SSE listeners and add reconnect handling/backpressure strategy.
-- [x] Add input validation limits (string lengths, bbox ranges).
-- [ ] Ensure consistent phase multipliers within a tick (snapshot once per tick).
+- [x] Ensure consistent phase multipliers within a tick (snapshot once per tick).

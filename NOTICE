@@ -1,0 +1,14 @@
+Nightfall
+Copyright (c) 2025 Nightfall Contributors
+
+This software uses data from Overture Maps Foundation.
+The Overture Maps data is available under the CDLA Permissive v2.0 license.
+https://github.com/OvertureMaps/data/blob/main/LICENSE
+
+This software uses the H3 geospatial indexing system.
+Copyright (c) 2018 Uber Technologies, Inc.
+Apache License 2.0
+https://github.com/uber/h3/blob/master/LICENSE
+
+Map data © OpenStreetMap contributors
+https://www.openstreetmap.org/copyright

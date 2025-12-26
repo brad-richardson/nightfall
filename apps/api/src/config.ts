@@ -10,6 +10,7 @@ const configSchema = z.object({
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100), // 100 requests per window
   SSE_MAX_CLIENTS: z.coerce.number().int().positive().default(1000),
   ADMIN_SECRET: z.string().optional(),
+  JWT_SECRET: z.string().default("dev-secret-do-not-use-in-prod"),
 });
 
 export type Config = z.infer<typeof configSchema>;
