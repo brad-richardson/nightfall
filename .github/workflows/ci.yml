@@ -41,14 +41,14 @@ jobs:
       - name: Run CI (Lint, Unit Tests, Build)
         run: pnpm run ci
         env:
-          DATABASE_URL: postgresql://nightfall:nightfall@localhost:5432/nightfall
+          DATABASE_URL: postgresql://nightfall:nightfall@localhost:5432/nightfall?sslmode=disable
 
       - name: Run Database Migrations
         run: pnpm run db:up
         env:
-          DATABASE_URL: postgresql://nightfall:nightfall@localhost:5432/nightfall
+          DATABASE_URL: postgresql://nightfall:nightfall@localhost:5432/nightfall?sslmode=disable
 
       - name: Run UI Tests
         run: pnpm run test:ui
         env:
-          DATABASE_URL: postgresql://nightfall:nightfall@localhost:5432/nightfall
+          DATABASE_URL: postgresql://nightfall:nightfall@localhost:5432/nightfall?sslmode=disable
