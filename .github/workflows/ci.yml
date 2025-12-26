@@ -48,6 +48,15 @@ jobs:
         env:
           DATABASE_URL: postgresql://nightfall:nightfall@localhost:5432/nightfall?sslmode=disable
 
+      - name: Seed Test Data
+        run: psql -f db/test-seed.sql
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: nightfall
+          PGPASSWORD: nightfall
+          PGDATABASE: nightfall
+
       - name: Run UI Tests
         run: pnpm run test:ui
         env:
