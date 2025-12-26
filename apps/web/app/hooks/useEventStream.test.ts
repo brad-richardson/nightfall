@@ -3,8 +3,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useEventStream } from "./useEventStream";
 
 describe("useEventStream", () => {
-  let mockEventSource: any;
-  const eventListeners: Record<string, ((e: any) => void)[]> = {};
+  let mockEventSource: {
+    addEventListener: ReturnType<typeof vi.fn>;
+    close: ReturnType<typeof vi.fn>;
+    onerror: null;
+    onopen: null;
+  };
+  const eventListeners: Record<string, ((e: { data: string }) => void)[]> = {};
 
   beforeEach(() => {
     mockEventSource = {

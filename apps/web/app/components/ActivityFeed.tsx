@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState } from "react";
 
 export type FeedItem = {
   event_type: string;
@@ -15,15 +15,15 @@ type ActivityFeedProps = {
 
 export default function ActivityFeed({ initialItems = [] }: ActivityFeedProps) {
   const [items, setItems] = useState<FeedItem[]>(initialItems);
-  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const handleNewItem = (e: CustomEvent<FeedItem>) => {
-      setItems((prev) => [e.detail, ...prev].slice(0, 50));
+    const handleNewItem = (e: Event) => {
+      const customEvent = e as CustomEvent<FeedItem>;
+      setItems((prev) => [customEvent.detail, ...prev].slice(0, 50));
     };
 
-    window.addEventListener("nightfall:feed_item" as any, handleNewItem);
-    return () => window.removeEventListener("nightfall:feed_item" as any, handleNewItem);
+    window.addEventListener("nightfall:feed_item", handleNewItem);
+    return () => window.removeEventListener("nightfall:feed_item", handleNewItem);
   }, []);
 
   return (

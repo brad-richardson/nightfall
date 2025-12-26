@@ -23,13 +23,32 @@ type Feature = {
   generates_materials?: boolean;
 };
 
+type Task = {
+  task_id: string;
+  target_gers_id: string;
+  priority_score: number;
+  status: string;
+  vote_score: number;
+  cost_labor: number;
+  cost_materials: number;
+  duration_s: number;
+  repair_amount: number;
+  task_type: string;
+};
+
 type RegionResponse = {
   region_id: string;
   name: string;
   boundary: Boundary | null;
   pool_labor: number;
   pool_materials: number;
-  tasks: any[];
+  crews: {
+    crew_id: string;
+    status: string;
+    active_task_id: string | null;
+    busy_until: string | null;
+  }[];
+  tasks: Task[];
   stats: {
     total_roads: number;
     healthy_roads: number;
@@ -40,6 +59,7 @@ type RegionResponse = {
 };
 
 type WorldResponse = {
+  demo_mode: boolean;
   cycle: {
     phase: "dawn" | "day" | "dusk" | "night";
     phase_progress: number;
@@ -47,7 +67,26 @@ type WorldResponse = {
     next_phase: "dawn" | "day" | "dusk" | "night";
     next_phase_in_seconds: number;
   };
+  regions: {
+    region_id: string;
+    name: string;
+  }[];
 };
+// ...
+  return (
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_var(--night-glow),_var(--night-sand))]">
+      <Dashboard
+        initialRegion={region}
+        initialFeatures={features}
+        initialHexes={hexes}
+        initialCycle={world.cycle}
+        availableRegions={world.regions}
+        isDemoMode={world.demo_mode}
+        apiBaseUrl={API_BASE_URL}
+      />
+    </main>
+  );
+
 
 type Hex = {
   h3_index: string;
@@ -130,9 +169,11 @@ function getBoundaryBbox(boundary: Boundary | null): Bbox | null {
   return { xmin, ymin, xmax, ymax };
 }
 
-export default async function HomePage() {
+export default async function HomePage({ searchParams }: { searchParams: { region?: string } }) {
+  const regionId = searchParams.region || DEMO_REGION_ID;
+
   const [region, world] = await Promise.all([
-    fetchRegion(DEMO_REGION_ID),
+    fetchRegion(regionId),
     fetchWorld()
   ]);
 
@@ -160,6 +201,7 @@ export default async function HomePage() {
         initialFeatures={features}
         initialHexes={hexes}
         initialCycle={world.cycle}
+        availableRegions={world.regions}
         apiBaseUrl={API_BASE_URL}
       />
     </main>

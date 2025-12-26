@@ -125,7 +125,7 @@ async function startAllServers(): Promise<ChildProcess[]> {
   // Start web server
   const web = await startServer(
     "Web server",
-    ["pnpm", "--filter", "@nightfall/web", "dev"],
+    ["PORT=3000 pnpm --filter @nightfall/web dev"],
     ["Ready in", "started server", "Local:", "ready started"]
   );
   servers.push(web);

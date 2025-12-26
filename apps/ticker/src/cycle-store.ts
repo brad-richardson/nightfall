@@ -16,7 +16,12 @@ function parseDate(value: string | null): number | null {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
-export async function syncCycleState(pool: PoolLike, logger: Logger, now = new Date()) {
+export async function syncCycleState(
+  pool: PoolLike,
+  logger: Logger,
+  speedMultiplier: number = 1,
+  now = new Date()
+) {
   const result = await pool.query<CycleRow>(
     "SELECT value->>'cycle_start' as cycle_start, value->>'phase' as phase, value->>'phase_start' as phase_start FROM world_meta WHERE key = 'cycle_state'"
   );
@@ -25,7 +30,7 @@ export async function syncCycleState(pool: PoolLike, logger: Logger, now = new D
   const parsedCycleStart = parseDate(row?.cycle_start ?? null);
   const cycleStartMs = parsedCycleStart ?? nowMs;
 
-  const snapshot = computeCycleSnapshot(nowMs, cycleStartMs);
+  const snapshot = computeCycleSnapshot(nowMs, cycleStartMs, speedMultiplier);
   const storedPhase = row?.phase ?? null;
   const shouldUpdate =
     !row ||

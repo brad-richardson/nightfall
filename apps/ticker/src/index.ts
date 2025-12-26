@@ -5,8 +5,9 @@ dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
 import { Pool } from "pg";
 import { loopTicker } from "./ticker";
 import type { PoolLike } from "./ticker";
+import { logger } from "./logger";
 import { syncCycleState } from "./cycle-store";
-import { getPhaseMultipliers } from "./multipliers";
+import { getPhaseMultipliers, applyDemoMultiplier } from "./multipliers";
 import { applyRustSpread } from "./rust";
 import { applyRoadDecay } from "./decay";
 import { generateRegionResources } from "./resources";
@@ -14,6 +15,9 @@ import { dispatchCrews, completeFinishedTasks } from "./crews";
 import { spawnDegradedRoadTasks, updateTaskPriorities } from "./tasks";
 import type { FeatureDelta, TaskDelta } from "./deltas";
 import { notifyEvent } from "./notify";
+import { getDemoConfig } from "./demo";
+import { simulateBots } from "./bots";
+import { checkAndPerformReset } from "./reset";
 
 const intervalMs = Number(process.env.TICK_INTERVAL_MS ?? 10_000);
 const lockId = Number(process.env.TICK_LOCK_ID ?? 424242);
@@ -21,11 +25,6 @@ const lockId = Number(process.env.TICK_LOCK_ID ?? 424242);
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL
 });
-
-const logger = {
-  info: console.info,
-  error: console.error
-};
 
 async function publishWorldDelta(
   client: PoolLike,
@@ -67,8 +66,15 @@ async function publishFeedItems(
 }
 
 async function runTick(client: PoolLike) {
-  const cycle = await syncCycleState(client, logger);
-  const multipliers = getPhaseMultipliers(cycle.phase);
+  await checkAndPerformReset(client);
+
+  const demoConfig = await getDemoConfig(client);
+  const cycleSpeed = demoConfig.enabled ? demoConfig.cycle_speed : 1;
+  const tickMultiplier = demoConfig.enabled ? demoConfig.tick_multiplier : 1;
+
+  const cycle = await syncCycleState(client, logger, cycleSpeed);
+  const baseMultipliers = getPhaseMultipliers(cycle.phase);
+  const multipliers = applyDemoMultiplier(baseMultipliers, tickMultiplier);
 
   const rustHexes = await applyRustSpread(client, multipliers);
   const decayFeatureDeltas = await applyRoadDecay(client, multipliers);
@@ -77,6 +83,8 @@ async function runTick(client: PoolLike) {
   const priorityUpdates = await updateTaskPriorities(client);
   const dispatchResult = await dispatchCrews(client, multipliers);
   const completionResult = await completeFinishedTasks(client, multipliers);
+
+  await simulateBots(client, demoConfig.enabled);
 
   await publishWorldDelta(
     client,
@@ -98,6 +106,15 @@ async function runTick(client: PoolLike) {
   ]);
 
   await publishFeedItems(client, completionResult.feedItems);
+
+  logger.info({
+    rust_spread_count: rustHexes.length,
+    decay_updates: decayFeatureDeltas.length,
+    tasks_spawned: spawnedTasks.length,
+    tasks_updated: priorityUpdates.length,
+    crews_dispatched: dispatchResult.taskDeltas.length,
+    tasks_completed: completionResult.taskDeltas.length
+  }, "tick stats");
 }
 
 let running = true;

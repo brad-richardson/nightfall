@@ -37,3 +37,13 @@ export const PHASE_MULTIPLIERS: Record<PhaseName, PhaseMultipliers> = {
 export function getPhaseMultipliers(phase: PhaseName) {
   return PHASE_MULTIPLIERS[phase];
 }
+
+export function applyDemoMultiplier(base: PhaseMultipliers, demoMultiplier: number): PhaseMultipliers {
+  if (demoMultiplier <= 1) return base;
+  return {
+    rust_spread: base.rust_spread * demoMultiplier,
+    decay: base.decay * demoMultiplier,
+    generation: base.generation * demoMultiplier,
+    repair_speed: base.repair_speed * demoMultiplier
+  };
+}

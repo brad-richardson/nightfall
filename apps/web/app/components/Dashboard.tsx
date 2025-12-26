@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import DemoMap from "./DemoMap";
 import PhaseIndicator from "./PhaseIndicator";
 import ActivityFeed, { type FeedItem } from "./ActivityFeed";
@@ -52,6 +53,12 @@ type Region = {
   boundary: Boundary | null;
   pool_labor: number;
   pool_materials: number;
+  crews: {
+    crew_id: string;
+    status: string;
+    active_task_id: string | null;
+    busy_until: string | null;
+  }[];
   tasks: Task[];
   stats: {
     total_roads: number;
@@ -72,6 +79,8 @@ type DashboardProps = {
   initialFeatures: Feature[];
   initialHexes: Hex[];
   initialCycle: CycleState;
+  availableRegions: { region_id: string; name: string }[];
+  isDemoMode: boolean;
   apiBaseUrl: string;
 };
 
@@ -98,11 +107,14 @@ export default function Dashboard({
   initialFeatures,
   initialHexes,
   initialCycle,
+  availableRegions,
+  isDemoMode,
   apiBaseUrl
 }: DashboardProps) {
+  const router = useRouter();
   const [region, setRegion] = useState<Region>(initialRegion);
   const [features, setFeatures] = useState<Feature[]>(initialFeatures);
-  const [hexes, setHexes] = useState<Hex[]>(initialHexes);
+  const [hexes] = useState<Hex[]>(initialHexes);
   const [cycle, setCycle] = useState<CycleState>(initialCycle);
   const [lastEvent, setLastEvent] = useState<string | null>(null);
   const [clientId, setClientId] = useState<string>("");
@@ -235,10 +247,30 @@ export default function Dashboard({
           <div>
             <p className="text-xs uppercase tracking-[0.5em] text-[color:var(--night-ash)]">
               Nightfall Ops Console
+              {isDemoMode && (
+                <span className="ml-3 rounded bg-red-900/50 px-2 py-0.5 text-[0.65rem] font-bold text-red-200">
+                  DEMO MODE
+                </span>
+              )}
             </p>
-            <h1 className="font-display mt-3 text-4xl text-[color:var(--night-ink)] sm:text-5xl">
-              {region.name}
-            </h1>
+            <div className="flex items-center gap-4">
+              <h1 className="font-display mt-3 text-4xl text-[color:var(--night-ink)] sm:text-5xl">
+                {region.name}
+              </h1>
+              {availableRegions?.length > 1 && (
+                <select
+                  className="mt-3 rounded-lg border border-[var(--night-outline)] bg-white/50 px-3 py-2 text-sm backdrop-blur-sm transition-colors hover:bg-white/80 focus:outline-none focus:ring-2 focus:ring-[var(--night-teal)]"
+                  value={region.region_id}
+                  onChange={(e) => router.push(`/?region=${e.target.value}`)}
+                >
+                  {availableRegions.map((r) => (
+                    <option key={r.region_id} value={r.region_id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
           </div>
           
           <div className="flex items-center gap-4">
@@ -250,7 +282,7 @@ export default function Dashboard({
         </header>
 
         <section className="mt-10 grid gap-8 lg:grid-cols-[320px_minmax(0,1fr)]">
-          <aside className="space-y-6">
+          <aside className="space-y-6 order-2 lg:order-1">
             <div className="rounded-3xl border border-[var(--night-outline)] bg-white/70 p-6 shadow-[0_18px_40px_rgba(24,20,14,0.12)]">
               <p className="text-xs uppercase tracking-[0.4em] text-[color:var(--night-ash)]">
                 Resource Pools
@@ -302,11 +334,12 @@ export default function Dashboard({
             </div>
           </aside>
 
-          <div className="relative space-y-6">
+          <div className="relative space-y-6 order-1 lg:order-2">
             <DemoMap 
-              boundary={region.boundary} 
               features={features} 
               hexes={hexes}
+              crews={region.crews}
+              tasks={region.tasks}
               fallbackBbox={{ xmin: -68.35, ymin: 44.31, xmax: -68.15, ymax: 44.45 }}
               cycle={cycle}
             />

@@ -11,9 +11,23 @@ type Feature = {
   gers_id: string;
   feature_type: string;
   bbox: [number, number, number, number] | null;
+  geometry?: { type: "Point" | "LineString" | "Polygon" | "MultiPolygon"; coordinates: any } | null;
   health?: number | null;
   status?: string | null;
   road_class?: string | null;
+  generates_labor?: boolean;
+  generates_materials?: boolean;
+};
+
+type Crew = {
+  crew_id: string;
+  status: string;
+  active_task_id: string | null;
+};
+
+type Task = {
+  task_id: string;
+  target_gers_id: string;
 };
 
 type Hex = {
@@ -33,9 +47,10 @@ type Bbox = {
 };
 
 type DemoMapProps = {
-  boundary: Boundary | null;
   features: Feature[];
   hexes: Hex[];
+  crews: Crew[];
+  tasks: Task[];
   fallbackBbox: Bbox;
   cycle: {
     phase: "dawn" | "day" | "dusk" | "night";
@@ -61,6 +76,8 @@ const COLORS = {
   waterOutline: "#1a2a3a",
   buildings: "#1a1f28",
   buildingOutline: "#2a3040",
+  buildingsLabor: "#3eb0c0",
+  buildingsMaterials: "#f08a4e",
   roadsLow: "#252530",
   roadsMid: "#2a3040",
   roadsHigh: "#353a4a",
@@ -71,7 +88,7 @@ const COLORS = {
   selection: "#ffffff"
 };
 
-export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle }: DemoMapProps) {
+export default function DemoMap({ features, hexes, crews, tasks, fallbackBbox, cycle }: DemoMapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -171,6 +188,30 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
             type: "fill",
             paint: {
               "fill-color": COLORS.buildings,
+              "fill-opacity": 0.9,
+              "fill-outline-color": COLORS.buildingOutline
+            }
+          },
+          {
+            id: "buildings-labor",
+            source: "overture_buildings",
+            "source-layer": "building",
+            type: "fill",
+            filter: ["==", ["get", "id"], "none"],
+            paint: {
+              "fill-color": COLORS.buildingsLabor,
+              "fill-opacity": 0.9,
+              "fill-outline-color": COLORS.buildingOutline
+            }
+          },
+          {
+            id: "buildings-materials",
+            source: "overture_buildings",
+            "source-layer": "building",
+            type: "fill",
+            filter: ["==", ["get", "id"], "none"],
+            paint: {
+              "fill-color": COLORS.buildingsMaterials,
               "fill-opacity": 0.9,
               "fill-outline-color": COLORS.buildingOutline
             }
@@ -442,6 +483,24 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
         }
       }, "game-roads-healthy-glow");
 
+      // Add crews layer
+      map.current?.addSource("game-crews", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] }
+      });
+      
+      map.current?.addLayer({
+        id: "game-crews-point",
+        type: "circle",
+        source: "game-crews",
+        paint: {
+          "circle-radius": 6,
+          "circle-color": "#ffffff",
+          "circle-stroke-width": 2,
+          "circle-stroke-color": COLORS.healthy
+        }
+      });
+
       setIsLoaded(true);
     });
 
@@ -502,7 +561,7 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
       map.current?.remove();
       maplibregl.removeProtocol("pmtiles");
     };
-  }, []);
+  }, [fallbackBbox]);
 
   // Sync health data to vector tile features
   useEffect(() => {
@@ -511,6 +570,8 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
     const healthyIds = features.filter(f => f.feature_type === "road" && (f.health ?? 100) > 80).map(f => f.gers_id);
     const warningIds = features.filter(f => f.feature_type === "road" && (f.health ?? 100) <= 80 && (f.health ?? 100) > 30).map(f => f.gers_id);
     const degradedIds = features.filter(f => f.feature_type === "road" && (f.health ?? 100) <= 30).map(f => f.gers_id);
+    const laborIds = features.filter(f => f.feature_type === "building" && f.generates_labor).map(f => f.gers_id);
+    const materialIds = features.filter(f => f.feature_type === "building" && f.generates_materials).map(f => f.gers_id);
 
     const baseFilter = ["all",
       ["==", ["get", "subtype"], "road"],
@@ -529,6 +590,9 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
 
     map.current.setFilter("game-roads-degraded", ["all", baseFilter, makeIdFilter(degradedIds)] as maplibregl.FilterSpecification);
     map.current.setFilter("game-roads-degraded-glow", ["all", baseFilter, makeIdFilter(degradedIds)] as maplibregl.FilterSpecification);
+
+    map.current.setFilter("buildings-labor", makeIdFilter(laborIds) as maplibregl.FilterSpecification);
+    map.current.setFilter("buildings-materials", makeIdFilter(materialIds) as maplibregl.FilterSpecification);
 
   }, [features, isLoaded]);
 
@@ -561,10 +625,49 @@ export default function DemoMap({ boundary, features, hexes, fallbackBbox, cycle
             console.error("Failed to calculate boundary for hex", h.h3_index, e);
             return null;
           }
-        }).filter(Boolean) as any
+        }).filter((f): f is GeoJSON.Feature => f !== null)
       });
     }
   }, [hexes, isLoaded]);
+
+  // Sync crews data
+  useEffect(() => {
+    if (!isLoaded || !map.current) return;
+
+    const crewFeatures = crews.map(crew => {
+        if (!crew.active_task_id) return null;
+        const task = tasks.find(t => t.task_id === crew.active_task_id);
+        if (!task) return null;
+        const feature = features.find(f => f.gers_id === task.target_gers_id);
+        if (!feature) return null;
+        
+        let coords: [number, number] | null = null;
+        if (feature.bbox) {
+            coords = [(feature.bbox[0] + feature.bbox[2])/2, (feature.bbox[1] + feature.bbox[3])/2];
+        } else if (feature.geometry) {
+             const g = feature.geometry;
+             if (g.type === 'Point') coords = g.coordinates;
+             else if (g.type === 'LineString') coords = g.coordinates[0];
+             else if (g.type === 'Polygon') coords = g.coordinates[0][0];
+        }
+
+        if (!coords) return null;
+
+        return {
+            type: "Feature",
+            geometry: { type: "Point", coordinates: coords },
+            properties: { ...crew }
+        };
+    }).filter((f): f is GeoJSON.Feature => f !== null);
+
+    const source = map.current.getSource("game-crews") as maplibregl.GeoJSONSource;
+    if (source) {
+        source.setData({
+            type: "FeatureCollection",
+            features: crewFeatures
+        });
+    }
+  }, [crews, tasks, features, isLoaded]);
 
   return (
     <div className="relative overflow-hidden rounded-3xl border border-[var(--night-outline)] bg-[#101216] shadow-[0_20px_60px_rgba(0,0,0,0.5)]">

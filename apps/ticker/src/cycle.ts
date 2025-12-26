@@ -28,8 +28,14 @@ function normalizeElapsed(elapsedMs: number) {
   return modulo < 0 ? modulo + CYCLE_LENGTH_MS : modulo;
 }
 
-export function computeCycleSnapshot(nowMs: number, cycleStartMs: number): CycleSnapshot {
-  const normalizedElapsed = normalizeElapsed(nowMs - cycleStartMs);
+export function computeCycleSnapshot(
+  nowMs: number,
+  cycleStartMs: number,
+  speedMultiplier: number = 1
+): CycleSnapshot {
+  const elapsedRealMs = nowMs - cycleStartMs;
+  const elapsedVirtualMs = elapsedRealMs * speedMultiplier;
+  const normalizedElapsed = normalizeElapsed(elapsedVirtualMs);
   let remaining = normalizedElapsed;
 
   for (let index = 0; index < PHASES.length; index += 1) {
@@ -38,15 +44,18 @@ export function computeCycleSnapshot(nowMs: number, cycleStartMs: number): Cycle
       const phaseElapsed = remaining;
       const phaseProgress = phaseElapsed / phase.durationMs;
       const nextPhase = PHASES[(index + 1) % PHASES.length].name;
-      const cycleStartNormalized = nowMs - normalizedElapsed;
-
+      
+      // Calculate start times in REAL time terms (approximate for UI)
+      // This is tricky because the speed might have changed.
+      // But for the snapshot state which drives current logic, we care about the current phase.
+      
       return {
         phase: phase.name,
-        phaseStartMs: nowMs - phaseElapsed,
+        phaseStartMs: nowMs - (phaseElapsed / speedMultiplier),
         phaseProgress,
         nextPhase,
-        nextPhaseInMs: phase.durationMs - phaseElapsed,
-        cycleStartMs: cycleStartNormalized
+        nextPhaseInMs: (phase.durationMs - phaseElapsed) / speedMultiplier,
+        cycleStartMs: cycleStartMs // This remains the anchor
       };
     }
 
@@ -59,7 +68,7 @@ export function computeCycleSnapshot(nowMs: number, cycleStartMs: number): Cycle
     phaseStartMs: nowMs,
     phaseProgress: 0,
     nextPhase: PHASES[1].name,
-    nextPhaseInMs: fallbackPhase.durationMs,
-    cycleStartMs: nowMs
+    nextPhaseInMs: fallbackPhase.durationMs / speedMultiplier,
+    cycleStartMs: cycleStartMs
   };
 }

@@ -28,15 +28,15 @@ Working list to build the core loop and UI in a sensible order. Keep PRs small b
 
 ## Frontend (Week 3-4)
 - [x] State/store setup + shared client for API/SSE; environment config.
-- [ ] MapLibre base with day/night grading, roads colored by health, buildings by generation type, rust hex overlay with animated grain.
-- [/] UI chrome: header with phase indicator + countdown, region selector, responsive layout (sidebar/bottom sheet), activity feed ticker.
-- [ ] Interaction flows: feature selection panel, vote buttons, contribute action, task list sorted by priority with ETA, crews markers.
-- [ ] Mobile polish: gestures, touch targets, bottom sheet behavior.
+- [x] MapLibre base with day/night grading, roads colored by health, buildings by generation type, rust hex overlay with animated grain.
+- [x] UI chrome: header with phase indicator + countdown, region selector, responsive layout (sidebar/bottom sheet), activity feed ticker.
+- [x] Interaction flows: feature selection panel, vote buttons, contribute action, task list sorted by priority with ETA, crews markers.
+- [/] Mobile polish: gestures, touch targets, bottom sheet behavior.
 
 ## Operations & Reset (Week 4-5)
-- [ ] Weekly reset job (cron/Fly Machine) updating roads/rust/pools/tasks/crews; update world version/reset metadata and broadcast.
-- [ ] Demo mode: tick multiplier, cycle speed override, bot contributors for demos; visible badge in UI.
-- [ ] Observability: structured logging, basic metrics (tick duration, rust spread stats, task counts), alerting hooks.
+- [x] Weekly reset job (cron/Fly Machine) updating roads/rust/pools/tasks/crews; update world version/reset metadata and broadcast.
+- [x] Demo mode: tick multiplier, cycle speed override, bot contributors for demos; visible badge in UI.
+- [x] Observability: structured logging, basic metrics (tick duration, rust spread stats, task counts), alerting hooks.
 
 ## Security & Abuse Protection (Week 4-5)
 - [ ] Request rate limiting: per-IP and per-client limits for /api/hello, /api/contribute, /api/vote, /api/stream.

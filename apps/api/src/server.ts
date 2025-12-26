@@ -449,12 +449,12 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     return { features: featuresResult.rows };
   });
 
-  app.get("/api/hexes", async (request, reply) => {
+  app.get("/api/hexes", async (request) => {
     const query = request.query as { bbox?: string; region_id?: string };
     const pool = getPool();
     
     let whereClause = "";
-    const values: any[] = [];
+    const values: (string | number)[] = [];
 
     if (query.region_id) {
       whereClause = "WHERE region_id = $1";
@@ -802,6 +802,66 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       status: task.status,
       eta: etaSeconds ?? task.duration_s
     };
+  });
+
+  // Admin Endpoints
+
+  app.post("/api/admin/demo-mode", async (request, reply) => {
+    const authHeader = request.headers["authorization"];
+    const secret = process.env.ADMIN_SECRET;
+
+    if (!secret || authHeader !== `Bearer ${secret}`) {
+      reply.status(401);
+      return { ok: false, error: "unauthorized" };
+    }
+
+    const body = request.body as {
+      enabled: boolean;
+      tick_multiplier?: number;
+      cycle_speed?: number;
+    };
+
+    const pool = getPool();
+    await pool.query(
+      `
+      INSERT INTO world_meta (key, value, updated_at)
+      VALUES ('demo_mode', $1, now())
+      ON CONFLICT (key) DO UPDATE SET
+        value = EXCLUDED.value,
+        updated_at = now()
+      `,
+      [JSON.stringify({
+        enabled: body.enabled,
+        tick_multiplier: body.tick_multiplier ?? 1,
+        cycle_speed: body.cycle_speed ?? 1
+      })]
+    );
+
+    return { ok: true };
+  });
+
+  app.post("/api/admin/reset", async (request, reply) => {
+    const authHeader = request.headers["authorization"];
+    const secret = process.env.ADMIN_SECRET;
+
+    if (!secret || authHeader !== `Bearer ${secret}`) {
+      reply.status(401);
+      return { ok: false, error: "unauthorized" };
+    }
+
+    const pool = getPool();
+    // Signal a pending reset to the ticker via world_meta
+    await pool.query(
+      `
+      INSERT INTO world_meta (key, value, updated_at)
+      VALUES ('pending_reset', 'true'::jsonb, now())
+      ON CONFLICT (key) DO UPDATE SET
+        value = EXCLUDED.value,
+        updated_at = now()
+      `
+    );
+
+    return { ok: true, message: "reset_scheduled" };
   });
 
   app.addHook("onClose", async () => {

@@ -8,57 +8,39 @@ type SelectedFeature = {
   type: "road" | "building";
 };
 
-type FeatureDetails = {
-  gers_id: string;
-  feature_type: string;
-  health?: number;
-  status?: string;
-  road_class?: string;
-  place_category?: string;
-  generates_labor?: boolean;
-  generates_materials?: boolean;
+type Task = {
+  task_id: string;
+  target_gers_id: string;
+  priority_score: number;
+  status: string;
+  vote_score: number;
 };
 
 type FeaturePanelProps = {
   onContribute: (labor: number, materials: number) => void;
   onVote: (taskId: string, weight: number) => void;
-  activeTasks: any[];
+  activeTasks: Task[];
 };
 
 export default function FeaturePanel({ onContribute, onVote, activeTasks }: FeaturePanelProps) {
   const [selected, setSelected] = useState<SelectedFeature | null>(null);
-  const [details, setDetails] = useState<FeatureDetails | null>(null);
-  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const handleSelection = (e: CustomEvent<SelectedFeature | null>) => {
-      setSelected(e.detail);
+    const handleSelection = (e: Event) => {
+      const customEvent = e as CustomEvent<SelectedFeature | null>;
+      setSelected(customEvent.detail);
     };
 
-    window.addEventListener("nightfall:feature_selected" as any, handleSelection);
-    return () => window.removeEventListener("nightfall:feature_selected" as any, handleSelection);
+    window.addEventListener("nightfall:feature_selected", handleSelection);
+    return () => window.removeEventListener("nightfall:feature_selected", handleSelection);
   }, []);
-
-  useEffect(() => {
-    if (!selected) {
-      setDetails(null);
-      return;
-    }
-
-    // In a real app, we'd fetch details from API
-    // For now, we'll try to find it in our current state or show basic info
-    setDetails({
-      gers_id: selected.gers_id,
-      feature_type: selected.type
-    });
-  }, [selected]);
 
   if (!selected) return null;
 
   const task = activeTasks.find(t => t.target_gers_id === selected.gers_id);
 
   return (
-    <div className="absolute right-6 top-24 z-20 w-80 rounded-3xl border border-white/10 bg-[color:var(--night-ink)]/90 p-6 text-white shadow-[0_20px_50px_rgba(0,0,0,0.5)] backdrop-blur-xl">
+    <div className="absolute z-20 left-4 right-4 bottom-4 md:left-auto md:bottom-auto md:right-6 md:top-24 md:w-80 rounded-3xl border border-white/10 bg-[color:var(--night-ink)]/90 p-6 text-white shadow-[0_20px_50px_rgba(0,0,0,0.5)] backdrop-blur-xl">
       <button 
         onClick={() => setSelected(null)}
         className="absolute right-4 top-4 rounded-full p-1 hover:bg-white/10"
