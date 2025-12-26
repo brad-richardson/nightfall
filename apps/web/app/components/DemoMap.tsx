@@ -233,12 +233,6 @@ export default function DemoMap({
     return roads;
   }, [features]);
 
-  const roadGraph = useMemo(() => {
-    if (roadFeaturesForPath.length === 0) return null;
-    const { buildRoadGraph } = require("../lib/roadRouting");
-    return buildRoadGraph(roadFeaturesForPath);
-  }, [roadFeaturesForPath]);
-
   const travelingCrewIds = useMemo(() => new Set(crewPaths.map((path) => path.crew_id)), [crewPaths]);
 
   const getTransitionGradient = useCallback((_currentPhase: Phase, nextPhase: Phase): string => {

@@ -611,7 +611,7 @@ export default function Dashboard({
   };
 
   // Memoize boundary to prevent map re-initialization
-  const stableBoundary = useMemo(() => region.boundary, [region.region_id]);
+  const stableBoundary = useMemo(() => region.boundary, [region.boundary]);
 
   return (
     <div className={`relative min-h-screen transition-all duration-[2500ms] ease-in-out ${phaseGlow[cycle.phase]}`}>
