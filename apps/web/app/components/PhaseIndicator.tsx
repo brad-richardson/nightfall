@@ -1,21 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useStore } from "../store";
 
-type Phase = "dawn" | "day" | "dusk" | "night";
-
-type CycleState = {
-  phase: Phase;
-  phase_progress: number;
-  next_phase: Phase;
-  next_phase_in_seconds: number;
-};
-
-type PhaseIndicatorProps = {
-  cycle: CycleState;
-};
-
-export default function PhaseIndicator({ cycle }: PhaseIndicatorProps) {
+export default function PhaseIndicator() {
+  const cycle = useStore((state) => state.cycle);
   const [secondsRemaining, setSecondsRemaining] = useState(cycle.next_phase_in_seconds);
 
   useEffect(() => {

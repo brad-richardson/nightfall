@@ -59,3 +59,10 @@ Working list to build the core loop and UI in a sensible order. Keep PRs small b
 - [ ] Guard task spawn with locking to avoid duplicate degraded-road tasks.
 - [ ] Clean up SSE listeners and add reconnect handling/backpressure strategy.
 - [x] Ensure consistent phase multipliers within a tick (snapshot once per tick).
+
+## Future Immersion & Polish (Post-MVP)
+- [ ] Map Performance: Implement clustering or advanced MapLibre styling for high feature density.
+- [ ] Soundscape: Add dynamic ambient audio that shifts with the day/night cycle.
+- [ ] Real-time Feedback: Implement optimistic UI and animations (e.g., framer-motion) for user actions.
+- [ ] Onboarding: Create a "How to Play" overlay for first-time users explaining mechanics.
+
