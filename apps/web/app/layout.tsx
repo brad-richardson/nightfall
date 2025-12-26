@@ -1,19 +1,6 @@
 import type { ReactNode } from "react";
-import { Fraunces, Space_Grotesk } from "next/font/google";
 import { Toaster } from "sonner";
 import "./globals.css";
-
-const display = Fraunces({
-  subsets: ["latin"],
-  variable: "--font-display",
-  weight: ["400", "600", "700"]
-});
-
-const sans = Space_Grotesk({
-  subsets: ["latin"],
-  variable: "--font-sans",
-  weight: ["400", "500", "600", "700"]
-});
 
 export const metadata = {
   title: "Nightfall",
@@ -26,7 +13,10 @@ export default function RootLayout({
   children: ReactNode;
 }) {
   return (
-    <html lang="en" className={`${display.variable} ${sans.variable}`}>
+    <html lang="en" style={{
+      "--font-display": "Georgia, Cambria, 'Times New Roman', Times, serif",
+      "--font-sans": "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif"
+    } as React.CSSProperties}>
       <body className="antialiased">
         {children}
         <Toaster
