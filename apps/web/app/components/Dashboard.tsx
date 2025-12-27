@@ -514,7 +514,11 @@ export default function Dashboard({
     }
   }, [apiBaseUrl, auth, setRegion]);
 
-  const handleContribute = useCallback(async (sourceGersId: string, resourceType: string, amount: number) => {
+  const handleContribute = useCallback(async (
+    sourceGersId: string,
+    resourceType: "food" | "equipment" | "energy" | "materials",
+    amount: number
+  ) => {
     if (!auth.clientId || !auth.token) return;
     try {
       const res = await fetch(`${apiBaseUrl}/api/contribute`, {
@@ -526,8 +530,10 @@ export default function Dashboard({
         body: JSON.stringify({
           client_id: auth.clientId,
           region_id: region.region_id,
-          resource_type: resourceType,
-          amount,
+          food: resourceType === "food" ? amount : 0,
+          equipment: resourceType === "equipment" ? amount : 0,
+          energy: resourceType === "energy" ? amount : 0,
+          materials: resourceType === "materials" ? amount : 0,
           source_gers_id: sourceGersId
         })
       });

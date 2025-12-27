@@ -479,7 +479,7 @@ export default function DemoMap({
     map.current.setFilter("buildings-hub-glow", makeIdFilter(hubIds) as maplibregl.FilterSpecification);
   }, [features, isLoaded]);
 
-  // Sync central hub marker
+  // Sync all hub markers
   useEffect(() => {
     if (!isLoaded || !map.current) return;
 
@@ -492,35 +492,22 @@ export default function DemoMap({
       return;
     }
 
-    let bestCenter: [number, number] | null = null;
-    let bestDistance = Number.POSITIVE_INFINITY;
-
+    const hubPoints: GeoJSON.Feature<GeoJSON.Point>[] = [];
     for (const hub of hubFeatures) {
       const center = getFeatureCenter(hub);
       if (!center) continue;
-      const dx = center[0] - fallbackCenter[0];
-      const dy = center[1] - fallbackCenter[1];
-      const dist = dx * dx + dy * dy;
-      if (dist < bestDistance) {
-        bestDistance = dist;
-        bestCenter = center;
-      }
-    }
-
-    if (!bestCenter) {
-      hubSource.setData({ type: "FeatureCollection", features: [] });
-      return;
+      hubPoints.push({
+        type: "Feature" as const,
+        properties: { gers_id: hub.gers_id },
+        geometry: { type: "Point" as const, coordinates: center }
+      });
     }
 
     hubSource.setData({
       type: "FeatureCollection",
-      features: [{
-        type: "Feature" as const,
-        properties: {},
-        geometry: { type: "Point" as const, coordinates: bestCenter }
-      }]
+      features: hubPoints
     });
-  }, [features, fallbackCenter, isLoaded]);
+  }, [features, isLoaded]);
 
   // Sync hex data
   useEffect(() => {
@@ -832,7 +819,20 @@ export default function DemoMap({
 
     if (!sourceCenter || !hubCenter) return;
 
+    console.debug("[spawnResourceTransfer]", {
+      transferId: transfer.transfer_id,
+      sourceGersId: transfer.source_gers_id,
+      hubGersId: transfer.hub_gers_id,
+      sourceCenter,
+      hubCenter,
+      roadCount: roadFeaturesForPath.length,
+      sourceFeatureFound: !!sourceFeature,
+      hubFeatureFound: !!hubFeature
+    });
+
     const path = buildResourcePath(sourceCenter, hubCenter, roadFeaturesForPath);
+    console.debug("[spawnResourceTransfer] path built", { pathLength: path.length, path });
+
     const duration = Math.max(1000, endTime - startTime);
 
     setResourcePackages((prev) => {

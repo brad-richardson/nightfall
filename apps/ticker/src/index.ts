@@ -97,16 +97,24 @@ async function publishWorldDelta(
   });
 }
 
+// PostgreSQL NOTIFY has 8KB payload limit, chunk to stay under
+const FEATURE_CHUNK_SIZE = 50;
+const TASK_CHUNK_SIZE = 100;
+
 async function publishFeatureDeltas(client: PoolLike, deltas: FeatureDelta[]) {
   if (deltas.length === 0) return;
-  // Batch all feature deltas into a single event
-  await notifyEvent(client, "feature_delta", { features: deltas });
+  for (let i = 0; i < deltas.length; i += FEATURE_CHUNK_SIZE) {
+    const chunk = deltas.slice(i, i + FEATURE_CHUNK_SIZE);
+    await notifyEvent(client, "feature_delta", { features: chunk });
+  }
 }
 
 async function publishTaskDeltas(client: PoolLike, deltas: TaskDelta[]) {
   if (deltas.length === 0) return;
-  // Batch all task deltas into a single event
-  await notifyEvent(client, "task_delta", { tasks: deltas });
+  for (let i = 0; i < deltas.length; i += TASK_CHUNK_SIZE) {
+    const chunk = deltas.slice(i, i + TASK_CHUNK_SIZE);
+    await notifyEvent(client, "task_delta", { tasks: chunk });
+  }
 }
 
 async function publishResourceTransfers(client: PoolLike, transfers: ResourceTransfer[]) {
