@@ -15,6 +15,7 @@ COPY start-combined.sh ./
 
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @nightfall/config build
+RUN pnpm --filter @nightfall/pathfinding build
 RUN pnpm --filter @nightfall/api build
 RUN pnpm --filter @nightfall/ticker build
 RUN chmod +x start-combined.sh
