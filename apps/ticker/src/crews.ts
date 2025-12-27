@@ -198,36 +198,45 @@ export async function arriveCrews(
   );
 
   for (const crew of travelingResult.rows) {
-    const repairDurationS = Math.max(
-      1,
-      Math.ceil(crew.duration_s / multipliers.repair_speed)
-    );
+    await pool.query("BEGIN");
 
-    // Update crew to 'working' with repair duration
-    await pool.query(
-      "UPDATE crews SET status = 'working', busy_until = now() + ($2 * interval '1 second') WHERE crew_id = $1",
-      [crew.crew_id, repairDurationS]
-    );
+    try {
+      const repairDurationS = Math.max(
+        1,
+        Math.ceil(crew.duration_s / multipliers.repair_speed)
+      );
 
-    // Set road to 'repairing'
-    const featureUpdate = await pool.query<FeatureDelta>(
-      `
-      UPDATE feature_state AS fs
-      SET status = 'repairing', updated_at = now()
-      FROM world_features AS wf
-      WHERE fs.gers_id = wf.gers_id
-        AND fs.gers_id = $1
-      RETURNING fs.gers_id, wf.region_id, fs.health, fs.status
-      `,
-      [crew.target_gers_id]
-    );
+      // Update crew to 'working' with repair duration
+      await pool.query(
+        "UPDATE crews SET status = 'working', busy_until = now() + ($2 * interval '1 second') WHERE crew_id = $1",
+        [crew.crew_id, repairDurationS]
+      );
 
-    const featureDelta = featureUpdate.rows[0];
-    if (featureDelta) {
-      featureDeltas.push(featureDelta);
+      // Set road to 'repairing'
+      const featureUpdate = await pool.query<FeatureDelta>(
+        `
+        UPDATE feature_state AS fs
+        SET status = 'repairing', updated_at = now()
+        FROM world_features AS wf
+        WHERE fs.gers_id = wf.gers_id
+          AND fs.gers_id = $1
+        RETURNING fs.gers_id, wf.region_id, fs.health, fs.status
+        `,
+        [crew.target_gers_id]
+      );
+
+      await pool.query("COMMIT");
+
+      const featureDelta = featureUpdate.rows[0];
+      if (featureDelta) {
+        featureDeltas.push(featureDelta);
+      }
+
+      regionIds.push(crew.region_id);
+    } catch (error) {
+      await pool.query("ROLLBACK");
+      throw error;
     }
-
-    regionIds.push(crew.region_id);
   }
 
   return { featureDeltas, regionIds };

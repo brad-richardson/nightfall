@@ -96,10 +96,12 @@ describe("arriveCrews", () => {
           }
         ]
       })
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
       .mockResolvedValueOnce({ rows: [] }) // crew update to 'working'
       .mockResolvedValueOnce({
         rows: [{ gers_id: "road-1", region_id: "region-1", health: 50, status: "repairing" }]
-      });
+      })
+      .mockResolvedValueOnce({ rows: [] }); // COMMIT
 
     const result = await arriveCrews({ query }, multipliers);
 
@@ -107,6 +109,12 @@ describe("arriveCrews", () => {
       { gers_id: "road-1", region_id: "region-1", health: 50, status: "repairing" }
     ]);
     expect(result.regionIds).toEqual(["region-1"]);
+
+    // Verify transaction was used
+    const beginCall = query.mock.calls.find((call) => call[0] === "BEGIN");
+    expect(beginCall).toBeTruthy();
+    const commitCall = query.mock.calls.find((call) => call[0] === "COMMIT");
+    expect(commitCall).toBeTruthy();
 
     // Verify crew was set to 'working'
     const crewUpdateCall = query.mock.calls.find(
