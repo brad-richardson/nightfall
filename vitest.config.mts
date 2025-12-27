@@ -8,6 +8,8 @@ export default defineConfig({
       "apps/ticker/src/**/*.test.ts",
       "scripts/ingest/src/**/*.test.ts"
     ],
+    // Exclude integration tests from default run (they require the test DB)
+    exclude: ["**/*.integration.test.ts", "**/node_modules/**"],
     setupFiles: ["./vitest.setup.ts"]
   }
 });
