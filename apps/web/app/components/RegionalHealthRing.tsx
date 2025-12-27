@@ -79,8 +79,9 @@ export default function RegionalHealthRing({ healthPercent, rustLevel, className
 
         <text
           x="70"
-          y="65"
+          y="66"
           textAnchor="middle"
+          dominantBaseline="middle"
           fontSize="24"
           fontWeight="bold"
           fill={healthColor}
@@ -89,8 +90,9 @@ export default function RegionalHealthRing({ healthPercent, rustLevel, className
         </text>
         <text
           x="70"
-          y="82"
+          y="86"
           textAnchor="middle"
+          dominantBaseline="middle"
           fontSize="10"
           fill="rgba(255,255,255,0.6)"
         >

@@ -367,6 +367,7 @@ export default function Dashboard({
       }
 
       if (data.region_updates?.length) {
+        console.debug("[SSE] world_delta region_updates:", data.region_updates.map(r => ({ region_id: r.region_id, health_avg: r.health_avg, rust_avg: r.rust_avg })));
         const match = data.region_updates.find((r) => r.region_id === regionRef.current.region_id);
         if (match) {
           // Calculate resource deltas
@@ -418,10 +419,12 @@ export default function Dashboard({
 
       // Handle batched format
       if ('features' in data) {
+        console.debug("[SSE] feature_delta batch received:", data.features.length, "updates");
         for (const delta of data.features) {
           pending.featureUpdates.set(delta.gers_id, delta);
         }
       } else {
+        console.debug("[SSE] feature_delta received:", data.gers_id, "health:", data.health);
         pending.featureUpdates.set(data.gers_id, data);
       }
       pending.dirty = true;
