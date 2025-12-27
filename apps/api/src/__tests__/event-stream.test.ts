@@ -36,11 +36,11 @@ describe("createDbEventStream", () => {
 
     // Track setTimeout calls
     const originalSetTimeout = global.setTimeout;
-    vi.spyOn(global, "setTimeout").mockImplementation((fn: (...args: unknown[]) => void, delay: number) => {
-      const id = originalSetTimeout(fn, delay) as unknown as number;
+    vi.spyOn(global, "setTimeout").mockImplementation(((fn, delay) => {
+      const id = originalSetTimeout(fn as () => void, delay as number) as unknown as number;
       timers.push(id);
       return id;
-    });
+    }) as typeof setTimeout);
   });
 
   afterEach(() => {
