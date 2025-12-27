@@ -42,16 +42,16 @@ describe("api server", () => {
     await app.close();
   });
 
-  it("sets CORS headers allowing all origins", async () => {
+  it("sets CORS headers for allowed origins", async () => {
     const app = buildServer();
     const response = await app.inject({
       method: "GET",
       url: "/health",
-      headers: { origin: "http://example.com" }
+      headers: { origin: "https://nightfall.fly.dev" }
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.headers["access-control-allow-origin"]).toBe("http://example.com");
+    expect(response.headers["access-control-allow-origin"]).toBe("https://nightfall.fly.dev");
 
     await app.close();
   });
