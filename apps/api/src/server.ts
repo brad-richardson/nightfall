@@ -10,6 +10,14 @@ import { loadCycleState, loadCycleSummary } from "./cycle";
 import { createDbEventStream } from "./event-stream";
 import type { EventStream } from "./event-stream";
 import { ROAD_CLASSES } from "@nightfall/config";
+import {
+  type Graph,
+  type ConnectorCoords,
+  type Point,
+  findPath,
+  findNearestConnector,
+  buildWaypoints,
+} from "@nightfall/pathfinding";
 
 const LAMBDA = 0.1;
 const CONTRIBUTION_LIMIT = 1000;
@@ -157,6 +165,79 @@ function haversineDistanceMeters(a: [number, number], b: [number, number]) {
   const sinDLng = Math.sin(dLng / 2);
   const h = sinDLat * sinDLat + Math.cos(radLat1) * Math.cos(radLat2) * sinDLng * sinDLng;
   return 6371000 * (2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h)));
+}
+
+// Graph cache per hex (simple in-memory cache)
+const graphCache = new Map<string, { graph: Graph; coords: ConnectorCoords; timestamp: number }>();
+const GRAPH_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+async function loadGraphForHex(
+  h3Index: string
+): Promise<{ graph: Graph; coords: ConnectorCoords } | null> {
+  const cached = graphCache.get(h3Index);
+  if (cached && Date.now() - cached.timestamp < GRAPH_CACHE_TTL_MS) {
+    return { graph: cached.graph, coords: cached.coords };
+  }
+
+  const pool = getPool();
+
+  try {
+    const connectorsResult = await pool.query<{
+      connector_id: string;
+      lng: number;
+      lat: number;
+    }>(
+      `SELECT connector_id, lng, lat FROM road_connectors WHERE h3_index = $1`,
+      [h3Index]
+    );
+
+    if (connectorsResult.rows.length === 0) {
+      return null;
+    }
+
+    const coords: ConnectorCoords = new Map();
+    for (const row of connectorsResult.rows) {
+      coords.set(row.connector_id, [row.lng, row.lat]);
+    }
+
+    const edgesResult = await pool.query<{
+      from_connector: string;
+      to_connector: string;
+      segment_gers_id: string;
+      length_meters: number;
+      health: number;
+    }>(
+      `SELECT
+        e.from_connector,
+        e.to_connector,
+        e.segment_gers_id,
+        e.length_meters,
+        COALESCE(fs.health, 100) as health
+      FROM road_edges e
+      LEFT JOIN feature_state fs ON fs.gers_id = e.segment_gers_id
+      WHERE e.h3_index = $1`,
+      [h3Index]
+    );
+
+    const graph: Graph = new Map();
+    for (const row of edgesResult.rows) {
+      if (!graph.has(row.from_connector)) {
+        graph.set(row.from_connector, []);
+      }
+      graph.get(row.from_connector)!.push({
+        segmentGersId: row.segment_gers_id,
+        toConnector: row.to_connector,
+        lengthMeters: row.length_meters,
+        health: row.health,
+      });
+    }
+
+    graphCache.set(h3Index, { graph, coords, timestamp: Date.now() });
+
+    return { graph, coords };
+  } catch {
+    return null;
+  }
 }
 
 function getNextReset(now: Date) {
@@ -1074,12 +1155,60 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         (hub.bbox_ymin + hub.bbox_ymax) / 2
       ];
 
-      const distanceMeters = haversineDistanceMeters(sourceCenter, hubCenter);
-      const travelSeconds = clamp(
-        (distanceMeters * config.RESOURCE_DISTANCE_MULTIPLIER) / config.RESOURCE_TRAVEL_MPS,
-        config.RESOURCE_TRAVEL_MIN_S,
-        config.RESOURCE_TRAVEL_MAX_S
-      );
+      // Try A* pathfinding with road graph, fallback to haversine
+      let travelSeconds: number;
+      let pathWaypoints: { coord: Point; arrive_at: string }[] | null = null;
+
+      const graphData = source.h3_index ? await loadGraphForHex(source.h3_index) : null;
+      if (graphData) {
+        const { graph, coords } = graphData;
+
+        const startConnector = findNearestConnector(coords, sourceCenter as Point);
+        const endConnector = findNearestConnector(coords, hubCenter as Point);
+
+        if (startConnector && endConnector) {
+          const pathResult = findPath(graph, coords, startConnector, endConnector);
+          if (pathResult) {
+            travelSeconds = clamp(
+              pathResult.totalWeightedDistance / config.RESOURCE_TRAVEL_MPS,
+              config.RESOURCE_TRAVEL_MIN_S,
+              config.RESOURCE_TRAVEL_MAX_S
+            );
+
+            const departAtMs = Date.now();
+            pathWaypoints = buildWaypoints(
+              pathResult,
+              coords,
+              departAtMs,
+              config.RESOURCE_TRAVEL_MPS
+            );
+          } else {
+            // No path found, fallback to haversine
+            const distanceMeters = haversineDistanceMeters(sourceCenter, hubCenter);
+            travelSeconds = clamp(
+              (distanceMeters * config.RESOURCE_DISTANCE_MULTIPLIER) / config.RESOURCE_TRAVEL_MPS,
+              config.RESOURCE_TRAVEL_MIN_S,
+              config.RESOURCE_TRAVEL_MAX_S
+            );
+          }
+        } else {
+          // No connectors found, fallback to haversine
+          const distanceMeters = haversineDistanceMeters(sourceCenter, hubCenter);
+          travelSeconds = clamp(
+            (distanceMeters * config.RESOURCE_DISTANCE_MULTIPLIER) / config.RESOURCE_TRAVEL_MPS,
+            config.RESOURCE_TRAVEL_MIN_S,
+            config.RESOURCE_TRAVEL_MAX_S
+          );
+        }
+      } else {
+        // No graph data, fallback to haversine
+        const distanceMeters = haversineDistanceMeters(sourceCenter, hubCenter);
+        travelSeconds = clamp(
+          (distanceMeters * config.RESOURCE_DISTANCE_MULTIPLIER) / config.RESOURCE_TRAVEL_MPS,
+          config.RESOURCE_TRAVEL_MIN_S,
+          config.RESOURCE_TRAVEL_MAX_S
+        );
+      }
 
       const transferRows: Array<{ type: string; amount: number }> = [];
       if (appliedFood > 0) transferRows.push({ type: "food", amount: appliedFood });
@@ -1105,6 +1234,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         amount: number;
         depart_at: string;
         arrive_at: string;
+        path_waypoints: { coord: Point; arrive_at: string }[] | null;
       }>(
         `
         INSERT INTO resource_transfers (
@@ -1114,7 +1244,8 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
           resource_type,
           amount,
           depart_at,
-          arrive_at
+          arrive_at,
+          path_waypoints
         )
         SELECT
           $1,
@@ -1123,7 +1254,8 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
           resource_type,
           amount,
           now(),
-          now() + ($4 || ' seconds')::interval
+          now() + ($4 || ' seconds')::interval,
+          $7::jsonb
         FROM UNNEST($5::text[], $6::int[]) AS t(resource_type, amount)
         RETURNING
           transfer_id,
@@ -1133,7 +1265,8 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
           resource_type,
           amount,
           depart_at::text,
-          arrive_at::text
+          arrive_at::text,
+          path_waypoints
         `,
         [
           regionId,
@@ -1141,7 +1274,8 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
           hub.gers_id,
           travelSeconds,
           types,
-          amounts
+          amounts,
+          pathWaypoints ? JSON.stringify(pathWaypoints) : null
         ]
       );
 

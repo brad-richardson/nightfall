@@ -7,8 +7,10 @@ import { cellToBoundary } from "h3-js";
 import { MapTooltip, type TooltipData } from "./MapTooltip";
 import {
   type ResourcePackage,
+  type PathWaypoint,
   buildResourcePath,
   interpolatePath,
+  interpolateWaypoints,
   easeInOutCubic
 } from "../lib/resourceAnimation";
 import { AnimationManager } from "../lib/animationManager";
@@ -830,8 +832,17 @@ export default function DemoMap({
       hubFeatureFound: !!hubFeature
     });
 
-    const path = buildResourcePath(sourceCenter, hubCenter, roadFeaturesForPath);
-    console.debug("[spawnResourceTransfer] path built", { pathLength: path.length, path });
+    // Use server-provided waypoints if available, otherwise build client-side path
+    const waypoints = transfer.path_waypoints;
+    const path = waypoints && waypoints.length > 0
+      ? waypoints.map((w) => w.coord)
+      : buildResourcePath(sourceCenter, hubCenter, roadFeaturesForPath);
+
+    console.debug("[spawnResourceTransfer] path built", {
+      pathLength: path.length,
+      hasServerWaypoints: !!(waypoints && waypoints.length > 0),
+      path
+    });
 
     const duration = Math.max(1000, endTime - startTime);
 
@@ -843,7 +854,8 @@ export default function DemoMap({
         path,
         progress: 0,
         startTime,
-        duration
+        duration,
+        waypoints: waypoints && waypoints.length > 0 ? waypoints : null
       }];
     });
   }, [features, fallbackCenter, isLoaded, roadFeaturesForPath]);
@@ -881,37 +893,70 @@ export default function DemoMap({
       const geoFeatures: GeoJSON.Feature[] = [];
 
       for (const pkg of resourcePackages) {
-        const elapsed = now - pkg.startTime;
-        const rawProgress = Math.max(0, Math.min(1, elapsed / pkg.duration));
+        let position: [number, number] | null = null;
+        let rawProgress: number;
 
-        if (rawProgress < 1) {
+        // Use waypoint-based animation if available (server-provided with timestamps)
+        if (pkg.waypoints && pkg.waypoints.length > 0) {
+          position = interpolateWaypoints(pkg.waypoints, now);
+          if (!position) continue; // Animation complete
+
+          // Calculate progress from waypoint timestamps
+          const firstTime = Date.parse(pkg.waypoints[0].arrive_at);
+          const lastTime = Date.parse(pkg.waypoints[pkg.waypoints.length - 1].arrive_at);
+          rawProgress = Math.max(0, Math.min(1, (now - firstTime) / (lastTime - firstTime)));
+        } else {
+          // Fallback to uniform progress-based animation
+          const elapsed = now - pkg.startTime;
+          rawProgress = Math.max(0, Math.min(1, elapsed / pkg.duration));
+
+          if (rawProgress >= 1) continue;
+
           const easedProgress = easeInOutCubic(rawProgress);
-          const position = interpolatePath(pkg.path, easedProgress);
+          position = interpolatePath(pkg.path, easedProgress) as [number, number];
+        }
 
-          let opacity = 1;
-          if (rawProgress < 0.1) opacity = rawProgress / 0.1;
-          else if (rawProgress > 0.9) opacity = (1 - rawProgress) / 0.1;
+        // Calculate opacity for fade in/out
+        let opacity = 1;
+        if (rawProgress < 0.1) opacity = rawProgress / 0.1;
+        else if (rawProgress > 0.9) opacity = (1 - rawProgress) / 0.1;
 
-          const trailCoords = [];
+        // Build trail
+        const trailCoords: [number, number][] = [];
+        if (pkg.waypoints && pkg.waypoints.length > 0) {
+          // For waypoint animation, include all waypoints up to current position
+          for (const wp of pkg.waypoints) {
+            const wpTime = Date.parse(wp.arrive_at);
+            if (wpTime <= now) {
+              trailCoords.push(wp.coord);
+            } else {
+              break;
+            }
+          }
+          if (position) trailCoords.push(position);
+        } else {
+          // For uniform animation, sample along the path
+          const easedProgress = easeInOutCubic(rawProgress);
           for (let t = 0; t <= easedProgress; t += 0.02) {
-            trailCoords.push(interpolatePath(pkg.path, t));
+            trailCoords.push(interpolatePath(pkg.path, t) as [number, number]);
           }
-          if (trailCoords.length > 1) {
-            geoFeatures.push({
-              type: "Feature" as const,
-              geometry: { type: "LineString" as const, coordinates: trailCoords },
-              properties: { featureType: "trail", resourceType: pkg.type }
-            });
-          }
+        }
 
+        if (trailCoords.length > 1) {
           geoFeatures.push({
             type: "Feature" as const,
-            geometry: { type: "Point" as const, coordinates: position },
-            properties: { featureType: "package", resourceType: pkg.type, opacity }
+            geometry: { type: "LineString" as const, coordinates: trailCoords },
+            properties: { featureType: "trail", resourceType: pkg.type }
           });
-
-          activePackages.push({ ...pkg, progress: easedProgress });
         }
+
+        geoFeatures.push({
+          type: "Feature" as const,
+          geometry: { type: "Point" as const, coordinates: position },
+          properties: { featureType: "package", resourceType: pkg.type, opacity }
+        });
+
+        activePackages.push({ ...pkg, progress: rawProgress });
       }
 
       const source = mapInstance.getSource("game-resource-packages") as maplibregl.GeoJSONSource;

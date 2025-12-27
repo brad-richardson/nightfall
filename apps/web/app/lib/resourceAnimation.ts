@@ -12,6 +12,11 @@ import {
   routeGraph
 } from "./roadRouting";
 
+export type PathWaypoint = {
+  coord: [number, number];
+  arrive_at: string;
+};
+
 export type ResourcePackage = {
   id: string;
   type: "food" | "equipment" | "energy" | "materials";
@@ -19,6 +24,7 @@ export type ResourcePackage = {
   progress: number; // 0-1
   startTime: number;
   duration: number; // ms
+  waypoints?: PathWaypoint[] | null; // Server-provided waypoints for time-based animation
 };
 
 /**
@@ -163,4 +169,42 @@ export function interpolatePath(path: Point[], progress: number): Point {
  */
 export function easeInOutCubic(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+/**
+ * Interpolate position along waypoints based on current time.
+ * Uses per-waypoint timestamps for variable-speed animation (visible slowdowns on degraded roads).
+ * Returns null if animation is complete.
+ */
+export function interpolateWaypoints(waypoints: PathWaypoint[], now: number): Point | null {
+  if (waypoints.length === 0) return null;
+  if (waypoints.length === 1) return waypoints[0].coord;
+
+  const firstTime = Date.parse(waypoints[0].arrive_at);
+  const lastTime = Date.parse(waypoints[waypoints.length - 1].arrive_at);
+
+  // Before start
+  if (now < firstTime) return waypoints[0].coord;
+
+  // After end
+  if (now >= lastTime) return null;
+
+  // Find which segment we're in based on current time
+  for (let i = 0; i < waypoints.length - 1; i++) {
+    const startTime = Date.parse(waypoints[i].arrive_at);
+    const endTime = Date.parse(waypoints[i + 1].arrive_at);
+
+    if (now >= startTime && now < endTime) {
+      // Interpolate within this segment
+      const segmentProgress = (now - startTime) / (endTime - startTime);
+      const [ax, ay] = waypoints[i].coord;
+      const [bx, by] = waypoints[i + 1].coord;
+      return [
+        ax + (bx - ax) * segmentProgress,
+        ay + (by - ay) * segmentProgress
+      ];
+    }
+  }
+
+  return null; // Animation complete
 }

@@ -47,6 +47,11 @@ export type CrewPath = {
   status: "traveling" | "working";
 };
 
+export type PathWaypoint = {
+  coord: [number, number];
+  arrive_at: string;
+};
+
 export type ResourceTransferPayload = {
   transfer_id: string;
   region_id: string;
@@ -56,6 +61,7 @@ export type ResourceTransferPayload = {
   amount: number;
   depart_at: string;
   arrive_at: string;
+  path_waypoints?: PathWaypoint[] | null;
 };
 
 export type Boundary =

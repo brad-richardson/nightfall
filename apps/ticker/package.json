@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@nightfall/config": "workspace:*",
+    "@nightfall/pathfinding": "workspace:*",
     "dotenv": "^17.2.3",
     "h3-js": "^4.4.0",
     "pg": "^8.12.0",

@@ -902,6 +902,194 @@ async function assignHubBuildings(pgPool: Pool, region: RegionConfig) {
   }
 }
 
+async function ingestRoadGraph(
+  pgPool: Pool,
+  region: RegionConfig,
+  dataDir: string
+) {
+  console.log("--- Starting Road Graph Ingest ---");
+
+  const segmentsPath = resolveOverturePath(dataDir, { theme: "transportation", type: "segment" });
+  const classFilter = ROAD_CLASS_FILTER.map((roadClass) => `'${roadClass}'`).join(", ");
+
+  // Query segments with geometry and connectors array
+  // Use ST_LineInterpolatePoint to get connector positions from the `at` value
+  const segmentsWithConnectors = await runDuckDB(`
+    SELECT
+      id,
+      class,
+      ST_Length(geometry) as geom_length,
+      connectors,
+      ST_X(ST_LineInterpolatePoint(geometry, 0.0)) as start_lng,
+      ST_Y(ST_LineInterpolatePoint(geometry, 0.0)) as start_lat,
+      ST_X(ST_LineInterpolatePoint(geometry, 1.0)) as end_lng,
+      ST_Y(ST_LineInterpolatePoint(geometry, 1.0)) as end_lat
+    FROM read_parquet('${segmentsPath}')
+    WHERE
+      bbox.xmin > ${region.bbox.xmin} AND
+      bbox.xmax < ${region.bbox.xmax} AND
+      bbox.ymin > ${region.bbox.ymin} AND
+      bbox.ymax < ${region.bbox.ymax} AND
+      subtype = 'road' AND
+      class IN (${classFilter})
+  `);
+
+  console.log(`Found ${segmentsWithConnectors.length} segments with connectors`);
+
+  // Extract unique connectors with their positions
+  const connectorMap = new Map<string, { lng: number; lat: number }>();
+
+  for (const segment of segmentsWithConnectors) {
+    if (!segment.connectors || !Array.isArray(segment.connectors)) continue;
+
+    for (const conn of segment.connectors) {
+      if (!conn.connector_id) continue;
+
+      // Use `at` to determine position (0 = start, 1 = end)
+      const at = conn.at ?? 0;
+      let lng: number, lat: number;
+
+      if (at <= 0.5) {
+        // Closer to start
+        lng = segment.start_lng;
+        lat = segment.start_lat;
+      } else {
+        // Closer to end
+        lng = segment.end_lng;
+        lat = segment.end_lat;
+      }
+
+      // Only store if we don't have it yet (first occurrence wins)
+      if (!connectorMap.has(conn.connector_id)) {
+        connectorMap.set(conn.connector_id, { lng, lat });
+      }
+    }
+  }
+
+  console.log(`Extracted ${connectorMap.size} unique connectors`);
+
+  const client = await pgPool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Clear existing road graph for this region
+    await client.query(
+      "DELETE FROM road_edges WHERE segment_gers_id IN (SELECT gers_id FROM world_features WHERE region_id = $1 AND feature_type = 'road')",
+      [region.regionId]
+    );
+    await client.query("DELETE FROM road_connectors WHERE region_id = $1", [region.regionId]);
+
+    // Insert connectors in batches
+    const connectorEntries = Array.from(connectorMap.entries());
+    const CHUNK_SIZE = 1000;
+
+    for (let i = 0; i < connectorEntries.length; i += CHUNK_SIZE) {
+      const chunk = connectorEntries.slice(i, i + CHUNK_SIZE);
+      const values: (string | number)[] = [];
+      const placeholders: string[] = [];
+
+      chunk.forEach(([connectorId, { lng, lat }], idx) => {
+        const offset = idx * 5;
+        const h3Index = latLngToCell(lat, lng, H3_RESOLUTION);
+        placeholders.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5})`);
+        values.push(connectorId, lng, lat, h3Index, region.regionId);
+      });
+
+      await client.query(
+        `INSERT INTO road_connectors (connector_id, lng, lat, h3_index, region_id)
+         VALUES ${placeholders.join(", ")}
+         ON CONFLICT (connector_id) DO NOTHING`,
+        values
+      );
+      process.stdout.write(".");
+    }
+
+    console.log(`\nInserted ${connectorMap.size} connectors`);
+
+    // Insert edges
+    let edgeCount = 0;
+    const edgeBatch: Array<{
+      segmentId: string;
+      fromConnector: string;
+      toConnector: string;
+      lengthMeters: number;
+      h3Index: string;
+    }> = [];
+
+    for (const segment of segmentsWithConnectors) {
+      if (!segment.connectors || !Array.isArray(segment.connectors)) continue;
+
+      // Sort connectors by `at` value to get from -> to order
+      const sortedConnectors = [...segment.connectors]
+        .filter((c: any) => c.connector_id)
+        .sort((a: any, b: any) => (a.at ?? 0) - (b.at ?? 0));
+
+      if (sortedConnectors.length < 2) continue;
+
+      const fromConnector = sortedConnectors[0].connector_id;
+      const toConnector = sortedConnectors[sortedConnectors.length - 1].connector_id;
+
+      // Calculate length in meters using haversine
+      const fromCoord = connectorMap.get(fromConnector);
+      const toCoord = connectorMap.get(toConnector);
+      if (!fromCoord || !toCoord) continue;
+
+      const lengthMeters = haversine(fromCoord.lat, fromCoord.lng, toCoord.lat, toCoord.lng);
+      const h3Index = latLngToCell(
+        (fromCoord.lat + toCoord.lat) / 2,
+        (fromCoord.lng + toCoord.lng) / 2,
+        H3_RESOLUTION
+      );
+
+      // Add both directions (bidirectional graph)
+      edgeBatch.push({
+        segmentId: segment.id,
+        fromConnector,
+        toConnector,
+        lengthMeters,
+        h3Index
+      });
+      edgeBatch.push({
+        segmentId: segment.id,
+        fromConnector: toConnector,
+        toConnector: fromConnector,
+        lengthMeters,
+        h3Index
+      });
+    }
+
+    // Insert edges in batches
+    for (let i = 0; i < edgeBatch.length; i += CHUNK_SIZE) {
+      const chunk = edgeBatch.slice(i, i + CHUNK_SIZE);
+      const values: (string | number)[] = [];
+      const placeholders: string[] = [];
+
+      chunk.forEach((edge, idx) => {
+        const offset = idx * 5;
+        placeholders.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5})`);
+        values.push(edge.segmentId, edge.fromConnector, edge.toConnector, edge.lengthMeters, edge.h3Index);
+      });
+
+      await client.query(
+        `INSERT INTO road_edges (segment_gers_id, from_connector, to_connector, length_meters, h3_index)
+         VALUES ${placeholders.join(", ")}
+         ON CONFLICT (segment_gers_id, from_connector, to_connector) DO NOTHING`,
+        values
+      );
+      edgeCount += chunk.length;
+      process.stdout.write(".");
+    }
+
+    await client.query("COMMIT");
+    console.log(`\nSuccess! Inserted ${edgeCount} edges (${edgeBatch.length / 2} segments × 2 directions)`);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function seedDemoData(pgPool: Pool, region: RegionConfig) {
   const client = await pgPool.connect();
   try {
@@ -1450,6 +1638,9 @@ async function main() {
 
     // Assign hub buildings per hex
     await assignHubBuildings(pgPool, region);
+
+    // Build road connectivity graph for pathfinding
+    await ingestRoadGraph(pgPool, region, dataDir);
 
     if (shouldSeedDemo()) {
       await seedDemoData(pgPool, region);
