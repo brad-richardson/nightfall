@@ -620,7 +620,8 @@ export function getResourcePackageLayers(): maplibregl.LayerSpecification[] {
         ],
         "circle-stroke-width": 2,
         "circle-stroke-color": "#ffffff",
-        "circle-opacity": ["get", "opacity"]
+        "circle-opacity": ["get", "opacity"],
+        "circle-stroke-opacity": ["get", "opacity"]
       }
     }
   ];

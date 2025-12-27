@@ -20,7 +20,7 @@ import {
 } from "@nightfall/pathfinding";
 
 const LAMBDA = 0.1;
-const CONTRIBUTION_LIMIT = 1000;
+const CONTRIBUTION_LIMIT = 2000;
 const TAX_MULTIPLIER = 0.8;
 const MAX_CLIENT_ID_LENGTH = 64;
 const MAX_DISPLAY_NAME_LENGTH = 32;

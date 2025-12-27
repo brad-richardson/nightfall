@@ -51,7 +51,7 @@ function ResourceBar({
         <div
           className="h-full rounded-full transition-all duration-500"
           style={{
-            width: `${Math.min(100, (value / 1000) * 100)}%`,
+            width: `${Math.min(100, (value / 2000) * 100)}%`,
             backgroundColor: color,
             boxShadow: `0 0 8px ${color}`
           }}

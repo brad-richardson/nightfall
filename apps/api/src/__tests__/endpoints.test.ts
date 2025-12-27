@@ -60,7 +60,7 @@ describe("api endpoints", () => {
               pool_equipment: 10,
               pool_energy: 10,
               pool_materials: 20,
-              crew_count: 2,
+              crew_count: 10,
               active_crews: 1,
               rust_avg: 0.1,
               health_avg: 90

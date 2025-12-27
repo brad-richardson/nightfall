@@ -1,23 +1,27 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup } from "@testing-library/react";
-import DemoMap from "../DemoMap";
 
-// Mock maplibre-gl
-const mockMapInstance = {
-  on: vi.fn(),
-  off: vi.fn(),
-  remove: vi.fn(),
-  resize: vi.fn(),
-  getSource: vi.fn(() => ({ setData: vi.fn() })),
-  setFilter: vi.fn(),
-  setPaintProperty: vi.fn(),
-  queryRenderedFeatures: vi.fn(() => []),
-  getCanvas: vi.fn(() => ({ style: {} }))
-};
+// Use vi.hoisted for mocks that will be used in vi.mock
+const { mockMapInstance, mockMap, mockAddProtocol, mockRemoveProtocol } = vi.hoisted(() => {
+  const mockMapInstance = {
+    on: vi.fn(),
+    off: vi.fn(),
+    remove: vi.fn(),
+    resize: vi.fn(),
+    getSource: vi.fn(() => ({ setData: vi.fn() })),
+    setFilter: vi.fn(),
+    setPaintProperty: vi.fn(),
+    queryRenderedFeatures: vi.fn(() => []),
+    getCanvas: vi.fn(() => ({ style: {} }))
+  };
 
-const mockMap = vi.fn(() => mockMapInstance);
-const mockAddProtocol = vi.fn();
-const mockRemoveProtocol = vi.fn();
+  return {
+    mockMapInstance,
+    mockMap: vi.fn(() => mockMapInstance),
+    mockAddProtocol: vi.fn(),
+    mockRemoveProtocol: vi.fn()
+  };
+});
 
 vi.mock("maplibre-gl", () => ({
   default: {
@@ -41,40 +45,52 @@ global.ResizeObserver = vi.fn(() => ({
   disconnect: vi.fn()
 }));
 
+// Mock matchMedia
+Object.defineProperty(window, "matchMedia", {
+  writable: true,
+  value: vi.fn().mockImplementation((query) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn()
+  }))
+});
+
+import DemoMap from "../DemoMap";
+
 describe("DemoMap Lifecycle", () => {
   const mockProps = {
-    region: {
-      region_id: "test-region",
-      name: "Test Region",
-      boundary: {
-        type: "Polygon" as const,
-        coordinates: [
-          [
-            [-71.1, 42.3],
-            [-71.0, 42.3],
-            [-71.0, 42.4],
-            [-71.1, 42.4],
-            [-71.1, 42.3]
-          ]
+    boundary: {
+      type: "Polygon" as const,
+      coordinates: [
+        [
+          [-71.1, 42.3],
+          [-71.0, 42.3],
+          [-71.0, 42.4],
+          [-71.1, 42.4],
+          [-71.1, 42.3]
         ]
-      },
-      pool_food: 100,
-      pool_equipment: 100,
-      pool_energy: 100,
-      pool_materials: 100,
-      crews: [],
-      tasks: [],
-      stats: {
-        total_roads: 10,
-        healthy_roads: 5,
-        degraded_roads: 5,
-        rust_avg: 0.5,
-        health_avg: 0.5
-      }
+      ]
+    },
+    fallbackBbox: {
+      xmin: -71.1,
+      ymin: 42.3,
+      xmax: -71.0,
+      ymax: 42.4
     },
     features: [],
     hexes: [],
-    phase: "day" as const,
+    crews: [],
+    tasks: [],
+    cycle: {
+      phase: "day" as const,
+      phase_progress: 0.5,
+      next_phase: "dusk" as const
+    },
     pmtilesRelease: "2024-01-01"
   };
 

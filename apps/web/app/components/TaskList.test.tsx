@@ -2,6 +2,15 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import TaskList from "./TaskList";
 
+const mockResourcePools = {
+  food: 100,
+  equipment: 100,
+  energy: 100,
+  materials: 100
+};
+
+const mockUserVotes = {};
+
 const tasks = [
   {
     task_id: "task-1",
@@ -51,39 +60,59 @@ describe("TaskList", () => {
   it("filters tasks by search query", () => {
     vi.useFakeTimers();
 
-    render(<TaskList tasks={tasks} crews={[]} features={[]} onVote={vi.fn()} />);
+    render(<TaskList tasks={tasks} crews={[]} features={[]} userVotes={mockUserVotes} resourcePools={mockResourcePools} onVote={vi.fn()} />);
+
+    // Open the collapsible filters section first
+    const filtersButton = screen.getByRole("button", { name: /filters & sort/i });
+    fireEvent.click(filtersButton);
+
     const input = screen.getByPlaceholderText(/search tasks/i);
 
-    fireEvent.change(input, { target: { value: "pothole" } });
+    // Search by target_gers_id which contains "bravo"
+    fireEvent.change(input, { target: { value: "bravo" } });
 
     act(() => {
       vi.advanceTimersByTime(250);
     });
 
-    expect(screen.getByText(/patch pothole/i)).toBeInTheDocument();
-    expect(screen.queryByText(/repair bridge/i)).not.toBeInTheDocument();
+    // After filtering, only task-2 (road-bravo-5678) should be shown
+    // Check for the ID prefix and that other tasks are not shown
+    expect(screen.getByText(/road-bra/)).toBeInTheDocument();
+    expect(screen.queryByText(/road-alp/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/road-cha/)).not.toBeInTheDocument();
 
     vi.useRealTimers();
   });
 
   it("filters queued tasks from filter chips", () => {
-    render(<TaskList tasks={tasks} crews={[]} features={[]} onVote={vi.fn()} />);
+    render(<TaskList tasks={tasks} crews={[]} features={[]} userVotes={mockUserVotes} resourcePools={mockResourcePools} onVote={vi.fn()} />);
+
+    // Open the collapsible filters section first
+    const filtersButton = screen.getByRole("button", { name: /filters & sort/i });
+    fireEvent.click(filtersButton);
 
     const queuedChip = screen.getByRole("button", { name: /queued/i });
     fireEvent.click(queuedChip);
 
-    expect(screen.getByText(/repair bridge/i)).toBeInTheDocument();
-    expect(screen.getByText(/repair sign/i)).toBeInTheDocument();
-    expect(screen.queryByText(/patch pothole/i)).not.toBeInTheDocument();
+    // task-1 and task-3 are queued, task-2 is active
+    expect(screen.getByText(/road-alp/)).toBeInTheDocument();
+    expect(screen.getByText(/road-cha/)).toBeInTheDocument();
+    expect(screen.queryByText(/road-bra/)).not.toBeInTheDocument();
   });
 
   it("sorts tasks by total cost", () => {
-    render(<TaskList tasks={tasks} crews={[]} features={[]} onVote={vi.fn()} />);
+    render(<TaskList tasks={tasks} crews={[]} features={[]} userVotes={mockUserVotes} resourcePools={mockResourcePools} onVote={vi.fn()} />);
+
+    // Open the collapsible filters section first
+    const filtersButton = screen.getByRole("button", { name: /filters & sort/i });
+    fireEvent.click(filtersButton);
 
     const sortSelect = screen.getByRole("combobox");
     fireEvent.change(sortSelect, { target: { value: "cost" } });
 
-    const roadLabels = screen.getAllByText(/Road/i);
-    expect(roadLabels[0].textContent).toContain("road-bra");
+    // Task-2 has highest cost (20+10+10+30=70), so it should be first
+    // Check that the IDs are in the expected order
+    const idLabels = screen.getAllByText(/ID:/);
+    expect(idLabels[0].textContent).toContain("road-bra");
   });
 });

@@ -31,10 +31,10 @@ export async function performWeeklyReset(client: PoolLike) {
     // 3. Reset region pools
     await client.query(`
       UPDATE regions
-      SET pool_food = 1000,
-          pool_equipment = 1000,
-          pool_energy = 1000,
-          pool_materials = 1000,
+      SET pool_food = 2000,
+          pool_equipment = 2000,
+          pool_energy = 2000,
+          pool_materials = 2000,
           updated_at = now()
     `);
 

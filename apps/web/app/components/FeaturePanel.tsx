@@ -186,12 +186,12 @@ export default function FeaturePanel({ onContribute, onVote, activeTasks, canCon
           {selected.type === 'building' && (
             <div className="space-y-4">
               <p className="text-xs leading-relaxed text-white/60">
-                Dispatch resources to the regional hub from this building.
+                Activate this building to send recurring convoys to the regional hub for the next 2 minutes.
               </p>
               <div className="grid grid-cols-2 gap-3">
                 {canGenerateFood && (
                   <button
-                    onClick={() => handleContributeClick("food", 10)}
+                    onClick={() => handleContributeClick("food", 100)}
                     disabled={contributionDisabled}
                     className={`flex flex-col items-center rounded-2xl p-3 transition-all ${
                       contributionDisabled
@@ -201,12 +201,12 @@ export default function FeaturePanel({ onContribute, onVote, activeTasks, canCon
                   >
                     <Utensils className="mb-2 h-5 w-5 text-[#4ade80]" />
                     <span className="text-[10px] font-bold uppercase text-white/40">Add Food</span>
-                    <span className="text-xs font-bold">+10</span>
+                    <span className="text-xs font-bold">+100</span>
                   </button>
                 )}
                 {canGenerateEquipment && (
                   <button
-                    onClick={() => handleContributeClick("equipment", 10)}
+                    onClick={() => handleContributeClick("equipment", 100)}
                     disabled={contributionDisabled}
                     className={`flex flex-col items-center rounded-2xl p-3 transition-all ${
                       contributionDisabled
@@ -216,12 +216,12 @@ export default function FeaturePanel({ onContribute, onVote, activeTasks, canCon
                   >
                     <Wrench className="mb-2 h-5 w-5 text-[#f97316]" />
                     <span className="text-[10px] font-bold uppercase text-white/40">Add Equipment</span>
-                    <span className="text-xs font-bold">+10</span>
+                    <span className="text-xs font-bold">+100</span>
                   </button>
                 )}
                 {canGenerateEnergy && (
                   <button
-                    onClick={() => handleContributeClick("energy", 10)}
+                    onClick={() => handleContributeClick("energy", 100)}
                     disabled={contributionDisabled}
                     className={`flex flex-col items-center rounded-2xl p-3 transition-all ${
                       contributionDisabled
@@ -231,12 +231,12 @@ export default function FeaturePanel({ onContribute, onVote, activeTasks, canCon
                   >
                     <Zap className="mb-2 h-5 w-5 text-[#facc15]" />
                     <span className="text-[10px] font-bold uppercase text-white/40">Add Energy</span>
-                    <span className="text-xs font-bold">+10</span>
+                    <span className="text-xs font-bold">+100</span>
                   </button>
                 )}
                 {canGenerateMaterials && (
                   <button
-                    onClick={() => handleContributeClick("materials", 10)}
+                    onClick={() => handleContributeClick("materials", 100)}
                     disabled={contributionDisabled}
                     className={`flex flex-col items-center rounded-2xl p-3 transition-all ${
                       contributionDisabled
@@ -246,7 +246,7 @@ export default function FeaturePanel({ onContribute, onVote, activeTasks, canCon
                   >
                     <Package className="mb-2 h-5 w-5 text-[#818cf8]" />
                     <span className="text-[10px] font-bold uppercase text-white/40">Add Materials</span>
-                    <span className="text-xs font-bold">+10</span>
+                    <span className="text-xs font-bold">+100</span>
                   </button>
                 )}
               </div>
@@ -256,7 +256,7 @@ export default function FeaturePanel({ onContribute, onVote, activeTasks, canCon
                   : !hasAnyResource
                     ? "Building does not generate resources"
                     : canContribute
-                      ? statusMsg ?? "Tap to contribute"
+                      ? statusMsg ?? "Tap to activate"
                       : "Authorizing..."}
               </div>
             </div>

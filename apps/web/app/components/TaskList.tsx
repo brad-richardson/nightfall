@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { Clock, AlertTriangle, Search, X, Users, CheckCircle2, Timer, Navigation, ChevronDown, Ban } from "lucide-react";
+import { Clock, AlertTriangle, Search, X, Users, CheckCircle2, Timer, Navigation, ChevronDown } from "lucide-react";
 import { formatLabel } from "../lib/formatters";
 import type { Task, Crew, Feature, UserVotes } from "../store";
 import VoteButton from "./VoteButton";
@@ -144,15 +144,6 @@ export default function TaskList({ tasks, crews, features, userVotes, resourcePo
     }
   };
 
-  const isTaskAffordable = (task: Task) => {
-    return (
-      task.cost_food <= resourcePools.food &&
-      task.cost_equipment <= resourcePools.equipment &&
-      task.cost_energy <= resourcePools.energy &&
-      task.cost_materials <= resourcePools.materials
-    );
-  };
-
   const getInsufficientResources = (task: Task) => {
     const insufficient: string[] = [];
     if (task.cost_food > resourcePools.food) insufficient.push("food");
@@ -272,9 +263,7 @@ export default function TaskList({ tasks, crews, features, userVotes, resourcePo
             const assignedCrew = crewMap.get(task.task_id);
             const isAssigned = !!assignedCrew;
             const statusColor = getStatusColor(task.status);
-            const affordable = isTaskAffordable(task);
             const insufficientResources = getInsufficientResources(task);
-            const isBlocked = !affordable && task.status === "queued";
 
             return (
               <div
@@ -282,9 +271,7 @@ export default function TaskList({ tasks, crews, features, userVotes, resourcePo
                 className={`group relative rounded-2xl border bg-white/5 p-4 transition-all hover:bg-white/[0.08] ${
                   isAssigned
                     ? "border-[color:var(--night-teal)]/30"
-                    : isBlocked
-                      ? "border-red-500/30"
-                      : "border-white/5 hover:border-white/10"
+                    : "border-white/5 hover:border-white/10"
                 }`}
               >
                 {isAssigned && (
@@ -292,15 +279,6 @@ export default function TaskList({ tasks, crews, features, userVotes, resourcePo
                     <span className="flex items-center gap-1.5">
                       <Users className="h-3 w-3" />
                       Crew Active
-                    </span>
-                  </div>
-                )}
-
-                {isBlocked && !isAssigned && (
-                  <div className="absolute -right-px -top-px overflow-hidden rounded-bl-xl rounded-tr-2xl bg-red-500/20 px-3 py-1 text-[9px] font-bold uppercase tracking-wider text-red-400 backdrop-blur-sm">
-                    <span className="flex items-center gap-1.5">
-                      <Ban className="h-3 w-3" />
-                      Blocked
                     </span>
                   </div>
                 )}

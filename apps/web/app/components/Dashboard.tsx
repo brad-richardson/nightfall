@@ -795,8 +795,8 @@ export default function Dashboard({
             <ResourceTicker deltas={resourceDeltas} />
           </MapOverlay>
 
-          <MapOverlay position="bottom-left" className="!bottom-20 hidden w-[360px] max-h-[55vh] lg:block">
-            <MapPanel title="Operations Queue" className="h-full overflow-hidden">
+          <MapOverlay position="bottom-left" className="!bottom-20 hidden w-[360px] max-h-[55vh] lg:flex flex-col">
+            <MapPanel title="Operations Queue" className="h-full min-h-0">
               <TaskList tasks={region.tasks} crews={region.crews} features={features} userVotes={userVotes} resourcePools={{ food: region.pool_food, equipment: region.pool_equipment, energy: region.pool_energy, materials: region.pool_materials }} onVote={handleVote} />
             </MapPanel>
           </MapOverlay>
