@@ -43,6 +43,7 @@ export async function applyRoadDecay(pool: PoolLike, multipliers: PhaseMultiplie
       WHERE wf.feature_type = 'road'
     ) AS decay
     WHERE fs.gers_id = decay.gers_id
+      AND fs.status != 'repairing'
     RETURNING fs.gers_id, decay.region_id, fs.health, fs.status
     `,
     [multipliers.decay]
