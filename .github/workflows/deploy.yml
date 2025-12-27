@@ -113,7 +113,7 @@ jobs:
         run: pnpm --filter @nightfall/web build
         env:
           NEXT_EXPORT: "1"
-          NEXT_PUBLIC_API_BASE_URL: ${{ secrets.NEXT_PUBLIC_API_BASE_URL }}
+          NEXT_PUBLIC_API_BASE_URL: https://nightfall.fly.dev
           NEXT_PUBLIC_BASE_PATH: /${{ github.event.repository.name }}
 
       - uses: actions/configure-pages@v5
