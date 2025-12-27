@@ -233,14 +233,36 @@ jobs:
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
-      - name: Start Fly Postgres proxy
+      - name: Re-ingest demo region via Fly proxy
         run: |
+          # Start proxy in background
           flyctl proxy 5432 -a nightfall-db &
-          sleep 5
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          PROXY_PID=$!
 
-      - name: Re-ingest demo region
-        run: pnpm run ingest:demo
+          # Wait for proxy to be ready (up to 30 seconds)
+          echo "Waiting for Fly Postgres proxy to be ready..."
+          for i in {1..30}; do
+            if nc -z localhost 5432 2>/dev/null; then
+              echo "Proxy is ready on port 5432"
+              break
+            fi
+            if ! kill -0 $PROXY_PID 2>/dev/null; then
+              echo "::error::Fly proxy process died unexpectedly"
+              exit 1
+            fi
+            echo "Waiting for proxy... ($i/30)"
+            sleep 1
+          done
+
+          if ! nc -z localhost 5432 2>/dev/null; then
+            echo "::error::Proxy failed to become ready after 30 seconds"
+            exit 1
+          fi
+
+          # Run ingest with proxy still active
+          pnpm run ingest:demo
+
+          # Cleanup
+          kill $PROXY_PID 2>/dev/null || true
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
