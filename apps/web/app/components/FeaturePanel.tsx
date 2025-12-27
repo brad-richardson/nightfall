@@ -1,10 +1,11 @@
 "use client";
 
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Utensils, Wrench, Zap, Package, Vote, X } from "lucide-react";
+import { Utensils, Wrench, Zap, Package, X } from "lucide-react";
 import { toast } from "sonner";
-import { useStore } from "../store";
+import { useStore, type UserVotes } from "../store";
 import type { ResourceType } from "@nightfall/config";
+import VoteButton from "./VoteButton";
 
 type SelectedFeature = {
   gers_id: string;
@@ -22,15 +23,16 @@ type Task = {
 
 type FeaturePanelProps = {
   onContribute: (sourceGersId: string, resourceType: ResourceType, amount: number) => void;
-  onVote: (taskId: string, weight: number) => void;
+  onVote: (taskId: string, weight: number) => Promise<void>;
   activeTasks: Task[];
   canContribute: boolean;
+  userVotes: UserVotes;
 };
 
 const PANEL_WIDTH = 320;
 const PADDING = 16;
 
-export default function FeaturePanel({ onContribute, onVote, activeTasks, canContribute }: FeaturePanelProps) {
+export default function FeaturePanel({ onContribute, onVote, activeTasks, canContribute, userVotes }: FeaturePanelProps) {
   const [selected, setSelected] = useState<SelectedFeature | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
@@ -145,10 +147,6 @@ export default function FeaturePanel({ onContribute, onVote, activeTasks, canCon
       .finally(() => setIsSubmitting(false));
   };
 
-  const handleVoteClick = (taskId: string) => {
-    onVote(taskId, 1);
-    toast.success("Vote cast", { description: "Your vote helps prioritize repairs" });
-  };
 
   const isVisible = !!selected;
 
@@ -281,16 +279,16 @@ export default function FeaturePanel({ onContribute, onVote, activeTasks, canCon
 
               {task ? (
                 <div className="rounded-2xl bg-[color:var(--night-teal)]/10 p-4 border border-[color:var(--night-teal)]/20 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--night-teal)] mb-2">Active Task</p>
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs text-white/80 font-medium">Repair needed</span>
-                    <button
-                      onClick={() => handleVoteClick(task.task_id)}
-                      className="flex items-center gap-2 rounded-full bg-[color:var(--night-teal)] px-3 py-1.5 text-xs font-bold text-white shadow-[0_0_15px_rgba(44,101,117,0.4)] transition-all active:scale-95 hover:brightness-110"
-                    >
-                      <Vote className="h-3.5 w-3.5" />
-                      Vote
-                    </button>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--night-teal)] mb-3">Active Task</p>
+                  <div className="flex flex-col gap-3">
+                    <span className="text-xs text-white/80 font-medium">Repair needed - vote to prioritize</span>
+                    <VoteButton
+                      taskId={task.task_id}
+                      currentVoteScore={task.vote_score}
+                      userVote={userVotes[task.task_id]}
+                      onVote={onVote}
+                      size="md"
+                    />
                   </div>
                 </div>
               ) : (

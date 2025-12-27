@@ -79,6 +79,44 @@ describe("dispatchCrews", () => {
     const rollbackCall = query.mock.calls.find((call) => call[0] === "ROLLBACK");
     expect(rollbackCall).toBeTruthy();
   });
+
+  it("selects tasks ordered by priority_score DESC (votes affect dispatch order)", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({ rows: [{ crew_id: "crew-1", region_id: "region-1" }] })
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ pool_food: 100, pool_equipment: 100, pool_energy: 100, pool_materials: 100 }] })
+      .mockResolvedValueOnce({
+        // This returns the highest priority task
+        rows: [
+          {
+            task_id: "high-priority-task",
+            target_gers_id: "road-1",
+            cost_food: 10,
+            cost_equipment: 10,
+            cost_energy: 10,
+            cost_materials: 10,
+            duration_s: 30
+          }
+        ]
+      })
+      .mockResolvedValueOnce({ rows: [] }) // region update
+      .mockResolvedValueOnce({
+        rows: [{ task_id: "high-priority-task", status: "active", priority_score: 50 }]
+      })
+      .mockResolvedValueOnce({ rows: [] }) // crew update
+      .mockResolvedValueOnce({ rows: [] }); // COMMIT
+
+    await dispatchCrews({ query });
+
+    // Find the task selection query and verify it orders by priority_score DESC
+    const taskSelectCall = query.mock.calls.find(
+      (call) => typeof call[0] === "string" && call[0].includes("FROM tasks") && call[0].includes("status = 'queued'")
+    );
+    expect(taskSelectCall).toBeTruthy();
+    const taskSelectSql = String(taskSelectCall![0]);
+    expect(taskSelectSql).toContain("ORDER BY priority_score DESC");
+  });
 });
 
 describe("arriveCrews", () => {

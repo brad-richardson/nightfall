@@ -41,6 +41,7 @@
   --night-coral: #dd7a49;
   --night-teal: #2c6575;
   --night-moss: #5a6b45;
+  --night-rust: #c8503c;
   --night-outline: rgba(25, 23, 16, 0.12);
 }
 
@@ -273,4 +274,81 @@ body {
   .regional-health-ring circle {
     transition: none;
   }
+}
+
+/* Vote button animations */
+@keyframes vote-float {
+  0% {
+    opacity: 1;
+    transform: translateY(0) translateX(var(--float-x, 0));
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-30px) translateX(var(--float-x, 0));
+  }
+}
+
+@keyframes vote-pulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes vote-bounce {
+  0%, 100% {
+    transform: translateY(0) rotate(0);
+  }
+  25% {
+    transform: translateY(-2px) rotate(-5deg);
+  }
+  75% {
+    transform: translateY(-1px) rotate(5deg);
+  }
+}
+
+@keyframes vote-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(44, 101, 117, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 20px 4px rgba(44, 101, 117, 0.6);
+  }
+}
+
+@keyframes score-pop {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.3);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.animate-vote-float {
+  animation: vote-float 0.8s ease-out forwards;
+}
+
+.animate-vote-pulse {
+  animation: vote-pulse 0.3s ease-out;
+}
+
+.animate-vote-bounce {
+  animation: vote-bounce 0.4s ease-out;
+}
+
+.animate-vote-glow {
+  animation: vote-glow 1s ease-in-out infinite;
+}
+
+.animate-score-pop {
+  animation: score-pop 0.3s ease-out;
 }
