@@ -33,7 +33,7 @@ export default function TaskList({ tasks, crews, features, onVote }: TaskListPro
 
   const taskCounts = useMemo<Record<TaskFilter, number>>(() => {
     const queued = tasks.filter((t) => t.status === "queued" || t.status === "pending").length;
-    const inProgress = tasks.filter((t) => t.status === "in_progress").length;
+    const inProgress = tasks.filter((t) => t.status === "active").length;
     const highPriority = tasks.filter((t) => t.priority_score >= 70).length;
     return {
       all: tasks.length,
@@ -78,7 +78,7 @@ export default function TaskList({ tasks, crews, features, onVote }: TaskListPro
         result = result.filter((t) => t.status === "queued" || t.status === "pending");
         break;
       case "in_progress":
-        result = result.filter((t) => t.status === "in_progress");
+        result = result.filter((t) => t.status === "active");
         break;
       case "high_priority":
         result = result.filter((t) => t.priority_score >= 70);
@@ -116,7 +116,7 @@ export default function TaskList({ tasks, crews, features, onVote }: TaskListPro
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "in_progress":
+      case "active":
         return "text-[color:var(--night-teal)] bg-[color:var(--night-teal)]/10 border-[color:var(--night-teal)]/20";
       case "queued":
         return "text-amber-400 bg-amber-400/10 border-amber-400/20";
@@ -279,7 +279,7 @@ export default function TaskList({ tasks, crews, features, onVote }: TaskListPro
                     </span>
                   </div>
                   
-                  {task.status !== "in_progress" ? (
+                  {task.status !== "active" ? (
                     <div className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                       <button
                         onClick={() => onVote(task.task_id, 1)}

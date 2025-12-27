@@ -11,7 +11,7 @@ import { getPhaseMultipliers, applyDemoMultiplier } from "./multipliers";
 import { applyRustSpread } from "./rust";
 import { applyRoadDecay } from "./decay";
 import { enqueueResourceTransfers, applyArrivedResourceTransfers, type ResourceTransfer } from "./resources";
-import { dispatchCrews, completeFinishedTasks } from "./crews";
+import { dispatchCrews, arriveCrews, completeFinishedTasks } from "./crews";
 import { spawnDegradedRoadTasks, updateTaskPriorities } from "./tasks";
 import type { FeatureDelta, TaskDelta } from "./deltas";
 import { notifyEvent } from "./notify";
@@ -150,7 +150,8 @@ async function runTick(client: PoolLike) {
   const arrivalResult = await applyArrivedResourceTransfers(client);
   const spawnedTasks = await spawnDegradedRoadTasks(client);
   const priorityUpdates = await updateTaskPriorities(client);
-  const dispatchResult = await dispatchCrews(client, multipliers);
+  const dispatchResult = await dispatchCrews(client);
+  const crewArrivalResult = await arriveCrews(client, multipliers);
   const completionResult = await completeFinishedTasks(client, multipliers);
 
   await simulateBots(client, demoConfig.enabled);
@@ -161,6 +162,7 @@ async function runTick(client: PoolLike) {
     [
       ...arrivalResult.regionIds,
       ...dispatchResult.regionIds,
+      ...crewArrivalResult.regionIds,
       ...completionResult.regionIds,
       ...decayFeatureDeltas.map(d => d.region_id),
       ...rustHexes.map(h => h.region_id)
@@ -170,6 +172,7 @@ async function runTick(client: PoolLike) {
   await publishFeatureDeltas(client, [
     ...decayFeatureDeltas,
     ...dispatchResult.featureDeltas,
+    ...crewArrivalResult.featureDeltas,
     ...completionResult.featureDeltas
   ]);
 
@@ -205,6 +208,7 @@ async function runTick(client: PoolLike) {
     tasks_spawned: spawnedTasks.length,
     tasks_updated: priorityUpdates.length,
     crews_dispatched: dispatchResult.taskDeltas.length,
+    crews_arrived: crewArrivalResult.featureDeltas.length,
     tasks_completed: completionResult.taskDeltas.length
   }, "tick stats");
 }
