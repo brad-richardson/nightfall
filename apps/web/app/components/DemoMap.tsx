@@ -7,7 +7,6 @@ import { cellToBoundary } from "h3-js";
 import { MapTooltip, type TooltipData } from "./MapTooltip";
 import {
   type ResourcePackage,
-  type PathWaypoint,
   buildResourcePath,
   interpolatePath,
   interpolateWaypoints,

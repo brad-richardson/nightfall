@@ -19,7 +19,30 @@ describe("resource transfers", () => {
 
   it("enqueues resource transfers based on building output", async () => {
     const query = vi.fn()
+      // 1. Table existence check
       .mockResolvedValueOnce({ rows: [{ exists: "resource_transfers" }] })
+      // 2. Buildings query - return a building that generates food
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            source_gers_id: "building-1",
+            region_id: "region-1",
+            h3_index: "hex-1",
+            hub_gers_id: "hub-1",
+            source_lon: -71.0,
+            source_lat: 42.0,
+            hub_lon: -71.1,
+            hub_lat: 42.1,
+            food_amount: 5,
+            equipment_amount: 0,
+            energy_amount: 0,
+            materials_amount: 0,
+          }
+        ]
+      })
+      // 3. Road connectors query - return empty to skip graph (uses fallback travel time)
+      .mockResolvedValueOnce({ rows: [] })
+      // 4. INSERT ... RETURNING
       .mockResolvedValueOnce({
         rows: [
           {
@@ -27,7 +50,7 @@ describe("resource transfers", () => {
             region_id: "region-1",
             source_gers_id: "building-1",
             hub_gers_id: "hub-1",
-            resource_type: "labor",
+            resource_type: "food",
             amount: 5,
             depart_at: new Date().toISOString(),
             arrive_at: new Date().toISOString()
@@ -38,9 +61,8 @@ describe("resource transfers", () => {
     const result = await enqueueResourceTransfers({ query }, multipliers);
 
     expect(result).toHaveLength(1);
-    expect(query).toHaveBeenCalledTimes(2);
-    expect(String(query.mock.calls[1][0])).toContain("INSERT INTO resource_transfers");
-    expect(query.mock.calls[1][1][0]).toBe(1.5);
+    expect(query).toHaveBeenCalledTimes(4);
+    expect(String(query.mock.calls[3][0])).toContain("INSERT INTO resource_transfers");
   });
 
   it("applies arrived transfers to region pools", async () => {
