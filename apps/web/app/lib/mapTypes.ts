@@ -16,7 +16,9 @@ export interface RoadFeatureProperties {
 export interface BuildingFeatureProperties {
   gers_id: string;
   place_category: string;
-  generates_labor: boolean;
+  generates_food: boolean;
+  generates_equipment: boolean;
+  generates_energy: boolean;
   generates_materials: boolean;
   is_hub: boolean;
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { Hammer, Vote, Clock, AlertTriangle, Search, X, Users, CheckCircle2, Timer } from "lucide-react";
+import { Package, Vote, Clock, AlertTriangle, Search, X, Users, CheckCircle2, Timer } from "lucide-react";
 import { formatNumber, formatLabel } from "../lib/formatters";
 import type { Task, Crew, Feature } from "../store";
 
@@ -92,7 +92,7 @@ export default function TaskList({ tasks, crews, features, onVote }: TaskListPro
         case "votes":
           return b.vote_score - a.vote_score;
         case "cost":
-          return (b.cost_labor + b.cost_materials) - (a.cost_labor + a.cost_materials);
+          return (b.cost_food + b.cost_equipment + b.cost_energy + b.cost_materials) - (a.cost_food + a.cost_equipment + a.cost_energy + a.cost_materials);
         case "duration":
           return b.duration_s - a.duration_s;
         default:
@@ -256,9 +256,9 @@ export default function TaskList({ tasks, crews, features, onVote }: TaskListPro
 
                 <div className="mt-4 grid grid-cols-3 gap-2">
                   <div className="flex flex-col items-center rounded-lg bg-black/20 py-2">
-                    <Hammer className="mb-1 h-3 w-3 text-white/30" />
-                    <p className="text-[9px] uppercase text-white/40">Labor</p>
-                    <p className="text-[10px] font-bold text-white/70">{task.cost_labor}</p>
+                    <Package className="mb-1 h-3 w-3 text-white/30" />
+                    <p className="text-[9px] uppercase text-white/40">Cost</p>
+                    <p className="text-[10px] font-bold text-white/70">{task.cost_food + task.cost_equipment + task.cost_energy + task.cost_materials}</p>
                   </div>
                   <div className="flex flex-col items-center rounded-lg bg-black/20 py-2">
                     <Clock className="mb-1 h-3 w-3 text-white/30" />

@@ -55,7 +55,9 @@ describe("api endpoints", () => {
               region_id: "region-1",
               name: "Alpha",
               center: { type: "Point", coordinates: [0, 0] },
-              pool_labor: 10,
+              pool_food: 10,
+              pool_equipment: 10,
+              pool_energy: 10,
               pool_materials: 20,
               crew_count: 2,
               active_crews: 1,
@@ -92,7 +94,9 @@ describe("api endpoints", () => {
               region_id: "region-1",
               name: "Alpha",
               boundary: { type: "Polygon", coordinates: [] },
-              pool_labor: 10,
+              pool_food: 10,
+              pool_equipment: 10,
+              pool_energy: 10,
               pool_materials: 20
             }
           ]
@@ -139,7 +143,9 @@ describe("api endpoints", () => {
           status: "normal",
           road_class: "primary",
           place_category: "building_supply_store",
-          generates_labor: false,
+          generates_food: false,
+          generates_equipment: false,
+          generates_energy: false,
           generates_materials: true
         }
       ]
@@ -160,11 +166,19 @@ describe("api endpoints", () => {
     await app.close();
   });
 
-  it("avoids inferring labor from material categories", async () => {
-    let capturedQuery = "";
-    queryMock.mockImplementation((text: string) => {
-      capturedQuery = text;
-      return Promise.resolve({ rows: [] });
+  it("returns features for buildings", async () => {
+    queryMock.mockResolvedValueOnce({
+      rows: [
+        {
+          gers_id: "building-1",
+          feature_type: "building",
+          bbox: [-71, 42, -70, 43],
+          generates_food: true,
+          generates_equipment: false,
+          generates_energy: false,
+          generates_materials: false
+        }
+      ]
     });
 
     const app = buildServer();
@@ -174,7 +188,7 @@ describe("api endpoints", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(capturedQuery).toContain("NOT LOWER(COALESCE(wf.place_category");
+    expect(response.json().features).toHaveLength(1);
 
     await app.close();
   });
@@ -220,7 +234,7 @@ describe("api endpoints", () => {
         return Promise.resolve({ rows: [{ home_region_id: "region-1" }] });
       }
       if (text.includes("FROM events")) {
-        return Promise.resolve({ rows: [{ labor_used: 0, materials_used: 0 }] });
+        return Promise.resolve({ rows: [{ food_used: 0, equipment_used: 0, energy_used: 0, materials_used: 0 }] });
       }
       if (text.includes("feature_type = 'building'")) {
         return Promise.resolve({
@@ -265,7 +279,7 @@ describe("api endpoints", () => {
               region_id: "region-1",
               source_gers_id: "building-1",
               hub_gers_id: "hub-1",
-              resource_type: "labor",
+              resource_type: "food",
               amount: 10,
               depart_at: "2025-01-01T00:00:00Z",
               arrive_at: "2025-01-01T00:00:05Z"
@@ -303,7 +317,9 @@ describe("api endpoints", () => {
       payload: {
         client_id: "client-1",
         region_id: "region-1",
-        labor: 10,
+        food: 10,
+        equipment: 0,
+        energy: 0,
         materials: 20,
         source_gers_id: "building-1"
       }
@@ -311,7 +327,8 @@ describe("api endpoints", () => {
 
     expect(response.statusCode).toBe(200);
     const payload = response.json();
-    expect(payload.applied_labor).toBe(10);
+    expect(payload.applied_food).toBe(10);
+    expect(payload.applied_materials).toBe(20);
     expect(payload.transfers).toHaveLength(2);
 
     await app.close();
@@ -332,7 +349,9 @@ describe("api endpoints", () => {
             status: "queued",
             priority_score: 5,
             vote_score: 2,
-            cost_labor: 10,
+            cost_food: 10,
+            cost_equipment: 5,
+            cost_energy: 5,
             cost_materials: 10,
             duration_s: 30,
             repair_amount: 5,

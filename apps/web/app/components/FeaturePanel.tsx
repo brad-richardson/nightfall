@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Hammer, Package, Vote, X } from "lucide-react";
+import { Utensils, Wrench, Zap, Package, Vote, X } from "lucide-react";
 import { toast } from "sonner";
 import { useStore } from "../store";
+import type { ResourceType } from "@nightfall/config";
 
 type SelectedFeature = {
   gers_id: string;
@@ -20,7 +21,7 @@ type Task = {
 };
 
 type FeaturePanelProps = {
-  onContribute: (sourceGersId: string, labor: number, materials: number) => void;
+  onContribute: (sourceGersId: string, resourceType: ResourceType, amount: number) => void;
   onVote: (taskId: string, weight: number) => void;
   activeTasks: Task[];
   canContribute: boolean;
@@ -120,21 +121,22 @@ export default function FeaturePanel({ onContribute, onVote, activeTasks, canCon
     return activeTasks.find(t => t.target_gers_id === selected.gers_id);
   }, [activeTasks, selected]);
 
-  const canGenerateLabor = selectedDetails?.generates_labor ?? false;
+  const canGenerateFood = selectedDetails?.generates_food ?? false;
+  const canGenerateEquipment = selectedDetails?.generates_equipment ?? false;
+  const canGenerateEnergy = selectedDetails?.generates_energy ?? false;
   const canGenerateMaterials = selectedDetails?.generates_materials ?? false;
-  const contributionDisabled = !canContribute || isSubmitting || (!canGenerateLabor && !canGenerateMaterials);
+  const hasAnyResource = canGenerateFood || canGenerateEquipment || canGenerateEnergy || canGenerateMaterials;
+  const contributionDisabled = !canContribute || isSubmitting || !hasAnyResource;
 
-  const handleContributeClick = (labor: number, materials: number) => {
+  const handleContributeClick = (resourceType: ResourceType, amount: number) => {
     if (contributionDisabled || !selected) return;
     setIsSubmitting(true);
     setStatusMsg(null);
-    Promise.resolve(onContribute(selected.gers_id, labor, materials))
+    Promise.resolve(onContribute(selected.gers_id, resourceType, amount))
       .then(() => {
         setStatusMsg("Convoy dispatched");
-        toast.success(
-          labor > 0 ? `+${labor} Labor dispatched` : `+${materials} Materials dispatched`,
-          { description: "Convoy en route to the hub" }
-        );
+        const label = resourceType.charAt(0).toUpperCase() + resourceType.slice(1);
+        toast.success(`+${amount} ${label} dispatched`, { description: "Convoy en route to the hub" });
       })
       .catch(() => {
         setStatusMsg("Contribution failed");
@@ -189,37 +191,71 @@ export default function FeaturePanel({ onContribute, onVote, activeTasks, canCon
                 Dispatch resources to the regional hub from this building.
               </p>
               <div className="grid grid-cols-2 gap-3">
-                <button 
-                  onClick={() => handleContributeClick(10, 0)}
-                  disabled={contributionDisabled || !canGenerateLabor}
-                  className={`flex flex-col items-center rounded-2xl p-3 transition-all ${
-                    contributionDisabled || !canGenerateLabor
-                      ? "bg-white/5 text-white/30 cursor-not-allowed opacity-50"
-                      : "bg-white/5 hover:bg-white/10 active:scale-95"
-                  }`}
-                >
-                  <Hammer className="mb-2 h-5 w-5 text-[color:var(--night-teal)]" />
-                  <span className="text-[10px] font-bold uppercase text-white/40">Add Labor</span>
-                  <span className="text-xs font-bold">+10</span>
-                </button>
-                <button 
-                  onClick={() => handleContributeClick(0, 10)}
-                  disabled={contributionDisabled || !canGenerateMaterials}
-                  className={`flex flex-col items-center rounded-2xl p-3 transition-all ${
-                    contributionDisabled || !canGenerateMaterials
-                      ? "bg-white/5 text-white/30 cursor-not-allowed opacity-50"
-                      : "bg-white/5 hover:bg-white/10 active:scale-95"
-                  }`}
-                >
-                  <Package className="mb-2 h-5 w-5 text-[color:var(--night-glow)]" />
-                  <span className="text-[10px] font-bold uppercase text-white/40">Add Materials</span>
-                  <span className="text-xs font-bold">+10</span>
-                </button>
+                {canGenerateFood && (
+                  <button
+                    onClick={() => handleContributeClick("food", 10)}
+                    disabled={contributionDisabled}
+                    className={`flex flex-col items-center rounded-2xl p-3 transition-all ${
+                      contributionDisabled
+                        ? "bg-white/5 text-white/30 cursor-not-allowed opacity-50"
+                        : "bg-white/5 hover:bg-white/10 active:scale-95"
+                    }`}
+                  >
+                    <Utensils className="mb-2 h-5 w-5 text-[#4ade80]" />
+                    <span className="text-[10px] font-bold uppercase text-white/40">Add Food</span>
+                    <span className="text-xs font-bold">+10</span>
+                  </button>
+                )}
+                {canGenerateEquipment && (
+                  <button
+                    onClick={() => handleContributeClick("equipment", 10)}
+                    disabled={contributionDisabled}
+                    className={`flex flex-col items-center rounded-2xl p-3 transition-all ${
+                      contributionDisabled
+                        ? "bg-white/5 text-white/30 cursor-not-allowed opacity-50"
+                        : "bg-white/5 hover:bg-white/10 active:scale-95"
+                    }`}
+                  >
+                    <Wrench className="mb-2 h-5 w-5 text-[#f97316]" />
+                    <span className="text-[10px] font-bold uppercase text-white/40">Add Equipment</span>
+                    <span className="text-xs font-bold">+10</span>
+                  </button>
+                )}
+                {canGenerateEnergy && (
+                  <button
+                    onClick={() => handleContributeClick("energy", 10)}
+                    disabled={contributionDisabled}
+                    className={`flex flex-col items-center rounded-2xl p-3 transition-all ${
+                      contributionDisabled
+                        ? "bg-white/5 text-white/30 cursor-not-allowed opacity-50"
+                        : "bg-white/5 hover:bg-white/10 active:scale-95"
+                    }`}
+                  >
+                    <Zap className="mb-2 h-5 w-5 text-[#facc15]" />
+                    <span className="text-[10px] font-bold uppercase text-white/40">Add Energy</span>
+                    <span className="text-xs font-bold">+10</span>
+                  </button>
+                )}
+                {canGenerateMaterials && (
+                  <button
+                    onClick={() => handleContributeClick("materials", 10)}
+                    disabled={contributionDisabled}
+                    className={`flex flex-col items-center rounded-2xl p-3 transition-all ${
+                      contributionDisabled
+                        ? "bg-white/5 text-white/30 cursor-not-allowed opacity-50"
+                        : "bg-white/5 hover:bg-white/10 active:scale-95"
+                    }`}
+                  >
+                    <Package className="mb-2 h-5 w-5 text-[#818cf8]" />
+                    <span className="text-[10px] font-bold uppercase text-white/40">Add Materials</span>
+                    <span className="text-xs font-bold">+10</span>
+                  </button>
+                )}
               </div>
               <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 h-4">
                 {isSubmitting
                   ? "Sending..."
-                  : contributionDisabled && !canGenerateLabor && !canGenerateMaterials
+                  : !hasAnyResource
                     ? "Building does not generate resources"
                     : canContribute
                       ? statusMsg ?? "Tap to contribute"

@@ -23,13 +23,15 @@ describe("dispatchCrews", () => {
       .fn()
       .mockResolvedValueOnce({ rows: [{ crew_id: "crew-1", region_id: "region-1" }] })
       .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ pool_labor: 100, pool_materials: 100 }] })
+      .mockResolvedValueOnce({ rows: [{ pool_food: 100, pool_equipment: 100, pool_energy: 100, pool_materials: 100 }] })
       .mockResolvedValueOnce({
         rows: [
           {
             task_id: "task-1",
             target_gers_id: "road-1",
-            cost_labor: 20,
+            cost_food: 20,
+            cost_equipment: 10,
+            cost_energy: 5,
             cost_materials: 10,
             duration_s: 40
           }
@@ -64,7 +66,7 @@ describe("dispatchCrews", () => {
       .fn()
       .mockResolvedValueOnce({ rows: [{ crew_id: "crew-1", region_id: "region-1" }] })
       .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ pool_labor: 5, pool_materials: 5 }] })
+      .mockResolvedValueOnce({ rows: [{ pool_food: 5, pool_equipment: 5, pool_energy: 5, pool_materials: 5 }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] });
 

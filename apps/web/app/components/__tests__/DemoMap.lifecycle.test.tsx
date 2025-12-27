@@ -58,7 +58,9 @@ describe("DemoMap Lifecycle", () => {
           ]
         ]
       },
-      pool_labor: 100,
+      pool_food: 100,
+      pool_equipment: 100,
+      pool_energy: 100,
       pool_materials: 100,
       crews: [],
       tasks: [],

@@ -35,7 +35,9 @@ let lastCleanupMs = 0;
 
 type RegionSnapshot = {
   region_id: string;
-  pool_labor: number;
+  pool_food: number;
+  pool_equipment: number;
+  pool_energy: number;
   pool_materials: number;
   rust_avg: number | null;
   health_avg: number | null;
@@ -48,7 +50,9 @@ async function fetchRegionSnapshots(client: PoolLike, regionIds: string[]): Prom
     `
     SELECT
       r.region_id,
-      r.pool_labor::float AS pool_labor,
+      r.pool_food::float AS pool_food,
+      r.pool_equipment::float AS pool_equipment,
+      r.pool_energy::float AS pool_energy,
       r.pool_materials::float AS pool_materials,
       (
         SELECT AVG(rust_level)::float FROM hex_cells WHERE region_id = r.region_id

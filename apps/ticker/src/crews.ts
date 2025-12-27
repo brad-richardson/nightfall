@@ -41,8 +41,13 @@ export async function dispatchCrews(pool: PoolLike, multipliers: PhaseMultiplier
     await pool.query("BEGIN");
 
     try {
-      const regionResult = await pool.query<{ pool_labor: number; pool_materials: number }>(
-        "SELECT pool_labor, pool_materials FROM regions WHERE region_id = $1 FOR UPDATE",
+      const regionResult = await pool.query<{
+        pool_food: number;
+        pool_equipment: number;
+        pool_energy: number;
+        pool_materials: number;
+      }>(
+        "SELECT pool_food, pool_equipment, pool_energy, pool_materials FROM regions WHERE region_id = $1 FOR UPDATE",
         [crew.region_id]
       );
       const region = regionResult.rows[0];
@@ -52,13 +57,17 @@ export async function dispatchCrews(pool: PoolLike, multipliers: PhaseMultiplier
         continue;
       }
 
-      const poolLabor = Number(region.pool_labor ?? 0);
+      const poolFood = Number(region.pool_food ?? 0);
+      const poolEquipment = Number(region.pool_equipment ?? 0);
+      const poolEnergy = Number(region.pool_energy ?? 0);
       const poolMaterials = Number(region.pool_materials ?? 0);
 
       const taskResult = await pool.query<{
         task_id: string;
         target_gers_id: string;
-        cost_labor: number;
+        cost_food: number;
+        cost_equipment: number;
+        cost_energy: number;
         cost_materials: number;
         duration_s: number;
       }>(
@@ -66,19 +75,23 @@ export async function dispatchCrews(pool: PoolLike, multipliers: PhaseMultiplier
         SELECT
           task_id,
           target_gers_id,
-          cost_labor,
+          cost_food,
+          cost_equipment,
+          cost_energy,
           cost_materials,
           duration_s
         FROM tasks
         WHERE region_id = $1
           AND status = 'queued'
-          AND cost_labor <= $2
-          AND cost_materials <= $3
+          AND cost_food <= $2
+          AND cost_equipment <= $3
+          AND cost_energy <= $4
+          AND cost_materials <= $5
         ORDER BY priority_score DESC, created_at ASC
         FOR UPDATE SKIP LOCKED
         LIMIT 1
         `,
-        [crew.region_id, poolLabor, poolMaterials]
+        [crew.region_id, poolFood, poolEquipment, poolEnergy, poolMaterials]
       );
 
       const task = taskResult.rows[0];
@@ -93,8 +106,14 @@ export async function dispatchCrews(pool: PoolLike, multipliers: PhaseMultiplier
       );
 
       await pool.query(
-        "UPDATE regions SET pool_labor = pool_labor - $2, pool_materials = pool_materials - $3, updated_at = now() WHERE region_id = $1",
-        [crew.region_id, task.cost_labor, task.cost_materials]
+        `UPDATE regions SET
+          pool_food = pool_food - $2,
+          pool_equipment = pool_equipment - $3,
+          pool_energy = pool_energy - $4,
+          pool_materials = pool_materials - $5,
+          updated_at = now()
+        WHERE region_id = $1`,
+        [crew.region_id, task.cost_food, task.cost_equipment, task.cost_energy, task.cost_materials]
       );
 
       const taskUpdate = await pool.query<TaskDelta>(
@@ -107,7 +126,9 @@ export async function dispatchCrews(pool: PoolLike, multipliers: PhaseMultiplier
           status,
           priority_score,
           vote_score,
-          cost_labor,
+          cost_food,
+          cost_equipment,
+          cost_energy,
           cost_materials,
           duration_s,
           repair_amount,
@@ -195,7 +216,9 @@ export async function completeFinishedTasks(
         t.region_id,
         t.target_gers_id,
         t.vote_score,
-        t.cost_labor,
+        t.cost_food,
+        t.cost_equipment,
+        t.cost_energy,
         t.cost_materials,
         t.duration_s,
         t.repair_amount,
@@ -239,7 +262,9 @@ export async function completeFinishedTasks(
           'region_id', updated_tasks.region_id,
           'target_gers_id', updated_tasks.target_gers_id,
           'vote_score', updated_tasks.vote_score,
-          'cost_labor', updated_tasks.cost_labor,
+          'cost_food', updated_tasks.cost_food,
+          'cost_equipment', updated_tasks.cost_equipment,
+          'cost_energy', updated_tasks.cost_energy,
           'cost_materials', updated_tasks.cost_materials,
           'duration_s', updated_tasks.duration_s,
           'repair_amount', updated_tasks.repair_amount,

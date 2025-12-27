@@ -33,7 +33,9 @@ const initialRegion = {
   region_id: "region-1",
   name: "Region One",
   boundary: { type: "Polygon", coordinates: [[[-68.35, 44.31], [-68.15, 44.31], [-68.15, 44.45], [-68.35, 44.45], [-68.35, 44.31]]] },
-  pool_labor: 100,
+  pool_food: 100,
+  pool_equipment: 100,
+  pool_energy: 100,
   pool_materials: 200,
   crews: [],
   tasks: [],
@@ -96,7 +98,9 @@ describe("Dashboard live events", () => {
             priority_score: 5,
             status: "queued",
             vote_score: 0,
-            cost_labor: 10,
+            cost_food: 10,
+            cost_equipment: 5,
+            cost_energy: 5,
             cost_materials: 10,
             duration_s: 10,
             repair_amount: 5,
@@ -147,7 +151,9 @@ describe("Dashboard live events", () => {
           hex_updates: [{ h3_index: "abc", rust_level: 0.4 }],
           region_updates: [{
             region_id: "region-1",
-            pool_labor: 150,
+            pool_food: 150,
+            pool_equipment: 120,
+            pool_energy: 110,
             pool_materials: 250,
             rust_avg: 0.2,
             health_avg: 85
@@ -160,7 +166,7 @@ describe("Dashboard live events", () => {
     await waitFor(() => {
       expect(useStore.getState().hexes).toEqual([{ h3_index: "abc", rust_level: 0.4 }]);
     });
-    expect(useStore.getState().region.pool_labor).toBe(150);
+    expect(useStore.getState().region.pool_food).toBe(150);
     expect(useStore.getState().region.pool_materials).toBe(250);
     expect(useStore.getState().region.stats.rust_avg).toBe(0.2);
     expect(useStore.getState().region.stats.health_avg).toBe(85);
@@ -174,7 +180,9 @@ describe("Dashboard live events", () => {
           status: "queued",
           priority_score: 5,
           vote_score: 1,
-          cost_labor: 10,
+          cost_food: 10,
+          cost_equipment: 5,
+          cost_energy: 5,
           cost_materials: 20,
           duration_s: 30,
           repair_amount: 5,

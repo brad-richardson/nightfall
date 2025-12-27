@@ -18,7 +18,9 @@ export type RoadData = {
 
 export type BuildingData = {
   category: string;
-  generates_labor: boolean;
+  generates_food: boolean;
+  generates_equipment: boolean;
+  generates_energy: boolean;
   generates_materials: boolean;
 };
 
@@ -106,6 +108,8 @@ function RoadTooltipContent({ data }: { data: RoadData }) {
 }
 
 function BuildingTooltipContent({ data }: { data: BuildingData }) {
+  const hasResources = data.generates_food || data.generates_equipment || data.generates_energy || data.generates_materials;
+
   return (
     <>
       <div className="tooltip-header">Building</div>
@@ -113,11 +117,13 @@ function BuildingTooltipContent({ data }: { data: BuildingData }) {
         <span className="tooltip-label">Category:</span>
         <span className="tooltip-value">{formatLabel(data.category)}</span>
       </div>
-      {(data.generates_labor || data.generates_materials) && (
+      {hasResources && (
         <div className="tooltip-row">
           <span className="tooltip-label">Generates:</span>
           <div className="tooltip-tags">
-            {data.generates_labor && <span className="tag labor">Labor</span>}
+            {data.generates_food && <span className="tag food">Food</span>}
+            {data.generates_equipment && <span className="tag equipment">Equipment</span>}
+            {data.generates_energy && <span className="tag energy">Energy</span>}
             {data.generates_materials && <span className="tag materials">Materials</span>}
           </div>
         </div>

@@ -13,7 +13,9 @@ export type Feature = {
   status?: string | null;
   road_class?: string | null;
   place_category?: string | null;
-  generates_labor?: boolean;
+  generates_food?: boolean;
+  generates_equipment?: boolean;
+  generates_energy?: boolean;
   generates_materials?: boolean;
   is_hub?: boolean;
 };
@@ -50,7 +52,7 @@ export type ResourceTransferPayload = {
   region_id: string;
   source_gers_id: string | null;
   hub_gers_id: string | null;
-  resource_type: "labor" | "materials";
+  resource_type: "food" | "equipment" | "energy" | "materials";
   amount: number;
   depart_at: string;
   arrive_at: string;

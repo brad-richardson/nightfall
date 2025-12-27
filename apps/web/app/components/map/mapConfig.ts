@@ -54,7 +54,7 @@ export const CREW_DASH_SEQUENCE: number[][] = [
   [3, 4, 0]
 ];
 
-// Color palette
+// Color palette - resource colors match ResourcePoolsPanel
 export const COLORS = {
   background: "#101216",
   landuse: "#14181e",
@@ -62,8 +62,11 @@ export const COLORS = {
   waterOutline: "#1a2a3a",
   buildings: "#1a1f28",
   buildingOutline: "#2a3040",
-  buildingsLabor: "#3eb0c0",
-  buildingsMaterials: "#f08a4e",
+  // Resource building colors (matching RESOURCE_COLORS in ResourcePoolsPanel)
+  buildingsFood: "#4ade80",       // green-400 - restaurants, cafes
+  buildingsEquipment: "#f97316",  // orange-500 - hardware, auto
+  buildingsEnergy: "#facc15",     // yellow-400 - industrial, power
+  buildingsMaterials: "#818cf8",  // indigo-400 - construction, lumber
   roadsLow: "#252530",
   roadsMid: "#2a3040",
   roadsHigh: "#353a4a",

@@ -357,7 +357,7 @@ export default function DemoMap({
     const tooltipLayers = [
       "game-roads-healthy", "game-roads-warning", "game-roads-degraded",
       "roads-low", "roads-mid", "roads-high", "roads-routes",
-      "buildings", "buildings-labor", "buildings-materials", "buildings-hub", "game-hex-fill"
+      "buildings", "buildings-food", "buildings-equipment", "buildings-energy", "buildings-materials", "buildings-hub", "game-hex-fill"
     ];
 
     const buildTooltipData = (
@@ -379,7 +379,9 @@ export default function DemoMap({
           position: { x: point.x, y: point.y },
           data: {
             category: match?.place_category ?? feature.properties?.class ?? "Building",
-            generates_labor: Boolean(match?.generates_labor),
+            generates_food: Boolean(match?.generates_food),
+            generates_equipment: Boolean(match?.generates_equipment),
+            generates_energy: Boolean(match?.generates_energy),
             generates_materials: Boolean(match?.generates_materials)
           }
         };
@@ -457,7 +459,9 @@ export default function DemoMap({
     const healthyIds = features.filter(f => f.feature_type === "road" && (f.health ?? 100) > 80).map(f => f.gers_id);
     const warningIds = features.filter(f => f.feature_type === "road" && (f.health ?? 100) <= 80 && (f.health ?? 100) > 30).map(f => f.gers_id);
     const degradedIds = features.filter(f => f.feature_type === "road" && (f.health ?? 100) <= 30).map(f => f.gers_id);
-    const laborIds = features.filter(f => f.feature_type === "building" && f.generates_labor).map(f => f.gers_id);
+    const foodIds = features.filter(f => f.feature_type === "building" && f.generates_food).map(f => f.gers_id);
+    const equipmentIds = features.filter(f => f.feature_type === "building" && f.generates_equipment).map(f => f.gers_id);
+    const energyIds = features.filter(f => f.feature_type === "building" && f.generates_energy).map(f => f.gers_id);
     const materialIds = features.filter(f => f.feature_type === "building" && f.generates_materials).map(f => f.gers_id);
     const hubIds = features.filter(f => f.feature_type === "building" && f.is_hub).map(f => f.gers_id);
 
@@ -467,7 +471,9 @@ export default function DemoMap({
     map.current.setFilter("game-roads-warning-glow", ["all", BASE_ROAD_FILTER, makeIdFilter(warningIds)] as maplibregl.FilterSpecification);
     map.current.setFilter("game-roads-degraded", ["all", BASE_ROAD_FILTER, makeIdFilter(degradedIds)] as maplibregl.FilterSpecification);
     map.current.setFilter("game-roads-degraded-glow", ["all", BASE_ROAD_FILTER, makeIdFilter(degradedIds)] as maplibregl.FilterSpecification);
-    map.current.setFilter("buildings-labor", makeIdFilter(laborIds) as maplibregl.FilterSpecification);
+    map.current.setFilter("buildings-food", makeIdFilter(foodIds) as maplibregl.FilterSpecification);
+    map.current.setFilter("buildings-equipment", makeIdFilter(equipmentIds) as maplibregl.FilterSpecification);
+    map.current.setFilter("buildings-energy", makeIdFilter(energyIds) as maplibregl.FilterSpecification);
     map.current.setFilter("buildings-materials", makeIdFilter(materialIds) as maplibregl.FilterSpecification);
     map.current.setFilter("buildings-hub", makeIdFilter(hubIds) as maplibregl.FilterSpecification);
     map.current.setFilter("buildings-hub-glow", makeIdFilter(hubIds) as maplibregl.FilterSpecification);

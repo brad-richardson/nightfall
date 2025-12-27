@@ -39,39 +39,56 @@ const DB_CONFIG = {
 };
 
 const DEFAULT_REGION_ID = "boston_ma_usa";
-const LABOR_CATEGORY_PATTERNS = [
+
+// Resource generation categories matching API server
+const FOOD_CATEGORY_PATTERNS = [
   "restaurant",
   "cafe",
   "bar",
   "food",
-  "office",
-  "retail",
-  "shop",
-  "store",
-  "school",
-  "university",
-  "hospital"
+  "grocery",
+  "supermarket",
+  "bakery",
+  "deli",
+  "farm",
+  "farmers_market"
 ];
-const MATERIAL_CATEGORY_PATTERNS = [
-  "industrial",
-  "factory",
-  "warehouse",
-  "manufacturing",
-  "construction",
-  "building_supply",
+
+const EQUIPMENT_CATEGORY_PATTERNS = [
   "hardware",
   "home_improvement",
-  "garden_center",
-  "nursery_and_gardening",
+  "automotive_repair",
+  "auto_body_shop",
+  "tool_rental",
+  "machine_shop"
+];
+
+const ENERGY_CATEGORY_PATTERNS = [
+  "industrial",
+  "factory",
+  "power_plant",
+  "solar",
+  "wind",
+  "utility",
+  "electric"
+];
+
+const MATERIALS_CATEGORY_PATTERNS = [
+  "construction",
+  "building_supply",
   "lumber",
   "wood",
   "flooring",
-  "automotive_repair",
-  "auto_body_shop",
-  "industrial_equipment"
+  "warehouse",
+  "manufacturing",
+  "garden_center",
+  "nursery_and_gardening"
 ];
 
-const FALLBACK_RESOURCE_MOD = 20;
+// Fallback applies to 1 in N buildings without matched categories
+// Lower = more aggressive fallback (more balanced resource distribution)
+const FALLBACK_RESOURCE_MOD = 2;
+const MAX_BUILDINGS_PER_HEX_PER_TYPE = 20;
 
 export function normalizeCategories(raw: unknown) {
   if (!raw) {
@@ -95,11 +112,30 @@ function hashString(value: string) {
   return hash;
 }
 
+// Tracking for balanced fallback distribution
+const fallbackTracker = {
+  food: 0,
+  equipment: 0,
+  energy: 0,
+  materials: 0,
+  reset() {
+    this.food = 0;
+    this.equipment = 0;
+    this.energy = 0;
+    this.materials = 0;
+  }
+};
+
 export function applyResourceFallback(
   gersId: string,
-  resources: { labor: boolean; materials: boolean; cat: string | null }
+  resources: { food: boolean; equipment: boolean; energy: boolean; materials: boolean; cat: string | null }
 ) {
-  if (resources.labor || resources.materials) {
+  if (resources.food || resources.equipment || resources.energy || resources.materials) {
+    // Track matched resources for balance calculation
+    if (resources.food) fallbackTracker.food++;
+    if (resources.equipment) fallbackTracker.equipment++;
+    if (resources.energy) fallbackTracker.energy++;
+    if (resources.materials) fallbackTracker.materials++;
     return resources;
   }
 
@@ -108,12 +144,35 @@ export function applyResourceFallback(
     return resources;
   }
 
-  const assignMaterials = hash % 2 === 0;
+  // Find the least represented resource type and assign it
+  // This helps balance the distribution
+  const counts = [
+    { type: "food" as const, count: fallbackTracker.food },
+    { type: "equipment" as const, count: fallbackTracker.equipment },
+    { type: "energy" as const, count: fallbackTracker.energy },
+    { type: "materials" as const, count: fallbackTracker.materials }
+  ];
+
+  // Sort by count ascending - pick from least represented
+  counts.sort((a, b) => a.count - b.count);
+
+  // Use hash to deterministically pick from the 2 least represented types
+  const targetType = counts[hash % 2].type;
+
+  // Update tracker
+  fallbackTracker[targetType]++;
+
   return {
     ...resources,
-    labor: !assignMaterials,
-    materials: assignMaterials
+    food: targetType === "food",
+    equipment: targetType === "equipment",
+    energy: targetType === "energy",
+    materials: targetType === "materials"
   };
+}
+
+export function resetFallbackTracker() {
+  fallbackTracker.reset();
 }
 
 function collectCategoryStrings(categories: unknown): string[] {
@@ -150,33 +209,114 @@ function collectCategoryStrings(categories: unknown): string[] {
   return results;
 }
 
+export function calculateBuildingWeight(
+  gersId: string,
+  area: number,
+  hasMatchedCategory: boolean
+): number {
+  // Weight formula: prioritize matched categories, then larger footprints
+  // Matched category: +1000 base weight
+  // Area contributes directly (larger = higher weight)
+  // Hash provides deterministic tiebreaker
+  const baseWeight = hasMatchedCategory ? 1000 : 0;
+  const areaWeight = Math.min(area * 10000, 500); // Cap area contribution
+  const hashTiebreaker = (hashString(gersId) % 100) / 100; // 0-1 range
+  return baseWeight + areaWeight + hashTiebreaker;
+}
+
+type BuildingWithWeight = {
+  id: string;
+  xmin: number;
+  ymin: number;
+  xmax: number;
+  ymax: number;
+  categories: unknown;
+  resources: { food: boolean; equipment: boolean; energy: boolean; materials: boolean; cat: string | null };
+  weight: number;
+  area: number;
+  cells: string[];
+};
+
+export function limitBuildingsPerHex(
+  buildings: BuildingWithWeight[],
+  maxPerType: number
+): BuildingWithWeight[] {
+  // Track counts per hex per resource type
+  const hexResourceCounts: Map<string, { food: number; equipment: number; energy: number; materials: number }> = new Map();
+
+  // Sort by weight descending (highest priority first)
+  const sortedBuildings = [...buildings].sort((a, b) => b.weight - a.weight);
+
+  const selectedBuildings: BuildingWithWeight[] = [];
+
+  for (const building of sortedBuildings) {
+    const resourceType = building.resources.food ? "food" :
+                         building.resources.equipment ? "equipment" :
+                         building.resources.energy ? "energy" :
+                         building.resources.materials ? "materials" : null;
+
+    if (!resourceType) {
+      // Building generates no resources, skip limit
+      selectedBuildings.push(building);
+      continue;
+    }
+
+    // Check if ALL cells have room for this building (strict per-hex limit)
+    let canAdd = true;
+    for (const cell of building.cells) {
+      if (!hexResourceCounts.has(cell)) {
+        hexResourceCounts.set(cell, { food: 0, equipment: 0, energy: 0, materials: 0 });
+      }
+      const counts = hexResourceCounts.get(cell)!;
+
+      if (counts[resourceType] >= maxPerType) {
+        canAdd = false;
+        break;
+      }
+    }
+
+    if (canAdd) {
+      selectedBuildings.push(building);
+      // Update counts for all cells this building touches
+      for (const cell of building.cells) {
+        const counts = hexResourceCounts.get(cell)!;
+        counts[resourceType]++;
+      }
+    }
+  }
+
+  return selectedBuildings;
+}
+
 export function getResourcesFromCategories(categories: unknown) {
   const values = collectCategoryStrings(categories);
   if (values.length === 0) {
-    return { labor: false, materials: false, cat: null };
+    return { food: false, equipment: false, energy: false, materials: false, cat: null };
   }
 
-  let labor = false;
+  let food = false;
+  let equipment = false;
+  let energy = false;
   let materials = false;
   let matchedCategory: string | null = null;
 
   for (const value of values) {
     const lower = value.toLowerCase();
-    const laborMatch = LABOR_CATEGORY_PATTERNS.some((pattern) => lower.includes(pattern));
-    const materialMatch = MATERIAL_CATEGORY_PATTERNS.some((pattern) => lower.includes(pattern));
+    const foodMatch = FOOD_CATEGORY_PATTERNS.some((pattern) => lower.includes(pattern));
+    const equipmentMatch = EQUIPMENT_CATEGORY_PATTERNS.some((pattern) => lower.includes(pattern));
+    const energyMatch = ENERGY_CATEGORY_PATTERNS.some((pattern) => lower.includes(pattern));
+    const materialsMatch = MATERIALS_CATEGORY_PATTERNS.some((pattern) => lower.includes(pattern));
 
-    if ((laborMatch || materialMatch) && matchedCategory === null) {
+    if ((foodMatch || equipmentMatch || energyMatch || materialsMatch) && matchedCategory === null) {
       matchedCategory = value;
     }
-    if (materialMatch) {
-      materials = true;
-    }
-    if (laborMatch && !materialMatch) {
-      labor = true;
-    }
+    if (foodMatch) food = true;
+    if (equipmentMatch) equipment = true;
+    if (energyMatch) energy = true;
+    if (materialsMatch) materials = true;
   }
 
-  return { labor, materials, cat: matchedCategory ?? values[0] ?? null };
+  return { food, equipment, energy, materials, cat: matchedCategory ?? values[0] ?? null };
 }
 
 export function buildBuildingsUpsertQuery(placeHolders: string[]) {
@@ -192,7 +332,9 @@ export function buildBuildingsUpsertQuery(placeHolders: string[]) {
           properties,
           road_class,
           place_category,
-          generates_labor,
+          generates_food,
+          generates_equipment,
+          generates_energy,
           generates_materials
         ) VALUES ${placeHolders.join(", ")}
         ON CONFLICT (gers_id) DO UPDATE SET
@@ -204,7 +346,9 @@ export function buildBuildingsUpsertQuery(placeHolders: string[]) {
           properties = EXCLUDED.properties,
           road_class = EXCLUDED.road_class,
           place_category = EXCLUDED.place_category,
-          generates_labor = EXCLUDED.generates_labor,
+          generates_food = EXCLUDED.generates_food,
+          generates_equipment = EXCLUDED.generates_equipment,
+          generates_energy = EXCLUDED.generates_energy,
           generates_materials = EXCLUDED.generates_materials
       `;
 }
@@ -687,6 +831,8 @@ async function assignHubBuildings(pgPool: Pool, region: RegionConfig) {
         AND wf.region_id = $1
     `, [region.regionId]);
 
+    console.log(`Found ${buildingResult.rows.length} building-to-hex mappings for ${hexResult.rows.length} hexes`);
+
     // Group buildings by hex
     const buildingsByHex: Map<string, Array<{ gers_id: string; area: number }>> = new Map();
     for (const row of buildingResult.rows) {
@@ -698,6 +844,8 @@ async function assignHubBuildings(pgPool: Pool, region: RegionConfig) {
         area: row.area
       });
     }
+
+    console.log(`Grouped buildings into ${buildingsByHex.size} hexes with buildings`);
 
     // Find the building with the largest footprint in each hex
     const hubAssignments: Array<{ h3_index: string; building_gers_id: string }> = [];
@@ -814,7 +962,9 @@ async function seedDemoData(pgPool: Pool, region: RegionConfig) {
             region_id,
             target_gers_id,
             task_type,
-            cost_labor,
+            cost_food,
+            cost_equipment,
+            cost_energy,
             cost_materials,
             duration_s,
             repair_amount,
@@ -827,15 +977,32 @@ async function seedDemoData(pgPool: Pool, region: RegionConfig) {
             wf.gers_id,
             'repair_road',
             CASE wf.road_class
-              WHEN 'motorway' THEN 100
-              WHEN 'trunk' THEN 80
-              WHEN 'primary' THEN 60
-              WHEN 'secondary' THEN 40
-              WHEN 'tertiary' THEN 30
-              WHEN 'residential' THEN 20
-              WHEN 'track' THEN 15
-              ELSE 20
-            END AS cost_labor,
+              WHEN 'motorway' THEN 40
+              WHEN 'trunk' THEN 35
+              WHEN 'primary' THEN 25
+              WHEN 'secondary' THEN 20
+              WHEN 'tertiary' THEN 15
+              WHEN 'residential' THEN 10
+              ELSE 10
+            END AS cost_food,
+            CASE wf.road_class
+              WHEN 'motorway' THEN 80
+              WHEN 'trunk' THEN 60
+              WHEN 'primary' THEN 45
+              WHEN 'secondary' THEN 30
+              WHEN 'tertiary' THEN 25
+              WHEN 'residential' THEN 15
+              ELSE 15
+            END AS cost_equipment,
+            CASE wf.road_class
+              WHEN 'motorway' THEN 60
+              WHEN 'trunk' THEN 50
+              WHEN 'primary' THEN 35
+              WHEN 'secondary' THEN 25
+              WHEN 'tertiary' THEN 20
+              WHEN 'residential' THEN 12
+              ELSE 12
+            END AS cost_energy,
             CASE wf.road_class
               WHEN 'motorway' THEN 100
               WHEN 'trunk' THEN 80
@@ -843,7 +1010,6 @@ async function seedDemoData(pgPool: Pool, region: RegionConfig) {
               WHEN 'secondary' THEN 40
               WHEN 'tertiary' THEN 30
               WHEN 'residential' THEN 20
-              WHEN 'track' THEN 15
               ELSE 20
             END AS cost_materials,
             CASE wf.road_class
@@ -853,7 +1019,6 @@ async function seedDemoData(pgPool: Pool, region: RegionConfig) {
               WHEN 'secondary' THEN 60
               WHEN 'tertiary' THEN 50
               WHEN 'residential' THEN 40
-              WHEN 'track' THEN 35
               ELSE 40
             END AS duration_s,
             CASE wf.road_class
@@ -863,7 +1028,6 @@ async function seedDemoData(pgPool: Pool, region: RegionConfig) {
               WHEN 'secondary' THEN 25
               WHEN 'tertiary' THEN 20
               WHEN 'residential' THEN 20
-              WHEN 'track' THEN 18
               ELSE 20
             END AS repair_amount,
             0,
@@ -988,57 +1152,104 @@ async function ingestBuildings(
   console.log(`Loaded ${placeCount[0].count} places.`);
 
   // 3. Join
-  const buildings = await runDuckDB(buildBuildingsQuery());
+  const rawBuildings = await runDuckDB(buildBuildingsQuery());
 
-  const matchedCount = buildings.reduce((count: number, building: any) => {
-    const categories = normalizeCategories(building.categories);
-    const res = getResourcesFromCategories(categories);
-    return res.cat ? count + 1 : count;
-  }, 0);
-  console.log(`Processing ${buildings.length} buildings (${matchedCount} matched with places)...`);
+  // Pre-process buildings with weights and cells
+  const processedBuildings: BuildingWithWeight[] = rawBuildings.map((b: any) => {
+    const categories = normalizeCategories(b.categories);
+    const baseResources = getResourcesFromCategories(categories);
+    const resources = applyResourceFallback(b.id, baseResources);
+    const bbox = { xmin: b.xmin, ymin: b.ymin, xmax: b.xmax, ymax: b.ymax };
+    const cells = bboxToCells(bbox, H3_RESOLUTION);
+    const area = (b.xmax - b.xmin) * (b.ymax - b.ymin);
+    const hasMatchedCategory = baseResources.cat !== null;
+    const weight = calculateBuildingWeight(b.id, area, hasMatchedCategory);
+
+    return {
+      id: b.id,
+      xmin: b.xmin,
+      ymin: b.ymin,
+      xmax: b.xmax,
+      ymax: b.ymax,
+      categories,
+      resources,
+      weight,
+      area,
+      cells
+    };
+  });
+
+  const matchedCount = processedBuildings.filter(b => b.resources.cat !== null).length;
+  console.log(`Found ${rawBuildings.length} buildings (${matchedCount} matched with places)`);
+
+  // Log resource distribution before limiting
+  const beforeCounts = {
+    food: processedBuildings.filter(b => b.resources.food).length,
+    equipment: processedBuildings.filter(b => b.resources.equipment).length,
+    energy: processedBuildings.filter(b => b.resources.energy).length,
+    materials: processedBuildings.filter(b => b.resources.materials).length,
+    none: processedBuildings.filter(b => !b.resources.food && !b.resources.equipment && !b.resources.energy && !b.resources.materials).length
+  };
+  console.log(`Before limiting - Food: ${beforeCounts.food}, Equipment: ${beforeCounts.equipment}, Energy: ${beforeCounts.energy}, Materials: ${beforeCounts.materials}, None: ${beforeCounts.none}`);
+
+  // Apply per-hex limiting
+  const limitedBuildings = limitBuildingsPerHex(processedBuildings, MAX_BUILDINGS_PER_HEX_PER_TYPE);
+
+  // Log resource distribution after limiting
+  const afterCounts = {
+    food: limitedBuildings.filter(b => b.resources.food).length,
+    equipment: limitedBuildings.filter(b => b.resources.equipment).length,
+    energy: limitedBuildings.filter(b => b.resources.energy).length,
+    materials: limitedBuildings.filter(b => b.resources.materials).length
+  };
+
+  // Count unique hexes
+  const allHexes = new Set<string>();
+  limitedBuildings.forEach(b => b.cells.forEach(c => allHexes.add(c)));
+
+  console.log(`After limiting to ${MAX_BUILDINGS_PER_HEX_PER_TYPE} per type per hex: ${limitedBuildings.length} buildings across ${allHexes.size} hexes`);
+  console.log(`After limiting - Food: ${afterCounts.food}, Equipment: ${afterCounts.equipment}, Energy: ${afterCounts.energy}, Materials: ${afterCounts.materials}`);
 
   const client = await pgPool.connect();
   try {
     const CHUNK_SIZE = 1000;
     let count = 0;
-    
+
     await client.query("BEGIN");
-    
-    for (let i = 0; i < buildings.length; i += CHUNK_SIZE) {
-      const chunk = buildings.slice(i, i + CHUNK_SIZE);
+
+    for (let i = 0; i < limitedBuildings.length; i += CHUNK_SIZE) {
+      const chunk = limitedBuildings.slice(i, i + CHUNK_SIZE);
       const values: any[] = [];
       const placeHolders: string[] = [];
       const mappingRows: Array<[string, string]> = [];
       const hexesToCreate = new Set<string>();
-      
-      chunk.forEach((b: any, idx: number) => {
-        const offset = idx * 11;
-        const categories = normalizeCategories(b.categories);
-        const res = applyResourceFallback(b.id, getResourcesFromCategories(categories));
-        const bbox = { xmin: b.xmin, ymin: b.ymin, xmax: b.xmax, ymax: b.ymax };
-        const cells = bboxToCells(bbox, H3_RESOLUTION);
 
-        cells.forEach((cell) => {
+      chunk.forEach((b, idx) => {
+        const offset = idx * 13;
+
+        b.cells.forEach((cell) => {
           hexesToCreate.add(cell);
           mappingRows.push([b.id, cell]);
           regionHexes.add(cell);
         });
-        
+
         placeHolders.push(
-          `($${offset + 1}, 'building', $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11})`
+          `($${offset + 1}, 'building', $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12}, $${offset + 13})`
         );
         values.push(
-          b.id, 
+          b.id,
           region.regionId,
           b.xmin,
           b.ymin,
           b.xmax,
           b.ymax,
-          JSON.stringify({ categories }), 
+          JSON.stringify({ categories: b.categories }),
           null, // road_class
-          res.cat,
-          res.labor,
-          res.materials
+          b.resources.cat,
+          b.resources.food,
+          b.resources.equipment,
+          b.resources.energy,
+          b.resources.materials
         );
       });
 
@@ -1049,22 +1260,29 @@ async function ingestBuildings(
         centerLat,
         centerLon
       );
-      
+
       await client.query(buildBuildingsUpsertQuery(placeHolders), values);
 
       await client.query(
         "DELETE FROM world_feature_hex_cells WHERE gers_id = ANY($1::text[])",
-        [chunk.map((b: any) => b.id)]
+        [chunk.map((b) => b.id)]
       );
 
       await insertWorldFeatureHexCells(client, mappingRows);
-      
+
       count += chunk.length;
       process.stdout.write(".");
     }
-    
+
+    // Verify world_feature_hex_cells were inserted
+    const hexCellCheck = await client.query<{ count: string }>(
+      "SELECT COUNT(*)::text as count FROM world_feature_hex_cells wfh JOIN world_features wf ON wfh.gers_id = wf.gers_id WHERE wf.feature_type = 'building' AND wf.region_id = $1",
+      [region.regionId]
+    );
+    console.log(`\nVerify: ${hexCellCheck.rows[0]?.count || 0} building-to-hex mappings in world_feature_hex_cells`);
+
     await client.query("COMMIT");
-    console.log(`\nSuccess! Inserted ${count} buildings.`);
+    console.log(`Success! Inserted ${count} buildings.`);
   } finally {
     client.release();
   }

@@ -10,7 +10,9 @@ export type TaskDelta = {
   status: string;
   priority_score: number;
   vote_score: number;
-  cost_labor: number;
+  cost_food: number;
+  cost_equipment: number;
+  cost_energy: number;
   cost_materials: number;
   duration_s: number;
   repair_amount: number;

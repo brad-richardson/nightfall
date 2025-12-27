@@ -19,8 +19,10 @@ import { formatNumber, formatPercent } from "../lib/formatters";
 import { ResourcePoolsPanel } from "./sidebar/ResourcePoolsPanel";
 import { RegionHealthPanel } from "./sidebar/RegionHealthPanel";
 
+type ResourceType = "food" | "equipment" | "energy" | "materials";
+
 type ResourceDelta = {
-  type: "labor" | "materials";
+  type: ResourceType;
   delta: number;
   source: string;
   ts: number;
@@ -31,7 +33,7 @@ type ResourceTransferPayload = {
   region_id: string;
   source_gers_id: string | null;
   hub_gers_id: string | null;
-  resource_type: "labor" | "materials";
+  resource_type: ResourceType;
   amount: number;
   depart_at: string;
   arrive_at: string;
@@ -56,6 +58,13 @@ function formatTime(seconds: number) {
 
 const FETCH_RETRY_OPTIONS = { attempts: 3, baseDelayMs: 250, maxDelayMs: 2000, jitter: 0.2 };
 
+const RESOURCE_LABELS: Record<ResourceType, string> = {
+  food: "Food",
+  equipment: "Equipment",
+  energy: "Energy",
+  materials: "Materials"
+};
+
 function ResourceTicker({ deltas }: { deltas: ResourceDelta[] }) {
   return (
     <div className="flex flex-col gap-2 rounded-2xl border border-white/20 bg-[rgba(12,16,20,0.45)] px-4 py-3 shadow-[0_12px_30px_rgba(0,0,0,0.35)] backdrop-blur-md">
@@ -78,7 +87,7 @@ function ResourceTicker({ deltas }: { deltas: ResourceDelta[] }) {
                 </span>
                 <div className="leading-tight">
                   <div className="font-semibold">
-                    {item.type === "labor" ? "Labor" : "Materials"} {item.delta > 0 ? "added" : "spent"} {Math.abs(Math.round(item.delta))}
+                    {RESOURCE_LABELS[item.type]} {item.delta > 0 ? "added" : "spent"} {Math.abs(Math.round(item.delta))}
                   </div>
                   <div className="text-[10px] uppercase tracking-[0.2em] text-white/40">{item.source}</div>
                 </div>
@@ -179,9 +188,9 @@ export default function Dashboard({
   const pendingUpdatesRef = useRef<{
     cycle: Partial<CycleState> | null;
     hexUpdates: Map<string, { h3_index: string; rust_level: number }>;
-    regionUpdate: { pool_labor: number; pool_materials: number; rust_avg?: number | null; health_avg?: number | null } | null;
+    regionUpdate: { pool_food: number; pool_equipment: number; pool_energy: number; pool_materials: number; rust_avg?: number | null; health_avg?: number | null } | null;
     featureUpdates: Map<string, { health: number; status: string }>;
-    taskUpdates: Map<string, { task_id: string; status: string; priority_score: number; vote_score?: number; cost_labor?: number; cost_materials?: number; duration_s?: number; repair_amount?: number; task_type?: string; target_gers_id?: string; region_id?: string }>;
+    taskUpdates: Map<string, { task_id: string; status: string; priority_score: number; vote_score?: number; cost_food?: number; cost_equipment?: number; cost_energy?: number; cost_materials?: number; duration_s?: number; repair_amount?: number; task_type?: string; target_gers_id?: string; region_id?: string }>;
     resourceDeltas: ResourceDelta[];
     dirty: boolean;
   }>({
@@ -254,7 +263,9 @@ export default function Dashboard({
         const update = pending.regionUpdate;
         setRegion((prev) => ({
           ...prev,
-          pool_labor: update.pool_labor,
+          pool_food: update.pool_food,
+          pool_equipment: update.pool_equipment,
+          pool_energy: update.pool_energy,
           pool_materials: update.pool_materials,
           stats: {
             ...prev.stats,
@@ -288,7 +299,9 @@ export default function Dashboard({
                 status: delta.status,
                 priority_score: delta.priority_score,
                 vote_score: delta.vote_score ?? 0,
-                cost_labor: delta.cost_labor ?? 0,
+                cost_food: delta.cost_food ?? 0,
+                cost_equipment: delta.cost_equipment ?? 0,
+                cost_energy: delta.cost_energy ?? 0,
                 cost_materials: delta.cost_materials ?? 0,
                 duration_s: delta.duration_s ?? 0,
                 repair_amount: delta.repair_amount ?? 0,
@@ -337,7 +350,9 @@ export default function Dashboard({
         regions_changed?: string[];
         region_updates?: {
           region_id: string;
-          pool_labor: number;
+          pool_food: number;
+          pool_equipment: number;
+          pool_energy: number;
           pool_materials: number;
           rust_avg?: number | null;
           health_avg?: number | null;
@@ -355,12 +370,22 @@ export default function Dashboard({
         const match = data.region_updates.find((r) => r.region_id === regionRef.current.region_id);
         if (match) {
           // Calculate resource deltas
-          const prevLabor = pending.regionUpdate?.pool_labor ?? regionRef.current.pool_labor;
+          const prevFood = pending.regionUpdate?.pool_food ?? regionRef.current.pool_food;
+          const prevEquipment = pending.regionUpdate?.pool_equipment ?? regionRef.current.pool_equipment;
+          const prevEnergy = pending.regionUpdate?.pool_energy ?? regionRef.current.pool_energy;
           const prevMaterials = pending.regionUpdate?.pool_materials ?? regionRef.current.pool_materials;
-          const laborDelta = match.pool_labor - prevLabor;
+          const foodDelta = match.pool_food - prevFood;
+          const equipmentDelta = match.pool_equipment - prevEquipment;
+          const energyDelta = match.pool_energy - prevEnergy;
           const materialDelta = match.pool_materials - prevMaterials;
-          if (laborDelta !== 0) {
-            pending.resourceDeltas.push({ type: "labor", delta: laborDelta, source: "Daily ops", ts: Date.now() });
+          if (foodDelta !== 0) {
+            pending.resourceDeltas.push({ type: "food", delta: foodDelta, source: "Daily ops", ts: Date.now() });
+          }
+          if (equipmentDelta !== 0) {
+            pending.resourceDeltas.push({ type: "equipment", delta: equipmentDelta, source: "Daily ops", ts: Date.now() });
+          }
+          if (energyDelta !== 0) {
+            pending.resourceDeltas.push({ type: "energy", delta: energyDelta, source: "Daily ops", ts: Date.now() });
           }
           if (materialDelta !== 0) {
             pending.resourceDeltas.push({ type: "materials", delta: materialDelta, source: "Daily ops", ts: Date.now() });
@@ -397,7 +422,9 @@ export default function Dashboard({
         status: string;
         priority_score: number;
         vote_score?: number;
-        cost_labor?: number;
+        cost_food?: number;
+        cost_equipment?: number;
+        cost_energy?: number;
         cost_materials?: number;
         duration_s?: number;
         repair_amount?: number;
@@ -463,20 +490,20 @@ export default function Dashboard({
     }
   }, [apiBaseUrl, auth, setRegion]);
 
-  const handleContribute = useCallback(async (sourceGersId: string, labor: number, materials: number) => {
+  const handleContribute = useCallback(async (sourceGersId: string, resourceType: string, amount: number) => {
     if (!auth.clientId || !auth.token) return;
     try {
       const res = await fetch(`${apiBaseUrl}/api/contribute`, {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${auth.token}`
         },
-        body: JSON.stringify({ 
-          client_id: auth.clientId, 
-          region_id: region.region_id, 
-          labor, 
-          materials,
+        body: JSON.stringify({
+          client_id: auth.clientId,
+          region_id: region.region_id,
+          resource_type: resourceType,
+          amount,
           source_gers_id: sourceGersId
         })
       });
@@ -493,7 +520,9 @@ export default function Dashboard({
     let buildings = 0;
     let healthy = 0;
     let degraded = 0;
-    let laborBuildings = 0;
+    let foodBuildings = 0;
+    let equipmentBuildings = 0;
+    let energyBuildings = 0;
     let materialBuildings = 0;
 
     for (const f of features) {
@@ -505,12 +534,14 @@ export default function Dashboard({
         }
       } else if (f.feature_type === "building") {
         buildings += 1;
-        if (f.generates_labor) laborBuildings += 1;
+        if (f.generates_food) foodBuildings += 1;
+        if (f.generates_equipment) equipmentBuildings += 1;
+        if (f.generates_energy) energyBuildings += 1;
         if (f.generates_materials) materialBuildings += 1;
       }
     }
 
-    return { roads, buildings, healthy, degraded, laborBuildings, materialBuildings };
+    return { roads, buildings, healthy, degraded, foodBuildings, equipmentBuildings, energyBuildings, materialBuildings };
   }, [features]);
 
   const healthPercent = region.stats.health_avg;
@@ -524,9 +555,13 @@ export default function Dashboard({
         </p>
         <div className="mt-4">
           <ResourcePoolsPanel
-            poolLabor={region.pool_labor}
+            poolFood={region.pool_food}
+            poolEquipment={region.pool_equipment}
+            poolEnergy={region.pool_energy}
             poolMaterials={region.pool_materials}
-            laborBuildings={counts.laborBuildings}
+            foodBuildings={counts.foodBuildings}
+            equipmentBuildings={counts.equipmentBuildings}
+            energyBuildings={counts.energyBuildings}
             materialBuildings={counts.materialBuildings}
             variant="light"
           />
@@ -640,9 +675,13 @@ export default function Dashboard({
           <MapOverlay position="top-right" className="!top-24 hidden w-72 flex-col gap-4 lg:flex">
             <MapPanel title="Resource Pools">
               <ResourcePoolsPanel
-                poolLabor={region.pool_labor}
+                poolFood={region.pool_food}
+                poolEquipment={region.pool_equipment}
+                poolEnergy={region.pool_energy}
                 poolMaterials={region.pool_materials}
-                laborBuildings={counts.laborBuildings}
+                foodBuildings={counts.foodBuildings}
+                equipmentBuildings={counts.equipmentBuildings}
+                energyBuildings={counts.energyBuildings}
                 materialBuildings={counts.materialBuildings}
                 variant="dark"
               />

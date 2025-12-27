@@ -13,18 +13,25 @@ export async function simulateBots(client: PoolLike, enabled: boolean) {
     const regionId = regionResult.rows[0]?.region_id;
 
     if (regionId) {
-      const labor = Math.floor(Math.random() * 50) + 10;
+      const food = Math.floor(Math.random() * 50) + 10;
+      const equipment = Math.floor(Math.random() * 30) + 5;
+      const energy = Math.floor(Math.random() * 30) + 5;
       const materials = Math.floor(Math.random() * 50) + 10;
 
       await client.query(
-        "UPDATE regions SET pool_labor = pool_labor + $1, pool_materials = pool_materials + $2 WHERE region_id = $3",
-        [labor, materials, regionId]
+        `UPDATE regions SET
+          pool_food = pool_food + $1,
+          pool_equipment = pool_equipment + $2,
+          pool_energy = pool_energy + $3,
+          pool_materials = pool_materials + $4
+        WHERE region_id = $5`,
+        [food, equipment, energy, materials, regionId]
       );
 
       await notifyEvent(client, "feed_item", {
         event_type: "contribute",
         region_id: regionId,
-        message: `Anonymous contributor added ${labor} labor and ${materials} materials`,
+        message: `Anonymous contributor added ${food} food, ${equipment} equipment, ${energy} energy, and ${materials} materials`,
         ts: new Date().toISOString()
       });
     }

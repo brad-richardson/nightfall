@@ -4,6 +4,8 @@ import {
   buildBuildingsQuery,
   buildBuildingsUpsertQuery,
   applyResourceFallback,
+  calculateBuildingWeight,
+  limitBuildingsPerHex,
   getRegionConfig,
   getResourcesFromCategories,
   H3_RESOLUTION,
@@ -159,17 +161,19 @@ describe("building ingest query", () => {
 
     expect(query).toContain("ON CONFLICT (gers_id) DO UPDATE");
     expect(query).toContain("place_category = EXCLUDED.place_category");
-    expect(query).toContain("generates_labor = EXCLUDED.generates_labor");
+    expect(query).toContain("generates_food = EXCLUDED.generates_food");
+    expect(query).toContain("generates_equipment = EXCLUDED.generates_equipment");
+    expect(query).toContain("generates_energy = EXCLUDED.generates_energy");
     expect(query).toContain("generates_materials = EXCLUDED.generates_materials");
   });
 });
 
 describe("category resource mapping", () => {
-  it("matches labor from alternates", () => {
+  it("matches food from alternates", () => {
     const categories = { primary: "museum", alternate: ["food_court"] };
     const res = getResourcesFromCategories(categories);
 
-    expect(res.labor).toBe(true);
+    expect(res.food).toBe(true);
     expect(res.materials).toBe(false);
   });
 
@@ -184,25 +188,32 @@ describe("category resource mapping", () => {
     expect(res.cat).toBe("warehouse");
   });
 
-  it("matches materials from hardware and home improvement categories", () => {
+  it("matches equipment from hardware and home improvement categories", () => {
     const categories = [
       { primary: "hardware_store", alternate: null },
-      { primary: "home_improvement_store", alternate: ["garden_center"] }
+      { primary: "home_improvement_store", alternate: null }
     ];
     const res = getResourcesFromCategories(categories);
 
-    expect(res.materials).toBe(true);
-    expect(res.labor).toBe(false);
+    expect(res.equipment).toBe(true);
+    expect(res.food).toBe(false);
+  });
+
+  it("matches energy from industrial categories", () => {
+    const categories = { primary: "factory", alternate: null };
+    const res = getResourcesFromCategories(categories);
+
+    expect(res.energy).toBe(true);
   });
 });
 
 describe("fallback resource assignment", () => {
-  it("assigns labor or materials for a deterministic slice of ids", () => {
+  it("assigns a resource for a deterministic slice of ids", () => {
     let fallbackFound = false;
     for (let i = 0; i < 1000; i += 1) {
       const id = `fallback-test-${i}`;
-      const res = applyResourceFallback(id, { labor: false, materials: false, cat: null });
-      if (res.labor || res.materials) {
+      const res = applyResourceFallback(id, { food: false, equipment: false, energy: false, materials: false, cat: null });
+      if (res.food || res.equipment || res.energy || res.materials) {
         fallbackFound = true;
         break;
       }
@@ -213,12 +224,145 @@ describe("fallback resource assignment", () => {
 
   it("does not override existing resource flags", () => {
     const res = applyResourceFallback("fallback-test-override", {
-      labor: true,
+      food: true,
+      equipment: false,
+      energy: false,
       materials: false,
       cat: "cafe"
     });
 
-    expect(res.labor).toBe(true);
+    expect(res.food).toBe(true);
     expect(res.materials).toBe(false);
+  });
+});
+
+describe("building weight calculation", () => {
+  it("gives matched categories higher weight", () => {
+    const matchedWeight = calculateBuildingWeight("building-1", 0.001, true);
+    const unmatchedWeight = calculateBuildingWeight("building-1", 0.001, false);
+
+    expect(matchedWeight).toBeGreaterThan(unmatchedWeight);
+    expect(matchedWeight - unmatchedWeight).toBeGreaterThanOrEqual(1000);
+  });
+
+  it("gives larger buildings higher weight", () => {
+    const largeWeight = calculateBuildingWeight("building-1", 0.01, false);
+    const smallWeight = calculateBuildingWeight("building-1", 0.001, false);
+
+    expect(largeWeight).toBeGreaterThan(smallWeight);
+  });
+
+  it("provides deterministic results for same input", () => {
+    const weight1 = calculateBuildingWeight("building-abc", 0.005, true);
+    const weight2 = calculateBuildingWeight("building-abc", 0.005, true);
+
+    expect(weight1).toBe(weight2);
+  });
+});
+
+describe("per-hex building limiting", () => {
+  const makeBuilding = (id: string, resourceType: "food" | "equipment" | "energy" | "materials", cells: string[], weight: number) => ({
+    id,
+    xmin: 0,
+    ymin: 0,
+    xmax: 1,
+    ymax: 1,
+    categories: null,
+    resources: {
+      food: resourceType === "food",
+      equipment: resourceType === "equipment",
+      energy: resourceType === "energy",
+      materials: resourceType === "materials",
+      cat: resourceType
+    },
+    weight,
+    area: 0.001,
+    cells
+  });
+
+  it("limits buildings of same type to max per hex", () => {
+    const buildings = [];
+    for (let i = 0; i < 30; i++) {
+      buildings.push(makeBuilding(`building-${i}`, "food", ["hex-1"], 100 - i));
+    }
+
+    const limited = limitBuildingsPerHex(buildings, 20);
+
+    expect(limited.length).toBe(20);
+    // Should keep highest weight buildings
+    expect(limited[0].id).toBe("building-0");
+    expect(limited[19].id).toBe("building-19");
+  });
+
+  it("allows max buildings of each type per hex", () => {
+    const buildings = [];
+    for (let i = 0; i < 25; i++) {
+      buildings.push(makeBuilding(`food-${i}`, "food", ["hex-1"], 100 - i));
+      buildings.push(makeBuilding(`equipment-${i}`, "equipment", ["hex-1"], 100 - i));
+    }
+
+    const limited = limitBuildingsPerHex(buildings, 20);
+
+    const foodBuildings = limited.filter(b => b.resources.food);
+    const equipmentBuildings = limited.filter(b => b.resources.equipment);
+
+    expect(foodBuildings.length).toBe(20);
+    expect(equipmentBuildings.length).toBe(20);
+    expect(limited.length).toBe(40);
+  });
+
+  it("respects limits across multiple hexes", () => {
+    const buildings = [];
+    // Building spans both hexes
+    for (let i = 0; i < 25; i++) {
+      buildings.push(makeBuilding(`building-${i}`, "food", ["hex-1", "hex-2"], 100 - i));
+    }
+
+    const limited = limitBuildingsPerHex(buildings, 20);
+
+    expect(limited.length).toBe(20);
+  });
+
+  it("rejects multi-hex building if any hex is at limit", () => {
+    const buildings = [];
+    // Fill hex-1 to limit with single-hex buildings
+    for (let i = 0; i < 20; i++) {
+      buildings.push(makeBuilding(`hex1-only-${i}`, "food", ["hex-1"], 200 - i));
+    }
+    // Try to add a building that spans hex-1 (full) and hex-2 (empty)
+    buildings.push(makeBuilding("multi-hex", "food", ["hex-1", "hex-2"], 50));
+
+    const limited = limitBuildingsPerHex(buildings, 20);
+
+    // Multi-hex building should be rejected because hex-1 is at limit
+    expect(limited.length).toBe(20);
+    expect(limited.find(b => b.id === "multi-hex")).toBeUndefined();
+  });
+
+  it("keeps buildings without resources unlimited", () => {
+    const buildings = [
+      {
+        id: "no-resource-1",
+        xmin: 0, ymin: 0, xmax: 1, ymax: 1,
+        categories: null,
+        resources: { food: false, equipment: false, energy: false, materials: false, cat: null },
+        weight: 1,
+        area: 0.001,
+        cells: ["hex-1"]
+      },
+      {
+        id: "no-resource-2",
+        xmin: 0, ymin: 0, xmax: 1, ymax: 1,
+        categories: null,
+        resources: { food: false, equipment: false, energy: false, materials: false, cat: null },
+        weight: 2,
+        area: 0.001,
+        cells: ["hex-1"]
+      }
+    ];
+
+    const limited = limitBuildingsPerHex(buildings, 1);
+
+    expect(limited.length).toBe(2);
   });
 });

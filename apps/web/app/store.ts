@@ -24,7 +24,9 @@ export type Feature = {
   status?: string | null;
   road_class?: string | null;
   place_category?: string | null;
-  generates_labor?: boolean;
+  generates_food?: boolean;
+  generates_equipment?: boolean;
+  generates_energy?: boolean;
   generates_materials?: boolean;
   is_hub?: boolean;
 };
@@ -35,7 +37,9 @@ export type Task = {
   priority_score: number;
   status: string;
   vote_score: number;
-  cost_labor: number;
+  cost_food: number;
+  cost_equipment: number;
+  cost_energy: number;
   cost_materials: number;
   duration_s: number;
   repair_amount: number;
@@ -58,7 +62,9 @@ export type Region = {
   region_id: string;
   name: string;
   boundary: Boundary | null;
-  pool_labor: number;
+  pool_food: number;
+  pool_equipment: number;
+  pool_energy: number;
   pool_materials: number;
   crews: Crew[];
   tasks: Task[];
@@ -116,7 +122,9 @@ export const useStore = create<State & Actions>()(
         region_id: "",
         name: "",
         boundary: null,
-        pool_labor: 0,
+        pool_food: 0,
+        pool_equipment: 0,
+        pool_energy: 0,
         pool_materials: 0,
         crews: [],
         tasks: [],

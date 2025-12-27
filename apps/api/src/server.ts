@@ -19,36 +19,50 @@ const MAX_DISPLAY_NAME_LENGTH = 32;
 const MAX_REGION_ID_LENGTH = 64;
 
 const FEATURE_TYPES = new Set(["road", "building", "park", "water", "intersection"]);
-const LABOR_CATEGORIES = [
+
+// Resource generation categories by building type
+const FOOD_CATEGORIES = [
   "restaurant",
   "cafe",
   "bar",
   "food",
-  "office",
-  "retail",
-  "shop",
-  "store",
-  "school",
-  "university",
-  "hospital"
+  "grocery",
+  "supermarket",
+  "bakery",
+  "deli",
+  "farm",
+  "farmers_market"
 ];
-const MATERIAL_CATEGORIES = [
-  "industrial",
-  "factory",
-  "warehouse",
-  "manufacturing",
-  "construction",
-  "building_supply",
+
+const EQUIPMENT_CATEGORIES = [
   "hardware",
   "home_improvement",
-  "garden_center",
-  "nursery_and_gardening",
+  "automotive_repair",
+  "auto_body_shop",
+  "tool_rental",
+  "machine_shop"
+];
+
+const ENERGY_CATEGORIES = [
+  "industrial",
+  "factory",
+  "power_plant",
+  "solar",
+  "wind",
+  "utility",
+  "electric"
+];
+
+const MATERIALS_CATEGORIES = [
+  "construction",
+  "building_supply",
   "lumber",
   "wood",
   "flooring",
-  "automotive_repair",
-  "auto_body_shop",
-  "industrial_equipment"
+  "warehouse",
+  "manufacturing",
+  "garden_center",
+  "nursery_and_gardening"
 ];
 
 const OVERTURE_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // daily refresh is sufficient; releases are monthly
@@ -481,7 +495,9 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       region_id: string;
       name: string;
       center: unknown;
-      pool_labor: number;
+      pool_food: number;
+      pool_equipment: number;
+      pool_energy: number;
       pool_materials: number;
       crew_count: number;
       active_crews: number;
@@ -493,7 +509,9 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         r.region_id,
         r.name,
         ST_AsGeoJSON(r.center)::json as center,
-        r.pool_labor::float,
+        r.pool_food::float,
+        r.pool_equipment::float,
+        r.pool_energy::float,
         r.pool_materials::float,
         r.crew_count,
         COALESCE(c.active_crews, 0)::int AS active_crews,
@@ -547,10 +565,12 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       region_id: string;
       name: string;
       boundary: unknown;
-      pool_labor: number;
+      pool_food: number;
+      pool_equipment: number;
+      pool_energy: number;
       pool_materials: number;
     }>(
-      "SELECT region_id, name, ST_AsGeoJSON(boundary)::json as boundary, pool_labor::float, pool_materials::float FROM regions WHERE region_id = $1",
+      "SELECT region_id, name, ST_AsGeoJSON(boundary)::json as boundary, pool_food::float, pool_equipment::float, pool_energy::float, pool_materials::float FROM regions WHERE region_id = $1",
       [regionId]
     );
 
@@ -576,7 +596,9 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       priority_score: number;
       status: string;
       vote_score: number;
-      cost_labor: number;
+      cost_food: number;
+      cost_equipment: number;
+      cost_energy: number;
       cost_materials: number;
       duration_s: number;
       repair_amount: number;
@@ -589,7 +611,9 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         priority_score::float,
         status,
         vote_score::float,
-        cost_labor,
+        cost_food,
+        cost_equipment,
+        cost_energy,
         cost_materials,
         duration_s,
         repair_amount,
@@ -629,7 +653,9 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       region_id: region.region_id,
       name: region.name,
       boundary: region.boundary,
-      pool_labor: region.pool_labor,
+      pool_food: region.pool_food,
+      pool_equipment: region.pool_equipment,
+      pool_energy: region.pool_energy,
       pool_materials: region.pool_materials,
       crews: crewsResult.rows,
       tasks: tasksResult.rows,
@@ -661,8 +687,10 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       typesClause = `AND wf.feature_type = ANY($${values.length})`;
     }
 
-    const laborIdx = values.length + 1;
-    const materialsIdx = values.length + 2;
+    const foodIdx = values.length + 1;
+    const equipmentIdx = values.length + 2;
+    const energyIdx = values.length + 3;
+    const materialsIdx = values.length + 4;
 
     const featuresResult = await pool.query<{
       gers_id: string;
@@ -674,7 +702,9 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       status: string | null;
       road_class: string | null;
       place_category: string | null;
-      generates_labor: boolean;
+      generates_food: boolean;
+      generates_equipment: boolean;
+      generates_energy: boolean;
       generates_materials: boolean;
       is_hub: boolean;
     }>(
@@ -690,12 +720,17 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         wf.road_class,
         wf.place_category,
         (
-          wf.generates_labor IS TRUE OR
-          (
-            LOWER(COALESCE(wf.place_category, '')) LIKE ANY($${laborIdx}) AND
-            NOT LOWER(COALESCE(wf.place_category, '')) LIKE ANY($${materialsIdx})
-          )
-        ) AS generates_labor,
+          wf.generates_food IS TRUE OR
+          LOWER(COALESCE(wf.place_category, '')) LIKE ANY($${foodIdx})
+        ) AS generates_food,
+        (
+          wf.generates_equipment IS TRUE OR
+          LOWER(COALESCE(wf.place_category, '')) LIKE ANY($${equipmentIdx})
+        ) AS generates_equipment,
+        (
+          wf.generates_energy IS TRUE OR
+          LOWER(COALESCE(wf.place_category, '')) LIKE ANY($${energyIdx})
+        ) AS generates_energy,
         (
           wf.generates_materials IS TRUE OR
           LOWER(COALESCE(wf.place_category, '')) LIKE ANY($${materialsIdx})
@@ -709,7 +744,13 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         AND wf.bbox_ymax >= $2
       ${typesClause}
       `,
-      [...values, LABOR_CATEGORIES.map((c) => `%${c}%`), MATERIAL_CATEGORIES.map((c) => `%${c}%`)]
+      [
+        ...values,
+        FOOD_CATEGORIES.map((c) => `%${c}%`),
+        EQUIPMENT_CATEGORIES.map((c) => `%${c}%`),
+        ENERGY_CATEGORIES.map((c) => `%${c}%`),
+        MATERIALS_CATEGORIES.map((c) => `%${c}%`)
+      ]
     );
 
     return { features: featuresResult.rows };
@@ -801,14 +842,18 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     const body = request.body as {
       client_id?: string;
       region_id?: string;
-      labor?: number;
+      food?: number;
+      equipment?: number;
+      energy?: number;
       materials?: number;
       source_gers_id?: string;
     } | undefined;
 
     const clientId = body?.client_id?.trim();
     const regionId = body?.region_id?.trim();
-    const labor = Number(body?.labor ?? 0);
+    const food = Number(body?.food ?? 0);
+    const equipment = Number(body?.equipment ?? 0);
+    const energy = Number(body?.energy ?? 0);
     const materials = Number(body?.materials ?? 0);
     const sourceGersId = body?.source_gers_id?.trim();
     const authHeader = request.headers["authorization"];
@@ -833,12 +878,16 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       return { ok: false, error: "region_id_too_long" };
     }
 
-    if (!Number.isFinite(labor) || !Number.isFinite(materials) || labor < 0 || materials < 0) {
+    if (
+      !Number.isFinite(food) || !Number.isFinite(equipment) ||
+      !Number.isFinite(energy) || !Number.isFinite(materials) ||
+      food < 0 || equipment < 0 || energy < 0 || materials < 0
+    ) {
       reply.status(400);
       return { ok: false, error: "invalid_amount" };
     }
 
-    if (labor === 0 && materials === 0) {
+    if (food === 0 && equipment === 0 && energy === 0 && materials === 0) {
       reply.status(400);
       return { ok: false, error: "empty_contribution" };
     }
@@ -861,12 +910,16 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       }
 
       const usageResult = await pool.query<{
-        labor_used: number;
+        food_used: number;
+        equipment_used: number;
+        energy_used: number;
         materials_used: number;
       }>(
         `
         SELECT
-          COALESCE(SUM((payload->>'labor')::int), 0) AS labor_used,
+          COALESCE(SUM((payload->>'food')::int), 0) AS food_used,
+          COALESCE(SUM((payload->>'equipment')::int), 0) AS equipment_used,
+          COALESCE(SUM((payload->>'energy')::int), 0) AS energy_used,
           COALESCE(SUM((payload->>'materials')::int), 0) AS materials_used
         FROM events
         WHERE event_type = 'contribute'
@@ -877,15 +930,21 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         [clientId, regionId]
       );
 
-      const usedLabor = Number(usageResult.rows[0]?.labor_used ?? 0);
+      const usedFood = Number(usageResult.rows[0]?.food_used ?? 0);
+      const usedEquipment = Number(usageResult.rows[0]?.equipment_used ?? 0);
+      const usedEnergy = Number(usageResult.rows[0]?.energy_used ?? 0);
       const usedMaterials = Number(usageResult.rows[0]?.materials_used ?? 0);
-      const remainingLabor = Math.max(0, CONTRIBUTION_LIMIT - usedLabor);
+      const remainingFood = Math.max(0, CONTRIBUTION_LIMIT - usedFood);
+      const remainingEquipment = Math.max(0, CONTRIBUTION_LIMIT - usedEquipment);
+      const remainingEnergy = Math.max(0, CONTRIBUTION_LIMIT - usedEnergy);
       const remainingMaterials = Math.max(0, CONTRIBUTION_LIMIT - usedMaterials);
 
-      const allowedLabor = Math.min(labor, remainingLabor);
+      const allowedFood = Math.min(food, remainingFood);
+      const allowedEquipment = Math.min(equipment, remainingEquipment);
+      const allowedEnergy = Math.min(energy, remainingEnergy);
       const allowedMaterials = Math.min(materials, remainingMaterials);
 
-      if (allowedLabor === 0 && allowedMaterials === 0) {
+      if (allowedFood === 0 && allowedEquipment === 0 && allowedEnergy === 0 && allowedMaterials === 0) {
         await pool.query("ROLLBACK");
         reply.status(429);
         return { ok: false, error: "contribution_limit" };
@@ -894,7 +953,9 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       const taxed = player.home_region_id && player.home_region_id !== regionId;
       const multiplier = taxed ? TAX_MULTIPLIER : 1;
 
-      const appliedLabor = Math.floor(allowedLabor * multiplier);
+      const appliedFood = Math.floor(allowedFood * multiplier);
+      const appliedEquipment = Math.floor(allowedEquipment * multiplier);
+      const appliedEnergy = Math.floor(allowedEnergy * multiplier);
       const appliedMaterials = Math.floor(allowedMaterials * multiplier);
 
       const sourceResult = sourceGersId
@@ -1021,7 +1082,9 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       );
 
       const transferRows: Array<{ type: string; amount: number }> = [];
-      if (appliedLabor > 0) transferRows.push({ type: "labor", amount: appliedLabor });
+      if (appliedFood > 0) transferRows.push({ type: "food", amount: appliedFood });
+      if (appliedEquipment > 0) transferRows.push({ type: "equipment", amount: appliedEquipment });
+      if (appliedEnergy > 0) transferRows.push({ type: "energy", amount: appliedEnergy });
       if (appliedMaterials > 0) transferRows.push({ type: "materials", amount: appliedMaterials });
 
       if (transferRows.length === 0) {
@@ -1038,7 +1101,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         region_id: string;
         source_gers_id: string | null;
         hub_gers_id: string | null;
-        resource_type: "labor" | "materials";
+        resource_type: "food" | "equipment" | "energy" | "materials";
         amount: number;
         depart_at: string;
         arrive_at: string;
@@ -1084,7 +1147,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
 
       await pool.query(
         "UPDATE players SET lifetime_contrib = lifetime_contrib + $2, last_seen = now() WHERE client_id = $1",
-        [clientId, appliedLabor + appliedMaterials]
+        [clientId, appliedFood + appliedEquipment + appliedEnergy + appliedMaterials]
       );
 
       await pool.query(
@@ -1093,9 +1156,13 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
           clientId,
           regionId,
           JSON.stringify({
-            labor: allowedLabor,
+            food: allowedFood,
+            equipment: allowedEquipment,
+            energy: allowedEnergy,
             materials: allowedMaterials,
-            applied_labor: appliedLabor,
+            applied_food: appliedFood,
+            applied_equipment: appliedEquipment,
+            applied_energy: appliedEnergy,
             applied_materials: appliedMaterials,
             taxed,
             source_gers_id: source.gers_id,
@@ -1115,9 +1182,13 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
 
       return {
         ok: true,
-        applied_labor: appliedLabor,
+        applied_food: appliedFood,
+        applied_equipment: appliedEquipment,
+        applied_energy: appliedEnergy,
         applied_materials: appliedMaterials,
-        remaining_labor: Math.max(0, remainingLabor - allowedLabor),
+        remaining_food: Math.max(0, remainingFood - allowedFood),
+        remaining_equipment: Math.max(0, remainingEquipment - allowedEquipment),
+        remaining_energy: Math.max(0, remainingEnergy - allowedEnergy),
         remaining_materials: Math.max(0, remainingMaterials - allowedMaterials),
         transfers: transferResult.rows
       };
@@ -1195,7 +1266,9 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         status: string;
         priority_score: number;
         vote_score: number;
-        cost_labor: number;
+        cost_food: number;
+        cost_equipment: number;
+        cost_energy: number;
         cost_materials: number;
         duration_s: number;
         repair_amount: number;
@@ -1221,7 +1294,9 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
           t.status,
           t.priority_score,
           t.vote_score,
-          t.cost_labor,
+          t.cost_food,
+          t.cost_equipment,
+          t.cost_energy,
           t.cost_materials,
           t.duration_s,
           t.repair_amount,
@@ -1241,7 +1316,9 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
           status: string;
           priority_score: number;
           vote_score: number;
-          cost_labor: number;
+          cost_food: number;
+          cost_equipment: number;
+          cost_energy: number;
           cost_materials: number;
           duration_s: number;
           repair_amount: number;
@@ -1249,7 +1326,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
           target_gers_id: string;
           region_id: string;
         }>(
-          `SELECT task_id, status, priority_score, vote_score, cost_labor, cost_materials,
+          `SELECT task_id, status, priority_score, vote_score, cost_food, cost_equipment, cost_energy, cost_materials,
                   duration_s, repair_amount, task_type, target_gers_id, region_id
            FROM tasks WHERE task_id = $1`,
           [taskId]

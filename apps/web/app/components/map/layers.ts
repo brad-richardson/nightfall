@@ -68,13 +68,37 @@ export function getBaseLayers(): maplibregl.LayerSpecification[] {
       }
     },
     {
-      id: "buildings-labor",
+      id: "buildings-food",
       source: "overture_buildings",
       "source-layer": "building",
       type: "fill",
       filter: ["==", ["get", "id"], "none"],
       paint: {
-        "fill-color": COLORS.buildingsLabor,
+        "fill-color": COLORS.buildingsFood,
+        "fill-opacity": 0.85,
+        "fill-outline-color": COLORS.buildingOutline
+      }
+    },
+    {
+      id: "buildings-equipment",
+      source: "overture_buildings",
+      "source-layer": "building",
+      type: "fill",
+      filter: ["==", ["get", "id"], "none"],
+      paint: {
+        "fill-color": COLORS.buildingsEquipment,
+        "fill-opacity": 0.85,
+        "fill-outline-color": COLORS.buildingOutline
+      }
+    },
+    {
+      id: "buildings-energy",
+      source: "overture_buildings",
+      "source-layer": "building",
+      type: "fill",
+      filter: ["==", ["get", "id"], "none"],
+      paint: {
+        "fill-color": COLORS.buildingsEnergy,
         "fill-opacity": 0.85,
         "fill-outline-color": COLORS.buildingOutline
       }
@@ -547,8 +571,10 @@ export function getResourcePackageLayers(): maplibregl.LayerSpecification[] {
         "line-color": [
           "match",
           ["get", "resourceType"],
-          "labor", "#3eb0c0",
-          "materials", "#f08a4e",
+          "food", COLORS.buildingsFood,
+          "equipment", COLORS.buildingsEquipment,
+          "energy", COLORS.buildingsEnergy,
+          "materials", COLORS.buildingsMaterials,
           "#ffffff"
         ],
         "line-width": 3,
@@ -566,8 +592,10 @@ export function getResourcePackageLayers(): maplibregl.LayerSpecification[] {
         "circle-color": [
           "match",
           ["get", "resourceType"],
-          "labor", "#3eb0c0",
-          "materials", "#f08a4e",
+          "food", COLORS.buildingsFood,
+          "equipment", COLORS.buildingsEquipment,
+          "energy", COLORS.buildingsEnergy,
+          "materials", COLORS.buildingsMaterials,
           "#ffffff"
         ],
         "circle-blur": 1,
@@ -584,8 +612,10 @@ export function getResourcePackageLayers(): maplibregl.LayerSpecification[] {
         "circle-color": [
           "match",
           ["get", "resourceType"],
-          "labor", "#3eb0c0",
-          "materials", "#f08a4e",
+          "food", COLORS.buildingsFood,
+          "equipment", COLORS.buildingsEquipment,
+          "energy", COLORS.buildingsEnergy,
+          "materials", COLORS.buildingsMaterials,
           "#ffffff"
         ],
         "circle-stroke-width": 2,

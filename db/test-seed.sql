@@ -2,13 +2,15 @@
 -- This creates a small test region with minimal data
 
 -- Create test region (Bar Harbor, ME Demo)
-INSERT INTO regions (region_id, name, boundary, center, distance_from_center, pool_labor, pool_materials, crew_count)
+INSERT INTO regions (region_id, name, boundary, center, distance_from_center, pool_food, pool_equipment, pool_energy, pool_materials, crew_count)
 VALUES (
   'bar_harbor_me_usa_demo',
   'Bar Harbor, ME, USA (Demo)',
   ST_GeomFromText('POLYGON((-68.30 44.35, -68.20 44.35, -68.20 44.42, -68.30 44.42, -68.30 44.35))', 4326),
   ST_GeomFromText('POINT(-68.25 44.385)', 4326),
   0.1,
+  1000,
+  1000,
   1000,
   1000,
   3

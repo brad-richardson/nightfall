@@ -7,7 +7,7 @@ export type ResourceTransfer = {
   region_id: string;
   source_gers_id: string | null;
   hub_gers_id: string | null;
-  resource_type: "labor" | "materials";
+  resource_type: "food" | "equipment" | "energy" | "materials";
   amount: number;
   depart_at: string;
   arrive_at: string;
@@ -88,14 +88,16 @@ export async function enqueueResourceTransfers(
         wf.gers_id,
         wf.region_id,
         wf.h3_index,
-        wf.generates_labor,
+        wf.generates_food,
+        wf.generates_equipment,
+        wf.generates_energy,
         wf.generates_materials,
         AVG(h.rust_level) AS rust_level
       FROM world_features AS wf
       JOIN world_feature_hex_cells AS wfhc ON wfhc.gers_id = wf.gers_id
       JOIN hex_cells AS h ON h.h3_index = wfhc.h3_index
       WHERE wf.feature_type = 'building'
-      GROUP BY wf.gers_id, wf.region_id, wf.h3_index, wf.generates_labor, wf.generates_materials
+      GROUP BY wf.gers_id, wf.region_id, wf.h3_index, wf.generates_food, wf.generates_equipment, wf.generates_energy, wf.generates_materials
     ),
     building_outputs AS (
       SELECT
@@ -103,8 +105,14 @@ export async function enqueueResourceTransfers(
         fr.region_id,
         fr.h3_index,
         GREATEST(0, FLOOR(
-          CASE WHEN fr.generates_labor THEN (1 - fr.rust_level) * $1 ELSE 0 END
-        ))::int AS labor_amount,
+          CASE WHEN fr.generates_food THEN (1 - fr.rust_level) * $1 ELSE 0 END
+        ))::int AS food_amount,
+        GREATEST(0, FLOOR(
+          CASE WHEN fr.generates_equipment THEN (1 - fr.rust_level) * $1 ELSE 0 END
+        ))::int AS equipment_amount,
+        GREATEST(0, FLOOR(
+          CASE WHEN fr.generates_energy THEN (1 - fr.rust_level) * $1 ELSE 0 END
+        ))::int AS energy_amount,
         GREATEST(0, FLOOR(
           CASE WHEN fr.generates_materials THEN (1 - fr.rust_level) * $1 ELSE 0 END
         ))::int AS materials_amount
@@ -123,7 +131,9 @@ export async function enqueueResourceTransfers(
       SELECT
         bo.source_gers_id,
         bo.region_id,
-        bo.labor_amount,
+        bo.food_amount,
+        bo.equipment_amount,
+        bo.energy_amount,
         bo.materials_amount,
         hub_lookup.hub_building_gers_id,
         (wf.bbox_xmin + wf.bbox_xmax) / 2 AS source_lon,
@@ -139,7 +149,9 @@ export async function enqueueResourceTransfers(
         source_gers_id,
         region_id,
         hub_building_gers_id,
-        labor_amount,
+        food_amount,
+        equipment_amount,
+        energy_amount,
         materials_amount,
         GREATEST(
           $3,
@@ -164,8 +176,14 @@ export async function enqueueResourceTransfers(
         amount
       FROM travel_times
       CROSS JOIN LATERAL (
-        SELECT 'labor'::text AS resource_type, labor_amount AS amount
-        WHERE labor_amount > 0
+        SELECT 'food'::text AS resource_type, food_amount AS amount
+        WHERE food_amount > 0
+        UNION ALL
+        SELECT 'equipment'::text AS resource_type, equipment_amount AS amount
+        WHERE equipment_amount > 0
+        UNION ALL
+        SELECT 'energy'::text AS resource_type, energy_amount AS amount
+        WHERE energy_amount > 0
         UNION ALL
         SELECT 'materials'::text AS resource_type, materials_amount AS amount
         WHERE materials_amount > 0
@@ -228,7 +246,9 @@ export async function applyArrivedResourceTransfers(pool: PoolLike): Promise<Arr
     totals AS (
       SELECT
         region_id,
-        SUM(CASE WHEN resource_type = 'labor' THEN amount ELSE 0 END)::bigint AS labor,
+        SUM(CASE WHEN resource_type = 'food' THEN amount ELSE 0 END)::bigint AS food,
+        SUM(CASE WHEN resource_type = 'equipment' THEN amount ELSE 0 END)::bigint AS equipment,
+        SUM(CASE WHEN resource_type = 'energy' THEN amount ELSE 0 END)::bigint AS energy,
         SUM(CASE WHEN resource_type = 'materials' THEN amount ELSE 0 END)::bigint AS materials
       FROM arrived
       GROUP BY region_id
@@ -236,7 +256,9 @@ export async function applyArrivedResourceTransfers(pool: PoolLike): Promise<Arr
     updated_regions AS (
       UPDATE regions AS r
       SET
-        pool_labor = r.pool_labor + COALESCE(totals.labor, 0),
+        pool_food = r.pool_food + COALESCE(totals.food, 0),
+        pool_equipment = r.pool_equipment + COALESCE(totals.equipment, 0),
+        pool_energy = r.pool_energy + COALESCE(totals.energy, 0),
         pool_materials = r.pool_materials + COALESCE(totals.materials, 0),
         updated_at = now()
       FROM totals

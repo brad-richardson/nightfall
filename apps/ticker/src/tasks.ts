@@ -5,10 +5,18 @@ import { ROAD_CLASSES } from "@nightfall/config";
 const DEFAULT_LAMBDA = 0.1;
 
 export async function spawnDegradedRoadTasks(pool: PoolLike) {
-  const costLaborCases = Object.entries(ROAD_CLASSES)
-    .map(([cls, info]) => `WHEN '${cls}' THEN ${info.costLabor}`)
+  const costFoodCases = Object.entries(ROAD_CLASSES)
+    .map(([cls, info]) => `WHEN '${cls}' THEN ${info.costFood}`)
     .join("\n        ");
-  
+
+  const costEquipmentCases = Object.entries(ROAD_CLASSES)
+    .map(([cls, info]) => `WHEN '${cls}' THEN ${info.costEquipment}`)
+    .join("\n        ");
+
+  const costEnergyCases = Object.entries(ROAD_CLASSES)
+    .map(([cls, info]) => `WHEN '${cls}' THEN ${info.costEnergy}`)
+    .join("\n        ");
+
   const costMaterialsCases = Object.entries(ROAD_CLASSES)
     .map(([cls, info]) => `WHEN '${cls}' THEN ${info.costMaterials}`)
     .join("\n        ");
@@ -27,7 +35,9 @@ export async function spawnDegradedRoadTasks(pool: PoolLike) {
       region_id,
       target_gers_id,
       task_type,
-      cost_labor,
+      cost_food,
+      cost_equipment,
+      cost_energy,
       cost_materials,
       duration_s,
       repair_amount,
@@ -40,9 +50,17 @@ export async function spawnDegradedRoadTasks(pool: PoolLike) {
       wf.gers_id,
       'repair_road',
       CASE wf.road_class
-        ${costLaborCases}
-        ELSE 20
-      END AS cost_labor,
+        ${costFoodCases}
+        ELSE 10
+      END AS cost_food,
+      CASE wf.road_class
+        ${costEquipmentCases}
+        ELSE 15
+      END AS cost_equipment,
+      CASE wf.road_class
+        ${costEnergyCases}
+        ELSE 12
+      END AS cost_energy,
       CASE wf.road_class
         ${costMaterialsCases}
         ELSE 20
@@ -68,7 +86,9 @@ export async function spawnDegradedRoadTasks(pool: PoolLike) {
       status,
       priority_score,
       vote_score,
-      cost_labor,
+      cost_food,
+      cost_equipment,
+      cost_energy,
       cost_materials,
       duration_s,
       repair_amount,
@@ -123,7 +143,9 @@ export async function updateTaskPriorities(pool: PoolLike, lambda = DEFAULT_LAMB
       t.status,
       t.priority_score,
       t.vote_score,
-      t.cost_labor,
+      t.cost_food,
+      t.cost_equipment,
+      t.cost_energy,
       t.cost_materials,
       t.duration_s,
       t.repair_amount,

@@ -27,9 +27,15 @@ export const BAR_HARBOR_DEMO_BBOX: Bbox = {
 
 export const H3_RESOLUTION = 7;
 
+export type ResourceType = "food" | "equipment" | "energy" | "materials";
+
+export const RESOURCE_TYPES: ResourceType[] = ["food", "equipment", "energy", "materials"];
+
 export type RoadClassInfo = {
   decayRate: number;
-  costLabor: number;
+  costFood: number;
+  costEquipment: number;
+  costEnergy: number;
   costMaterials: number;
   durationS: number;
   repairAmount: number;
@@ -39,7 +45,9 @@ export type RoadClassInfo = {
 export const ROAD_CLASSES: Record<string, RoadClassInfo> = {
   motorway: {
     decayRate: 0.5,
-    costLabor: 100,
+    costFood: 40,
+    costEquipment: 80,
+    costEnergy: 60,
     costMaterials: 100,
     durationS: 120,
     repairAmount: 30,
@@ -47,7 +55,9 @@ export const ROAD_CLASSES: Record<string, RoadClassInfo> = {
   },
   trunk: {
     decayRate: 0.6,
-    costLabor: 80,
+    costFood: 35,
+    costEquipment: 60,
+    costEnergy: 50,
     costMaterials: 80,
     durationS: 100,
     repairAmount: 30,
@@ -55,7 +65,9 @@ export const ROAD_CLASSES: Record<string, RoadClassInfo> = {
   },
   primary: {
     decayRate: 0.8,
-    costLabor: 60,
+    costFood: 25,
+    costEquipment: 45,
+    costEnergy: 35,
     costMaterials: 60,
     durationS: 80,
     repairAmount: 25,
@@ -63,7 +75,9 @@ export const ROAD_CLASSES: Record<string, RoadClassInfo> = {
   },
   secondary: {
     decayRate: 1.0,
-    costLabor: 40,
+    costFood: 20,
+    costEquipment: 30,
+    costEnergy: 25,
     costMaterials: 40,
     durationS: 60,
     repairAmount: 25,
@@ -71,7 +85,9 @@ export const ROAD_CLASSES: Record<string, RoadClassInfo> = {
   },
   tertiary: {
     decayRate: 1.2,
-    costLabor: 30,
+    costFood: 15,
+    costEquipment: 25,
+    costEnergy: 20,
     costMaterials: 30,
     durationS: 50,
     repairAmount: 20,
@@ -79,7 +95,9 @@ export const ROAD_CLASSES: Record<string, RoadClassInfo> = {
   },
   residential: {
     decayRate: 1.5,
-    costLabor: 20,
+    costFood: 10,
+    costEquipment: 15,
+    costEnergy: 12,
     costMaterials: 20,
     durationS: 40,
     repairAmount: 20,
@@ -87,7 +105,9 @@ export const ROAD_CLASSES: Record<string, RoadClassInfo> = {
   },
   service: {
     decayRate: 2.0,
-    costLabor: 10,
+    costFood: 5,
+    costEquipment: 8,
+    costEnergy: 6,
     costMaterials: 10,
     durationS: 30,
     repairAmount: 15,
