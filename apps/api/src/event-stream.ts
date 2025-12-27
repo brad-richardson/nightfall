@@ -35,6 +35,45 @@ export function createDbEventStream(
   const emitter = new EventEmitter();
   let client: PoolClient | null = null;
   let listening = false;
+  let reconnectTimeout: NodeJS.Timeout | null = null;
+  let heartbeatInterval: NodeJS.Timeout | null = null;
+
+  async function cleanup() {
+    if (heartbeatInterval) {
+      clearInterval(heartbeatInterval);
+      heartbeatInterval = null;
+    }
+    if (reconnectTimeout) {
+      clearTimeout(reconnectTimeout);
+      reconnectTimeout = null;
+    }
+    if (client) {
+      try {
+        client.removeAllListeners();
+        client.release();
+      } catch (error) {
+        logger.error({ err: error }, "error releasing client during cleanup");
+      }
+      client = null;
+    }
+    listening = false;
+  }
+
+  async function reconnect() {
+    logger.error("attempting to reconnect event stream");
+    await cleanup();
+
+    // Use exponential backoff for reconnection
+    reconnectTimeout = setTimeout(async () => {
+      try {
+        await start();
+      } catch (error) {
+        logger.error({ err: error }, "failed to reconnect event stream");
+        // Try again after delay
+        reconnect();
+      }
+    }, 5000);
+  }
 
   async function start() {
     if (listening) {
@@ -63,17 +102,35 @@ export function createDbEventStream(
     });
 
     client.on("error", (error) => {
-      logger.error({ err: error }, "event stream db error");
+      logger.error({ err: error }, "event stream db error - triggering reconnect");
+      reconnect();
+    });
+
+    client.on("end", () => {
+      logger.error("event stream db connection ended - triggering reconnect");
+      reconnect();
     });
 
     for (const channel of channels) {
       await client.query(`LISTEN ${channel}`);
     }
+
+    // Set up heartbeat to detect stale connections
+    heartbeatInterval = setInterval(async () => {
+      if (client) {
+        try {
+          await client.query("SELECT 1");
+        } catch (error) {
+          logger.error({ err: error }, "heartbeat failed - triggering reconnect");
+          reconnect();
+        }
+      }
+    }, 30000); // Heartbeat every 30 seconds
   }
 
   async function stop() {
     if (!client) {
-      listening = false;
+      await cleanup();
       return;
     }
 
@@ -81,10 +138,10 @@ export function createDbEventStream(
       for (const channel of channels) {
         await client.query(`UNLISTEN ${channel}`);
       }
+    } catch (error) {
+      logger.error({ err: error }, "error unlistening from channels");
     } finally {
-      client.release();
-      client = null;
-      listening = false;
+      await cleanup();
     }
   }
 

@@ -1200,14 +1200,14 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         `
         UPDATE tasks AS t
         SET vote_score = $2::float,
-            priority_score = (100 - fs.health) * (
+            priority_score = (100 - COALESCE(fs.health, 100)) * (
               CASE wf.road_class
                 ${weightCases}
                 ELSE 1
               END
             ) + $2::float
         FROM world_features AS wf
-        JOIN feature_state AS fs ON fs.gers_id = wf.gers_id
+        LEFT JOIN feature_state AS fs ON fs.gers_id = wf.gers_id
         WHERE t.task_id = $1
           AND wf.gers_id = t.target_gers_id
         RETURNING
@@ -1228,12 +1228,39 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
 
       await pool.query("COMMIT");
 
+      // Always send notification after successful vote, even if task delta is empty
       const taskDelta = updatedTask.rows[0];
-      if (taskDelta) {
-        await pool.query("SELECT pg_notify('task_delta', $1)", [
-          JSON.stringify(taskDelta)
-        ]);
+      if (!taskDelta) {
+        // Fallback: fetch task details if UPDATE didn't return rows
+        const fallbackTask = await pool.query<{
+          task_id: string;
+          status: string;
+          priority_score: number;
+          vote_score: number;
+          cost_labor: number;
+          cost_materials: number;
+          duration_s: number;
+          repair_amount: number;
+          task_type: string;
+          target_gers_id: string;
+          region_id: string;
+        }>(
+          `SELECT task_id, status, priority_score, vote_score, cost_labor, cost_materials,
+                  duration_s, repair_amount, task_type, target_gers_id, region_id
+           FROM tasks WHERE task_id = $1`,
+          [taskId]
+        );
+        if (fallbackTask.rows[0]) {
+          await pool.query("SELECT pg_notify('task_delta', $1)", [
+            JSON.stringify(fallbackTask.rows[0])
+          ]);
+        }
+        return { ok: true, new_vote_score: voteScore, priority_score: fallbackTask.rows[0]?.priority_score ?? null };
       }
+
+      await pool.query("SELECT pg_notify('task_delta', $1)", [
+        JSON.stringify(taskDelta)
+      ]);
 
       return { ok: true, new_vote_score: voteScore, priority_score: taskDelta?.priority_score ?? null };
     } catch (error) {

@@ -9,7 +9,7 @@ export default function PhaseIndicator() {
 
   useEffect(() => {
     setSecondsRemaining(cycle.next_phase_in_seconds);
-  }, [cycle.next_phase_in_seconds, cycle.phase]);
+  }, [cycle.next_phase_in_seconds, cycle.phase, cycle.lastUpdated]);
 
   useEffect(() => {
     if (secondsRemaining <= 0) return;
