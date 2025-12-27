@@ -595,7 +595,7 @@ export default function Dashboard({
         roads += 1;
         if (f.health !== undefined && f.health !== null) {
           if (f.health > 80) healthy += 1;
-          if (f.health < 30) degraded += 1;
+          if (f.health < 70) degraded += 1;
         }
       } else if (f.feature_type === "building") {
         buildings += 1;
@@ -759,22 +759,8 @@ export default function Dashboard({
                 rustLevel={rustPercent}
               />
               <div className="mt-3 grid w-full grid-cols-2 gap-3 text-xs">
-                <div className="rounded-xl bg-white/5 px-3 py-2 text-center">
-                  <p className="text-[9px] uppercase tracking-[0.2em] text-white/40">Avg Health</p>
-                  <p className="mt-1 text-sm font-semibold text-white">
-                    {formatPercent(region.stats.health_avg / 100)}
-                  </p>
-                </div>
-                <div className="rounded-xl bg-white/5 px-3 py-2 text-center">
-                  <p className="text-[9px] uppercase tracking-[0.2em] text-white/40">Rust Level</p>
-                  <p className="mt-1 text-sm font-semibold text-white">
-                    {formatPercent(region.stats.rust_avg)}
-                  </p>
-                </div>
-              </div>
-              <div className="mt-2 grid w-full grid-cols-2 gap-3 text-xs">
                 <div className="rounded-xl bg-white/5 px-2 py-2 text-center">
-                  <p className="text-[9px] uppercase tracking-[0.2em] text-white/40">Healthy</p>
+                  <p className="text-[9px] uppercase tracking-[0.2em] text-white/40">Roads Healthy</p>
                   <p className="mt-1 text-sm font-semibold text-[color:var(--night-teal)]">
                     {formatNumber(counts.healthy)}
                   </p>

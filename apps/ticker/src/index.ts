@@ -10,7 +10,7 @@ import { syncCycleState } from "./cycle-store";
 import { getPhaseMultipliers, applyDemoMultiplier } from "./multipliers";
 import { applyRustSpread } from "./rust";
 import { applyRoadDecay } from "./decay";
-import { applyArrivedResourceTransfers } from "./resources";
+import { applyArrivedResourceTransfers, enqueueResourceTransfers, type ResourceTransfer } from "./resources";
 import { dispatchCrews, arriveCrews, completeFinishedTasks } from "./crews";
 import { spawnDegradedRoadTasks, updateTaskPriorities } from "./tasks";
 import type { FeatureDelta, TaskDelta } from "./deltas";
@@ -127,6 +127,12 @@ async function publishFeedItems(
   }
 }
 
+async function publishResourceTransfers(client: PoolLike, transfers: ResourceTransfer[]) {
+  for (const transfer of transfers) {
+    await notifyEvent(client, "resource_transfer", transfer);
+  }
+}
+
 async function runTick(client: PoolLike) {
   const now = Date.now();
   await checkAndPerformReset(client);
@@ -141,6 +147,7 @@ async function runTick(client: PoolLike) {
 
   const rustHexes = await applyRustSpread(client, multipliers);
   const decayFeatureDeltas = await applyRoadDecay(client, multipliers);
+  const newTransfers = await enqueueResourceTransfers(client, multipliers);
   const arrivalResult = await applyArrivedResourceTransfers(client);
   const spawnedTasks = await spawnDegradedRoadTasks(client);
   const priorityUpdates = await updateTaskPriorities(client);
@@ -182,6 +189,8 @@ async function runTick(client: PoolLike) {
 
   await publishFeedItems(client, completionResult.feedItems);
 
+  await publishResourceTransfers(client, newTransfers);
+
   if (
     Number.isFinite(cleanupIntervalMs) &&
     cleanupIntervalMs > 0 &&
@@ -199,6 +208,7 @@ async function runTick(client: PoolLike) {
   logger.info({
     rust_spread_count: rustHexes.length,
     decay_updates: decayFeatureDeltas.length,
+    resource_transfers_created: newTransfers.length,
     resource_arrivals: arrivalResult.regionIds.length,
     tasks_spawned: spawnedTasks.length,
     tasks_updated: priorityUpdates.length,

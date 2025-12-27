@@ -253,6 +253,11 @@ export async function enqueueResourceTransfers(
     JOIN hub_lookup ON hub_lookup.h3_index = bo.h3_index
     WHERE hub_lookup.hub_building_gers_id IS NOT NULL
       AND (bo.food_amount > 0 OR bo.equipment_amount > 0 OR bo.energy_amount > 0 OR bo.materials_amount > 0)
+      AND NOT EXISTS (
+        SELECT 1 FROM resource_transfers AS rt
+        WHERE rt.source_gers_id = bo.source_gers_id
+          AND rt.status = 'in_transit'
+      )
     `,
     [multipliers.generation]
   );
