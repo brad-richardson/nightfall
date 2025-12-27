@@ -214,6 +214,25 @@ jobs:
           unzip duckdb.zip -d scripts/ingest/bin
           chmod +x scripts/ingest/bin/duckdb
 
+      - name: Get database URL from Fly app
+        run: |
+          # Fetch DATABASE_URL from the running app
+          FLY_DATABASE_URL=$(flyctl ssh console -a nightfall -C 'printenv DATABASE_URL' 2>/dev/null | tr -d '\r\n')
+          # Mask immediately to prevent credential exposure in logs
+          echo "::add-mask::$FLY_DATABASE_URL"
+          # Validate we got a URL
+          if [ -z "$FLY_DATABASE_URL" ]; then
+            echo "::error::Failed to retrieve DATABASE_URL from Fly app 'nightfall'"
+            echo "Ensure the app is running and DATABASE_URL secret is set" >&2
+            exit 1
+          fi
+          # Modify to use localhost since we're connecting through flyctl proxy
+          DATABASE_URL=$(echo "$FLY_DATABASE_URL" | sed 's/@[^/:]*:5432/@localhost:5432/')
+          echo "::add-mask::$DATABASE_URL"
+          echo "DATABASE_URL=$DATABASE_URL" >> $GITHUB_ENV
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
       - name: Start Fly Postgres proxy
         run: |
           flyctl proxy 5432 -a nightfall-db &
@@ -224,5 +243,4 @@ jobs:
       - name: Re-ingest demo region
         run: pnpm run ingest:demo
         env:
-          DATABASE_URL: postgresql://nightfall:nightfall@localhost:5432/nightfall?sslmode=disable
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
