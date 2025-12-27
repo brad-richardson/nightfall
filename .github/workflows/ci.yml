@@ -120,3 +120,38 @@ jobs:
           path: apps/web/out
 
       - uses: actions/deploy-pages@v4
+
+  reingest-demo:
+    runs-on: ubuntu-latest
+    needs: deploy-fly
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install overturemaps CLI
+        run: pip install overturemaps
+
+      - name: Download DuckDB
+        run: |
+          mkdir -p scripts/ingest/bin
+          curl -L https://github.com/duckdb/duckdb/releases/download/v1.1.3/duckdb_cli-linux-amd64.zip -o duckdb.zip
+          unzip duckdb.zip -d scripts/ingest/bin
+          chmod +x scripts/ingest/bin/duckdb
+
+      - name: Re-ingest demo region
+        run: pnpm run ingest:demo
+        env:
+          DATABASE_URL: ${{ secrets.FLY_DATABASE_URL }}
