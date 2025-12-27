@@ -11,7 +11,7 @@ import { getPhaseMultipliers, applyDemoMultiplier } from "./multipliers";
 import { applyRustSpread } from "./rust";
 import { applyRoadDecay } from "./decay";
 import { applyArrivedResourceTransfers, enqueueResourceTransfers, type ResourceTransfer } from "./resources";
-import { dispatchCrews, arriveCrews, completeFinishedTasks } from "./crews";
+import { dispatchCrews, arriveCrews, arriveCrewsAtHub, completeFinishedTasks } from "./crews";
 import { spawnDegradedRoadTasks, updateTaskPriorities } from "./tasks";
 import type { FeatureDelta, TaskDelta } from "./deltas";
 import { notifyEvent } from "./notify";
@@ -168,6 +168,7 @@ async function runTick(client: PoolLike) {
   const priorityUpdates = await updateTaskPriorities(client);
   const dispatchResult = await dispatchCrews(client);
   const crewArrivalResult = await arriveCrews(client, multipliers);
+  const hubArrivalEvents = await arriveCrewsAtHub(client);
   const completionResult = await completeFinishedTasks(client, multipliers);
 
   await simulateBots(client, demoConfig.enabled);
@@ -227,8 +228,9 @@ async function runTick(client: PoolLike) {
     resource_arrivals: arrivalResult.regionIds.length,
     tasks_spawned: spawnedTasks.length,
     tasks_updated: priorityUpdates.length,
-    crews_dispatched: dispatchResult.taskDeltas.length,
-    crews_arrived: crewArrivalResult.featureDeltas.length,
+    crews_dispatched: dispatchResult.crewEvents.length,
+    crews_arrived: crewArrivalResult.crewEvents.length,
+    crews_at_hub: hubArrivalEvents.length,
     tasks_completed: completionResult.taskDeltas.length,
     lamplighter_activities: lamplighterResult.regionActivities,
     lamplighter_contributions: lamplighterResult.contributions,

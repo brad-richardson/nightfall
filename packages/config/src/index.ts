@@ -52,7 +52,7 @@ export const ROAD_CLASSES: Record<string, RoadClassInfo> = {
     costEquipment: 60,
     costEnergy: 45,
     costMaterials: 75,
-    durationS: 120,
+    durationS: 8,
     repairAmount: 30,
     priorityWeight: 10
   },
@@ -62,7 +62,7 @@ export const ROAD_CLASSES: Record<string, RoadClassInfo> = {
     costEquipment: 45,
     costEnergy: 38,
     costMaterials: 60,
-    durationS: 100,
+    durationS: 7,
     repairAmount: 30,
     priorityWeight: 8
   },
@@ -72,7 +72,7 @@ export const ROAD_CLASSES: Record<string, RoadClassInfo> = {
     costEquipment: 34,
     costEnergy: 26,
     costMaterials: 45,
-    durationS: 80,
+    durationS: 6,
     repairAmount: 25,
     priorityWeight: 6
   },
@@ -82,7 +82,7 @@ export const ROAD_CLASSES: Record<string, RoadClassInfo> = {
     costEquipment: 23,
     costEnergy: 19,
     costMaterials: 30,
-    durationS: 60,
+    durationS: 5,
     repairAmount: 25,
     priorityWeight: 4
   },
@@ -92,7 +92,7 @@ export const ROAD_CLASSES: Record<string, RoadClassInfo> = {
     costEquipment: 19,
     costEnergy: 15,
     costMaterials: 23,
-    durationS: 50,
+    durationS: 4,
     repairAmount: 20,
     priorityWeight: 3
   },
@@ -102,7 +102,7 @@ export const ROAD_CLASSES: Record<string, RoadClassInfo> = {
     costEquipment: 11,
     costEnergy: 9,
     costMaterials: 15,
-    durationS: 40,
+    durationS: 3,
     repairAmount: 20,
     priorityWeight: 2
   },
@@ -112,7 +112,7 @@ export const ROAD_CLASSES: Record<string, RoadClassInfo> = {
     costEquipment: 6,
     costEnergy: 5,
     costMaterials: 8,
-    durationS: 30,
+    durationS: 3,
     repairAmount: 15,
     priorityWeight: 1
   }

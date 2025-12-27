@@ -805,6 +805,48 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     };
   });
 
+  // Get all crews with their current positions and animation state
+  app.get("/api/crews", async () => {
+    const pool = getPool();
+    const result = await pool.query<{
+      crew_id: string;
+      region_id: string;
+      status: string;
+      active_task_id: string | null;
+      current_lng: number | null;
+      current_lat: number | null;
+      waypoints: unknown;
+      path_started_at: string | null;
+      target_gers_id: string | null;
+    }>(
+      `SELECT
+        c.crew_id,
+        c.region_id,
+        c.status,
+        c.active_task_id,
+        c.current_lng,
+        c.current_lat,
+        c.waypoints,
+        c.path_started_at::text,
+        t.target_gers_id
+      FROM crews c
+      LEFT JOIN tasks t ON t.task_id = c.active_task_id`
+    );
+
+    return result.rows.map(row => ({
+      crewId: row.crew_id,
+      regionId: row.region_id,
+      status: row.status,
+      taskId: row.active_task_id,
+      taskRoadId: row.target_gers_id,
+      position: row.current_lng != null && row.current_lat != null
+        ? { lng: row.current_lng, lat: row.current_lat }
+        : null,
+      waypoints: row.waypoints,
+      pathStartedAt: row.path_started_at
+    }));
+  });
+
   app.get<{ Querystring: { bbox?: string; types?: string } }>("/api/features", async (request, reply) => {
     const bbox = parseBBox(request.query.bbox);
     if (!bbox) {

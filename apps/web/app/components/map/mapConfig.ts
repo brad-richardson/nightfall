@@ -54,6 +54,71 @@ export const CREW_DASH_SEQUENCE: number[][] = [
   [3, 4, 0]
 ];
 
+// Construction vehicle SVG icon (bulldozer/excavator)
+export const CONSTRUCTION_VEHICLE_SVG = `
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <!-- Vehicle body -->
+  <rect x="4" y="14" width="20" height="8" rx="2" fill="#FFB800"/>
+  <rect x="5" y="12" width="10" height="4" rx="1" fill="#FFD54F"/>
+  <!-- Cabin -->
+  <rect x="16" y="8" width="8" height="8" rx="1" fill="#4A90D9"/>
+  <rect x="17" y="9" width="6" height="5" rx="1" fill="#87CEEB"/>
+  <!-- Arm/boom -->
+  <rect x="2" y="10" width="12" height="3" rx="1" fill="#FF9800" transform="rotate(-15 8 11.5)"/>
+  <rect x="0" y="7" width="6" height="4" rx="1" fill="#FF9800" transform="rotate(-15 3 9)"/>
+  <!-- Tracks -->
+  <ellipse cx="8" cy="24" rx="6" ry="4" fill="#333"/>
+  <ellipse cx="20" cy="24" rx="6" ry="4" fill="#333"/>
+  <rect x="2" y="20" width="12" height="4" fill="#333"/>
+  <rect x="14" y="20" width="12" height="4" fill="#333"/>
+  <!-- Track details -->
+  <ellipse cx="8" cy="24" rx="4" ry="2.5" fill="#555"/>
+  <ellipse cx="20" cy="24" rx="4" ry="2.5" fill="#555"/>
+</svg>
+`;
+
+// Create an ImageData-compatible array from SVG for MapLibre
+export function createConstructionVehicleImage(): { width: number; height: number; data: Uint8ClampedArray } {
+  const size = 32;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Could not get canvas context");
+
+  const img = new Image();
+  const svgBlob = new Blob([CONSTRUCTION_VEHICLE_SVG], { type: "image/svg+xml" });
+  const url = URL.createObjectURL(svgBlob);
+
+  return new Promise((resolve) => {
+    img.onload = () => {
+      ctx.drawImage(img, 0, 0, size, size);
+      URL.revokeObjectURL(url);
+      const imageData = ctx.getImageData(0, 0, size, size);
+      resolve({ width: size, height: size, data: imageData.data });
+    };
+    img.src = url;
+  }) as unknown as { width: number; height: number; data: Uint8ClampedArray };
+}
+
+// Simpler approach: load icon as HTMLImageElement
+export function loadConstructionVehicleIcon(): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image(32, 32);
+    const svgBlob = new Blob([CONSTRUCTION_VEHICLE_SVG], { type: "image/svg+xml" });
+    const url = URL.createObjectURL(svgBlob);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = (err) => {
+      URL.revokeObjectURL(url);
+      reject(err);
+    };
+    img.src = url;
+  });
+}
+
 // Color palette - resource colors match ResourcePoolsPanel
 export const COLORS = {
   background: "#101216",

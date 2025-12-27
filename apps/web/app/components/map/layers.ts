@@ -469,25 +469,29 @@ export function getHexLayers(): { fill: maplibregl.LayerSpecification; outline: 
 
 export function getCrewLayers(): maplibregl.LayerSpecification[] {
   return [
+    // Working glow effect
     {
       id: "game-crews-glow",
       type: "circle",
       source: "game-crews",
       filter: ["==", ["get", "status"], "working"],
       paint: {
-        "circle-radius": 16,
+        "circle-radius": 20,
         "circle-color": CREW_COLORS.working,
         "circle-blur": 1,
-        "circle-opacity": 0.4
+        "circle-opacity": 0.5
       }
     },
+    // Status ring (under icon)
     {
-      id: "game-crews-point",
+      id: "game-crews-ring",
       type: "circle",
       source: "game-crews",
       paint: {
-        "circle-radius": 8,
-        "circle-color": [
+        "circle-radius": 14,
+        "circle-color": "transparent",
+        "circle-stroke-width": 3,
+        "circle-stroke-color": [
           "match",
           ["get", "status"],
           "idle", CREW_COLORS.idle,
@@ -496,9 +500,25 @@ export function getCrewLayers(): maplibregl.LayerSpecification[] {
           "returning", CREW_COLORS.returning,
           "#ffffff"
         ],
-        "circle-stroke-width": 3,
-        "circle-stroke-color": "#ffffff",
-        "circle-opacity": 0.9
+        "circle-stroke-opacity": 0.9
+      }
+    },
+    // Construction vehicle icon
+    {
+      id: "game-crews-icon",
+      type: "symbol",
+      source: "game-crews",
+      layout: {
+        "icon-image": "construction-vehicle",
+        "icon-size": 0.75,
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
+        // Rotate icon based on bearing when traveling
+        "icon-rotate": ["coalesce", ["get", "bearing"], 0],
+        "icon-rotation-alignment": "map"
+      },
+      paint: {
+        "icon-opacity": 1
       }
     }
   ];
@@ -534,6 +554,7 @@ export function getCentralHubLayers(): maplibregl.LayerSpecification[] {
 
 export function getCrewPathLayers(): maplibregl.LayerSpecification[] {
   return [
+    // Path line (dashed trail)
     {
       id: "game-crew-path-line",
       type: "line",
@@ -542,19 +563,37 @@ export function getCrewPathLayers(): maplibregl.LayerSpecification[] {
         "line-color": "#f0ddc2",
         "line-width": 2,
         "line-dasharray": [2, 2],
-        "line-opacity": 0.6
+        "line-opacity": 0.5
       }
     },
+    // Moving crew ring
     {
-      id: "game-crew-path-head",
+      id: "game-crew-path-ring",
       type: "circle",
       source: "game-crew-markers",
       paint: {
-        "circle-radius": 6,
-        "circle-color": CREW_COLORS.traveling,
-        "circle-stroke-width": 2,
-        "circle-stroke-color": "#ffffff",
-        "circle-opacity": 0.9
+        "circle-radius": 14,
+        "circle-color": "transparent",
+        "circle-stroke-width": 3,
+        "circle-stroke-color": CREW_COLORS.traveling,
+        "circle-stroke-opacity": 0.9
+      }
+    },
+    // Moving crew icon
+    {
+      id: "game-crew-path-icon",
+      type: "symbol",
+      source: "game-crew-markers",
+      layout: {
+        "icon-image": "construction-vehicle",
+        "icon-size": 0.75,
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
+        "icon-rotate": ["coalesce", ["get", "bearing"], 0],
+        "icon-rotation-alignment": "map"
+      },
+      paint: {
+        "icon-opacity": 1
       }
     }
   ];

@@ -25,6 +25,10 @@ export type Crew = {
   status: string;
   active_task_id: string | null;
   busy_until?: string | null;
+  current_lng?: number | null;
+  current_lat?: number | null;
+  waypoints?: PathWaypoint[] | null;
+  path_started_at?: string | null;
 };
 
 export type Task = {
@@ -45,6 +49,7 @@ export type CrewPath = {
   startTime: number;
   endTime: number;
   status: "traveling" | "working";
+  waypoints?: PathWaypoint[] | null;
 };
 
 export type PathWaypoint = {

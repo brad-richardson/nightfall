@@ -27,7 +27,8 @@ import {
   RUST_PHASE_MULTIPLIER,
   CREW_DASH_SEQUENCE,
   COLORS,
-  getTransitionGradient
+  getTransitionGradient,
+  loadConstructionVehicleIcon
 } from "./map/mapConfig";
 import {
   getAllInitialLayers,
@@ -262,6 +263,15 @@ export default function DemoMap({
         data: { type: "FeatureCollection", features: [] }
       });
 
+      // Load construction vehicle icon before adding crew layers
+      loadConstructionVehicleIcon().then((img) => {
+        if (!map.current?.hasImage("construction-vehicle")) {
+          map.current?.addImage("construction-vehicle", img);
+        }
+      }).catch((err) => {
+        console.warn("Failed to load construction vehicle icon:", err);
+      });
+
       for (const layer of getCrewLayers()) {
         map.current?.addLayer(layer as maplibregl.AddLayerObject);
       }
@@ -287,8 +297,12 @@ export default function DemoMap({
       });
 
       const crewPathLayers = getCrewPathLayers();
-      map.current?.addLayer(crewPathLayers[0] as maplibregl.AddLayerObject, "game-crews-point");
-      map.current?.addLayer(crewPathLayers[1] as maplibregl.AddLayerObject);
+      // Add path line below crew icons
+      map.current?.addLayer(crewPathLayers[0] as maplibregl.AddLayerObject, "game-crews-glow");
+      // Add ring and icon on top
+      for (let i = 1; i < crewPathLayers.length; i++) {
+        map.current?.addLayer(crewPathLayers[i] as maplibregl.AddLayerObject);
+      }
 
       // Add resource packages source and layers
       map.current?.addSource("game-resource-packages", {
@@ -553,7 +567,7 @@ export default function DemoMap({
     }
   }, [hexes, isLoaded]);
 
-  // Build crew travel paths
+  // Build crew travel paths using server-provided waypoints when available
   useEffect(() => {
     if (!crews.length) {
       setCrewPaths([]);
@@ -564,61 +578,103 @@ export default function DemoMap({
     const paths: CrewPath[] = [];
 
     for (const crew of crews) {
-      if (crew.status !== "traveling" || !crew.active_task_id) continue;
-      const task = tasks.find((t) => t.task_id === crew.active_task_id);
-      if (!task?.target_gers_id) continue;
+      if (crew.status !== "traveling") continue;
 
-      const targetFeature = features.find((f) => f.gers_id === task.target_gers_id);
-      const destination = targetFeature ? getFeatureCenter(targetFeature) : null;
-      if (!destination) continue;
+      // Use server-provided waypoints if available
+      if (crew.waypoints && crew.waypoints.length > 0 && crew.path_started_at) {
+        const path = crew.waypoints.map((wp) => wp.coord);
+        const startTime = Date.parse(crew.path_started_at);
+        const lastWaypoint = crew.waypoints[crew.waypoints.length - 1];
+        const endTime = Date.parse(lastWaypoint.arrive_at);
 
-      const hubCenter = getNearestHubCenter(features, destination) ?? fallbackCenter;
-      const path = buildResourcePath(hubCenter, destination, roadFeaturesForPath);
+        paths.push({
+          crew_id: crew.crew_id,
+          task_id: crew.active_task_id ?? "",
+          path,
+          startTime,
+          endTime,
+          status: "traveling",
+          waypoints: crew.waypoints
+        });
+      } else if (crew.active_task_id) {
+        // Fallback to client-side path building
+        const task = tasks.find((t) => t.task_id === crew.active_task_id);
+        if (!task?.target_gers_id) continue;
 
-      const busyUntil = crew.busy_until ? new Date(crew.busy_until).getTime() : null;
-      const endTime = busyUntil && !Number.isNaN(busyUntil) ? busyUntil : now + 10000;
-      const startTime = Math.min(now, endTime - 1000);
+        const targetFeature = features.find((f) => f.gers_id === task.target_gers_id);
+        const destination = targetFeature ? getFeatureCenter(targetFeature) : null;
+        if (!destination) continue;
 
-      paths.push({
-        crew_id: crew.crew_id,
-        task_id: task.task_id,
-        path: path.map((p) => [p[0], p[1]]),
-        startTime,
-        endTime,
-        status: "traveling"
-      });
+        // Use crew's current position as start if available, otherwise hub
+        let start: [number, number];
+        if (crew.current_lng != null && crew.current_lat != null) {
+          start = [crew.current_lng, crew.current_lat];
+        } else {
+          start = getNearestHubCenter(features, destination) ?? fallbackCenter;
+        }
+        const path = buildResourcePath(start, destination, roadFeaturesForPath);
+
+        const busyUntil = crew.busy_until ? new Date(crew.busy_until).getTime() : null;
+        const endTime = busyUntil && !Number.isNaN(busyUntil) ? busyUntil : now + 10000;
+        const startTime = Math.min(now, endTime - 1000);
+
+        paths.push({
+          crew_id: crew.crew_id,
+          task_id: task.task_id,
+          path: path.map((p) => [p[0], p[1]]),
+          startTime,
+          endTime,
+          status: "traveling"
+        });
+      }
     }
 
     setCrewPaths(paths);
   }, [crews, tasks, features, roadFeaturesForPath, fallbackCenter]);
 
-  // Sync crews data
+  // Sync crews data - show idle and working crews at their positions
   useEffect(() => {
     if (!isLoaded || !map.current) return;
 
-    const crewFeatures = crews.map(crew => {
-      if (travelingCrewIds.has(crew.crew_id)) return null;
-      if (!crew.active_task_id) return null;
-      const task = tasks.find(t => t.task_id === crew.active_task_id);
-      if (!task) return null;
-      const feature = features.find(f => f.gers_id === task.target_gers_id);
-      if (!feature) return null;
+    const crewFeatures = crews
+      .filter(crew => !travelingCrewIds.has(crew.crew_id))
+      .map(crew => {
+        let coords: [number, number] | null = null;
 
-      const coords = getFeatureCenter(feature);
-      if (!coords) return null;
+        // Use current position if available
+        if (crew.current_lng != null && crew.current_lat != null) {
+          coords = [crew.current_lng, crew.current_lat];
+        } else if (crew.status === "working" && crew.active_task_id) {
+          // Fallback: working crews at their task's road
+          const task = tasks.find(t => t.task_id === crew.active_task_id);
+          if (task) {
+            const feature = features.find(f => f.gers_id === task.target_gers_id);
+            if (feature) coords = getFeatureCenter(feature);
+          }
+        } else if (crew.status === "idle") {
+          // Fallback: idle crews at nearest hub
+          coords = getNearestHubCenter(features, fallbackCenter) ?? fallbackCenter;
+        }
 
-      return {
-        type: "Feature" as const,
-        geometry: { type: "Point" as const, coordinates: coords },
-        properties: { ...crew }
-      };
-    }).filter((f): f is NonNullable<typeof f> => f !== null);
+        if (!coords) return null;
+
+        return {
+          type: "Feature" as const,
+          geometry: { type: "Point" as const, coordinates: coords },
+          properties: {
+            crew_id: crew.crew_id,
+            status: crew.status,
+            active_task_id: crew.active_task_id
+          }
+        };
+      })
+      .filter((f): f is NonNullable<typeof f> => f !== null);
 
     const source = map.current.getSource("game-crews") as maplibregl.GeoJSONSource;
     if (source) {
       source.setData({ type: "FeatureCollection", features: crewFeatures });
     }
-  }, [crews, tasks, features, isLoaded, travelingCrewIds]);
+  }, [crews, tasks, features, isLoaded, travelingCrewIds, fallbackCenter]);
 
   // Sync crew path data
   useEffect(() => {
@@ -653,15 +709,58 @@ export default function DemoMap({
     const markerSource = mapInstance.getSource("game-crew-markers") as maplibregl.GeoJSONSource | undefined;
     if (!markerSource) return;
 
+    // Calculate bearing between two points (in degrees, 0 = north, 90 = east)
+    const calculateBearing = (from: [number, number], to: [number, number]): number => {
+      const dx = to[0] - from[0];
+      const dy = to[1] - from[1];
+      // atan2 returns radians, convert to degrees
+      // Add 90 because atan2 treats 0 as pointing east, we want 0 = north
+      const angleRad = Math.atan2(dx, dy);
+      return (angleRad * 180) / Math.PI;
+    };
+
     const updateMarkers = (now: number) => {
       const markerFeatures = crewPaths.map((cp) => {
-        const duration = Math.max(1, cp.endTime - cp.startTime);
-        const progress = Math.max(0, Math.min(1, (now - cp.startTime) / duration));
-        const position = interpolatePath(cp.path, progress);
+        let position: [number, number];
+        let bearing = 0;
+
+        // Use waypoint-based interpolation if available
+        if (cp.waypoints && cp.waypoints.length > 0) {
+          const interpolated = interpolateWaypoints(cp.waypoints, now);
+          if (interpolated) {
+            position = interpolated;
+            // Calculate bearing from slightly earlier position
+            const prevInterpolated = interpolateWaypoints(cp.waypoints, now - 100);
+            if (prevInterpolated && (prevInterpolated[0] !== position[0] || prevInterpolated[1] !== position[1])) {
+              bearing = calculateBearing(prevInterpolated, position);
+            }
+          } else {
+            // Animation complete, use last waypoint position
+            position = cp.waypoints[cp.waypoints.length - 1].coord;
+            // Calculate bearing from previous waypoint
+            if (cp.waypoints.length >= 2) {
+              bearing = calculateBearing(
+                cp.waypoints[cp.waypoints.length - 2].coord,
+                position
+              );
+            }
+          }
+        } else {
+          // Fallback to uniform progress-based animation
+          const duration = Math.max(1, cp.endTime - cp.startTime);
+          const progress = Math.max(0, Math.min(1, (now - cp.startTime) / duration));
+          position = interpolatePath(cp.path, progress) as [number, number];
+          // Calculate bearing from path
+          const prevProgress = Math.max(0, progress - 0.01);
+          const prevPosition = interpolatePath(cp.path, prevProgress) as [number, number];
+          if (prevPosition[0] !== position[0] || prevPosition[1] !== position[1]) {
+            bearing = calculateBearing(prevPosition, position);
+          }
+        }
 
         return {
           type: "Feature" as const,
-          properties: { crew_id: cp.crew_id },
+          properties: { crew_id: cp.crew_id, status: "traveling", bearing },
           geometry: { type: "Point" as const, coordinates: position }
         };
       });

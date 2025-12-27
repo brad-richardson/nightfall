@@ -42,12 +42,28 @@ export async function performWeeklyReset(client: PoolLike) {
     await client.query("DELETE FROM tasks WHERE status IN ('queued', 'active')");
     await client.query("TRUNCATE TABLE task_votes");
 
-    // 5. Reset crews
+    // 5. Reset crews - position them at their hub
     await client.query(`
-      UPDATE crews 
-      SET status = 'idle', 
-          active_task_id = NULL, 
-          busy_until = NULL
+      UPDATE crews c
+      SET status = 'idle',
+          active_task_id = NULL,
+          busy_until = NULL,
+          waypoints = NULL,
+          path_started_at = NULL,
+          current_lng = (
+            SELECT (hub.bbox_xmin + hub.bbox_xmax) / 2
+            FROM hex_cells h
+            JOIN world_features hub ON hub.gers_id = h.hub_building_gers_id
+            WHERE h.region_id = c.region_id AND h.hub_building_gers_id IS NOT NULL
+            LIMIT 1
+          ),
+          current_lat = (
+            SELECT (hub.bbox_ymin + hub.bbox_ymax) / 2
+            FROM hex_cells h
+            JOIN world_features hub ON hub.gers_id = h.hub_building_gers_id
+            WHERE h.region_id = c.region_id AND h.hub_building_gers_id IS NOT NULL
+            LIMIT 1
+          )
     `);
 
     // 6. Update world_meta

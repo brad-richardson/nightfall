@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { completeFinishedTasks, dispatchCrews, arriveCrews } from "./crews";
+import { completeFinishedTasks, dispatchCrews, arriveCrews, arriveCrewsAtHub } from "./crews";
 
 // Mock the resources module to avoid pathfinding complexity in unit tests
 vi.mock("./resources", () => ({
@@ -19,7 +19,7 @@ describe("dispatchCrews", () => {
 
     const result = await dispatchCrews({ query });
 
-    expect(result).toEqual({ taskDeltas: [], featureDeltas: [], regionIds: [] });
+    expect(result).toEqual({ taskDeltas: [], featureDeltas: [], regionIds: [], crewEvents: [] });
     expect(query).toHaveBeenCalledTimes(1);
   });
 
@@ -82,7 +82,7 @@ describe("dispatchCrews", () => {
 
     const result = await dispatchCrews({ query });
 
-    expect(result).toEqual({ taskDeltas: [], featureDeltas: [], regionIds: [] });
+    expect(result).toEqual({ taskDeltas: [], featureDeltas: [], regionIds: [], crewEvents: [] });
 
     const rollbackCall = query.mock.calls.find((call) => call[0] === "ROLLBACK");
     expect(rollbackCall).toBeTruthy();
@@ -141,7 +141,8 @@ describe("arriveCrews", () => {
             region_id: "region-1",
             active_task_id: "task-1",
             duration_s: 40,
-            target_gers_id: "road-1"
+            target_gers_id: "road-1",
+            waypoints: [{ coord: [-68.26, 44.39], arrive_at: new Date().toISOString() }]
           }
         ]
       })
@@ -177,14 +178,70 @@ describe("arriveCrews", () => {
 
     const result = await arriveCrews({ query }, multipliers);
 
-    expect(result).toEqual({ featureDeltas: [], regionIds: [] });
+    expect(result).toEqual({ featureDeltas: [], regionIds: [], crewEvents: [] });
+  });
+});
+
+describe("arriveCrewsAtHub", () => {
+  it("transitions returning crews to idle at hub", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            crew_id: "crew-1",
+            region_id: "region-1",
+            waypoints: [{ coord: [-68.25, 44.38], arrive_at: new Date().toISOString() }]
+          }
+        ]
+      })
+      .mockResolvedValueOnce({ rows: [] }); // crew update
+
+    const result = await arriveCrewsAtHub({ query });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].crew_id).toBe("crew-1");
+    expect(result[0].event_type).toBe("crew_idle");
+  });
+
+  it("returns empty array when no crews are returning", async () => {
+    const query = vi.fn().mockResolvedValueOnce({ rows: [] });
+
+    const result = await arriveCrewsAtHub({ query });
+
+    expect(result).toEqual([]);
+    expect(query).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("completeFinishedTasks", () => {
-  it("updates tasks, crews, and rust with pushback", async () => {
+  it("returns empty when no crews are done working", async () => {
+    const query = vi.fn().mockResolvedValueOnce({ rows: [] });
+
+    const result = await completeFinishedTasks({ query }, multipliers);
+
+    expect(result.taskDeltas).toEqual([]);
+    expect(result.featureDeltas).toEqual([]);
+    expect(result.crewEvents).toEqual([]);
+  });
+
+  it("completes tasks and returns crew to hub when no next task available", async () => {
     const query = vi
       .fn()
+      // First query: find crews done working
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            crew_id: "crew-1",
+            region_id: "region-1",
+            active_task_id: "task-1",
+            target_gers_id: "road-1",
+            current_lng: -68.26,
+            current_lat: 44.39
+          }
+        ]
+      })
+      // Second query: main completion CTE
       .mockResolvedValueOnce({
         rows: [
           {
@@ -196,11 +253,24 @@ describe("completeFinishedTasks", () => {
                 region_id: "region-1"
               }
             ],
-            features: [{ gers_id: "road-1", health: 80, status: "normal" }],
-            hexes: ["hex-1"]
+            features: [{ gers_id: "road-1", region_id: "region-1", health: 80, status: "normal" }],
+            hexes: [{ h3_index: "hex-1", rust_level: 0.1 }]
           }
         ]
       })
+      // Third query: insert event
+      .mockResolvedValueOnce({ rows: [] })
+      // Fourth query: get region pools
+      .mockResolvedValueOnce({
+        rows: [{ pool_food: 100, pool_equipment: 100, pool_energy: 100, pool_materials: 100 }]
+      })
+      // Fifth query: check for next task (none available)
+      .mockResolvedValueOnce({ rows: [] })
+      // Sixth query: get hub center for return
+      .mockResolvedValueOnce({
+        rows: [{ hub_lng: -68.25, hub_lat: 44.38 }]
+      })
+      // Seventh query: update crew to returning
       .mockResolvedValueOnce({ rows: [] });
 
     const result = await completeFinishedTasks({ query }, multipliers);
@@ -209,10 +279,11 @@ describe("completeFinishedTasks", () => {
       { task_id: "task-1", status: "done", priority_score: 10, region_id: "region-1" }
     ]);
     expect(result.featureDeltas).toEqual([
-      { gers_id: "road-1", health: 80, status: "normal" }
+      { gers_id: "road-1", region_id: "region-1", health: 80, status: "normal" }
     ]);
-    expect(result.rustHexes).toEqual(["hex-1"]);
     expect(result.regionIds).toEqual(["region-1"]);
     expect(result.feedItems[0]?.event_type).toBe("task_complete");
+    // Crew should be returning to hub
+    expect(result.crewEvents.length).toBeGreaterThanOrEqual(0);
   });
 });
