@@ -1,6 +1,6 @@
 import type { TaskDelta } from "./deltas";
 import type { PoolLike } from "./ticker";
-import { ROAD_CLASSES } from "@nightfall/config";
+import { ROAD_CLASSES, DEGRADED_HEALTH_THRESHOLD } from "@nightfall/config";
 
 const DEFAULT_LAMBDA = 0.1;
 
@@ -89,7 +89,8 @@ export async function spawnDegradedRoadTasks(pool: PoolLike) {
     FROM world_features AS wf
     JOIN feature_state AS fs ON fs.gers_id = wf.gers_id
     WHERE wf.feature_type = 'road'
-      AND fs.status = 'degraded'
+      AND fs.health < ${DEGRADED_HEALTH_THRESHOLD}
+      AND fs.status != 'repairing'
     ON CONFLICT (target_gers_id) WHERE status IN ('queued', 'active') DO NOTHING
     RETURNING
       task_id,

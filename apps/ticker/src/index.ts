@@ -90,17 +90,33 @@ async function publishWorldDelta(
     return;
   }
 
-  await notifyEvent(client, "world_delta", {
-    rust_changed: hexUpdates.map((h) => h.h3_index),
-    hex_updates: hexUpdates,
-    regions_changed: regionsChanged,
-    region_updates: regionUpdates
-  });
+  // Chunk hex updates to stay under 8KB payload limit
+  for (let i = 0; i < hexUpdates.length; i += HEX_CHUNK_SIZE) {
+    const chunk = hexUpdates.slice(i, i + HEX_CHUNK_SIZE);
+    const isFirstChunk = i === 0;
+    await notifyEvent(client, "world_delta", {
+      rust_changed: chunk.map((h) => h.h3_index),
+      hex_updates: chunk,
+      // Only send region updates in the first chunk to avoid duplication
+      regions_changed: isFirstChunk ? regionsChanged : [],
+      region_updates: isFirstChunk ? regionUpdates : []
+    });
+  }
+
+  // If no hex updates but we have region updates, still send them
+  if (hexUpdates.length === 0 && regionUpdates.length > 0) {
+    await notifyEvent(client, "world_delta", {
+      rust_changed: [],
+      hex_updates: [],
+      regions_changed: regionsChanged,
+      region_updates: regionUpdates
+    });
+  }
 }
 
 // PostgreSQL NOTIFY has 8KB payload limit, chunk to stay under
-const FEATURE_CHUNK_SIZE = 50;
-const TASK_CHUNK_SIZE = 100;
+const HEX_CHUNK_SIZE = 50;
+const FEATURE_CHUNK_SIZE = 25;
 
 async function publishFeatureDeltas(client: PoolLike, deltas: FeatureDelta[]) {
   if (deltas.length === 0) return;
@@ -112,10 +128,9 @@ async function publishFeatureDeltas(client: PoolLike, deltas: FeatureDelta[]) {
 
 async function publishTaskDeltas(client: PoolLike, deltas: TaskDelta[]) {
   if (deltas.length === 0) return;
-  for (let i = 0; i < deltas.length; i += TASK_CHUNK_SIZE) {
-    const chunk = deltas.slice(i, i + TASK_CHUNK_SIZE);
-    await notifyEvent(client, "task_delta", { tasks: chunk });
-  }
+  // Just notify which regions have task changes - clients can refetch
+  const regionIds = Array.from(new Set(deltas.map(d => d.region_id)));
+  await notifyEvent(client, "task_delta", { regions_changed: regionIds, count: deltas.length });
 }
 
 async function publishFeedItems(

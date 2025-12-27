@@ -1,6 +1,7 @@
 import * as h3 from "h3-js";
 import type { PoolLike } from "./ticker";
 import type { PhaseMultipliers } from "./multipliers";
+import { DEGRADED_HEALTH_THRESHOLD } from "@nightfall/config";
 
 const DEFAULT_BASE_SPREAD = 0.002;
 const MAX_RUST_LEVEL = 0.95;
@@ -110,7 +111,7 @@ export async function applyRustSpread(pool: PoolLike, multipliers: PhaseMultipli
     `
     SELECT
       wfhc.h3_index,
-      COUNT(*) FILTER (WHERE fs.health > 80) AS healthy_count,
+      COUNT(*) FILTER (WHERE fs.health >= ${DEGRADED_HEALTH_THRESHOLD}) AS healthy_count,
       COUNT(*) AS total_count
     FROM world_feature_hex_cells AS wfhc
     JOIN world_features AS wf ON wf.gers_id = wfhc.gers_id

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHmac } from "crypto";
-import { buildServer, resetOvertureCacheForTests } from "../server";
+import { buildServer, resetOvertureCacheForTests, resetFocusHexCacheForTests } from "../server";
 
 let queryMock = vi.fn();
 const closePoolMock = vi.fn();
@@ -21,6 +21,7 @@ describe("api endpoints", () => {
     queryMock = vi.fn();
     closePoolMock.mockClear();
     resetOvertureCacheForTests();
+    resetFocusHexCacheForTests();
   });
 
   afterEach(() => {
@@ -108,6 +109,10 @@ describe("api endpoints", () => {
       if (text.includes("FROM tasks")) {
         return Promise.resolve({ rows: [] });
       }
+      // Focus hex query - must check before stats query since both use COUNT(*) FILTER
+      if (text.includes("road_counts") && text.includes("degraded_count")) {
+        return Promise.resolve({ rows: [{ h3_index: "8a2a10726c9ffff" }] });
+      }
       if (text.includes("COUNT(*) FILTER")) {
         return Promise.resolve({
           rows: [{ total_roads: 1, healthy_roads: 1, degraded_roads: 0, health_avg: 95 }]
@@ -128,6 +133,7 @@ describe("api endpoints", () => {
     expect(payload.crews).toHaveLength(1);
     expect(payload.stats.total_roads).toBe(1);
     expect(payload.stats.health_avg).toBe(95);
+    expect(payload.focus_h3_index).toBe("8a2a10726c9ffff");
 
     await app.close();
   });

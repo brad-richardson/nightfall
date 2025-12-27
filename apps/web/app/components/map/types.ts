@@ -82,6 +82,7 @@ export type DemoMapProps = {
   crews: Crew[];
   tasks: Task[];
   fallbackBbox: Bbox;
+  focusH3Index?: string | null;
   cycle: {
     phase: Phase;
     phase_progress: number;

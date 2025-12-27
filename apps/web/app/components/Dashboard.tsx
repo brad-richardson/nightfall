@@ -13,9 +13,9 @@ import RegionalHealthRing from "./RegionalHealthRing";
 import { MapOverlay } from "./MapOverlay";
 import { useEventStream, type EventPayload } from "../hooks/useEventStream";
 import { useStore, type Region, type Feature, type Hex, type CycleState } from "../store";
-import { BAR_HARBOR_DEMO_BBOX } from "@nightfall/config";
+import { BAR_HARBOR_DEMO_BBOX, DEGRADED_HEALTH_THRESHOLD } from "@nightfall/config";
 import { fetchWithRetry } from "../lib/retry";
-import { formatNumber, formatPercent } from "../lib/formatters";
+import { formatNumber } from "../lib/formatters";
 import { ResourcePoolsPanel } from "./sidebar/ResourcePoolsPanel";
 import { RegionHealthPanel } from "./sidebar/RegionHealthPanel";
 
@@ -195,6 +195,7 @@ export default function Dashboard({
     featureUpdates: Map<string, { health: number; status: string }>;
     taskUpdates: Map<string, { task_id: string; status: string; priority_score: number; vote_score?: number; cost_food?: number; cost_equipment?: number; cost_energy?: number; cost_materials?: number; duration_s?: number; repair_amount?: number; task_type?: string; target_gers_id?: string; region_id?: string }>;
     resourceDeltas: ResourceDelta[];
+    needsTaskRefetch: boolean;
     dirty: boolean;
   }>({
     cycle: null,
@@ -203,6 +204,7 @@ export default function Dashboard({
     featureUpdates: new Map(),
     taskUpdates: new Map(),
     resourceDeltas: [],
+    needsTaskRefetch: false,
     dirty: false
   });
 
@@ -323,6 +325,12 @@ export default function Dashboard({
       if (pending.resourceDeltas.length > 0) {
         setResourceDeltas((prev) => [...pending.resourceDeltas, ...prev].slice(0, 6));
         pending.resourceDeltas = [];
+      }
+
+      // Handle task refetch notification - tasks are refreshed on next full region load
+      if (pending.needsTaskRefetch) {
+        console.debug("[Dashboard] Tasks changed, will refresh on next region load");
+        pending.needsTaskRefetch = false;
       }
 
       pending.dirty = false;
@@ -450,7 +458,16 @@ export default function Dashboard({
         region_id?: string;
       };
 
-      const data = payload.data as TaskDelta | { tasks: TaskDelta[] };
+      const data = payload.data as TaskDelta | { tasks: TaskDelta[] } | { regions_changed: string[]; count: number };
+
+      // New lightweight format: just regions_changed with count
+      if ('regions_changed' in data) {
+        // Mark that we need to refetch tasks for this region
+        console.debug("[SSE] task_delta regions_changed:", data.regions_changed, "count:", data.count);
+        pending.needsTaskRefetch = true;
+        pending.dirty = true;
+        break;
+      }
 
       const processTaskDelta = (delta: TaskDelta) => {
         // Check if this task just completed
@@ -475,7 +492,7 @@ export default function Dashboard({
         pending.taskUpdates.set(delta.task_id, delta);
       };
 
-      // Handle batched format
+      // Handle batched format (legacy)
       if ('tasks' in data) {
         for (const delta of data.tasks) {
           processTaskDelta(delta);
@@ -594,8 +611,8 @@ export default function Dashboard({
       if (f.feature_type === "road") {
         roads += 1;
         if (f.health !== undefined && f.health !== null) {
-          if (f.health > 80) healthy += 1;
-          if (f.health < 70) degraded += 1;
+          if (f.health >= DEGRADED_HEALTH_THRESHOLD) healthy += 1;
+          else degraded += 1;
         }
       } else if (f.feature_type === "building") {
         buildings += 1;
@@ -673,6 +690,7 @@ export default function Dashboard({
         crews={region.crews}
         tasks={region.tasks}
         fallbackBbox={BAR_HARBOR_DEMO_BBOX}
+        focusH3Index={region.focus_h3_index}
         cycle={cycle}
         pmtilesRelease={pmtilesRelease}
         className="h-screen w-full rounded-none border-0 shadow-none"

@@ -125,7 +125,7 @@ describe("completeFinishedTasks integration", () => {
     expect(events.rows[0].payload.task_id).toBe(taskId);
   });
 
-  it("transitions status from degraded to normal when health >= 30", async () => {
+  it("fully heals road to 100% health when repair completes", async () => {
     const { regionId, gersId, crewId } = await insertTestFixtures(tx);
 
     const taskResult = await tx.query<{ task_id: string }>(
@@ -141,42 +141,15 @@ describe("completeFinishedTasks integration", () => {
       [crewId, taskId]
     );
 
-    // Health at 15, repair_amount 20 -> 35 >= 30 -> should become 'normal'
+    // Health at 15, should heal to 100 and become 'normal'
     await tx.query(`UPDATE feature_state SET health = 15, status = 'degraded' WHERE gers_id = $1`, [
       gersId
     ]);
 
     const result = await completeFinishedTasks(tx, DAY_MULTIPLIERS);
 
-    expect(result.featureDeltas[0].health).toBe(35);
+    expect(result.featureDeltas[0].health).toBe(100);
     expect(result.featureDeltas[0].status).toBe("normal");
-  });
-
-  it("keeps status as degraded when health < 30 after repair", async () => {
-    const { regionId, gersId, crewId } = await insertTestFixtures(tx);
-
-    const taskResult = await tx.query<{ task_id: string }>(
-      `INSERT INTO tasks (region_id, target_gers_id, task_type, cost_food, cost_equipment, cost_energy, cost_materials, duration_s, repair_amount, status)
-       VALUES ($1, $2, 'repair', 10, 5, 5, 10, 60, 10, 'active')
-       RETURNING task_id`,
-      [regionId, gersId]
-    );
-    const taskId = taskResult.rows[0].task_id;
-
-    await tx.query(
-      `UPDATE crews SET status = 'working', active_task_id = $2, busy_until = now() - interval '1 second' WHERE crew_id = $1`,
-      [crewId, taskId]
-    );
-
-    // Health at 10, repair_amount 10 -> 20 < 30 -> should stay 'degraded'
-    await tx.query(`UPDATE feature_state SET health = 10, status = 'degraded' WHERE gers_id = $1`, [
-      gersId
-    ]);
-
-    const result = await completeFinishedTasks(tx, DAY_MULTIPLIERS);
-
-    expect(result.featureDeltas[0].health).toBe(20);
-    expect(result.featureDeltas[0].status).toBe("degraded");
   });
 
   it("caps health at 100", async () => {

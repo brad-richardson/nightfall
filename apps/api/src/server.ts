@@ -9,7 +9,7 @@ import { closePool, getPool } from "./db";
 import { loadCycleState, loadCycleSummary } from "./cycle";
 import { createDbEventStream } from "./event-stream";
 import type { EventStream } from "./event-stream";
-import { ROAD_CLASSES } from "@nightfall/config";
+import { ROAD_CLASSES, DEGRADED_HEALTH_THRESHOLD } from "@nightfall/config";
 import {
   type Graph,
   type ConnectorCoords,
@@ -18,7 +18,6 @@ import {
   findNearestConnector,
   buildWaypoints,
 } from "@nightfall/pathfinding";
-import { gridDisk } from "h3-js";
 
 const LAMBDA = 0.1;
 const CONTRIBUTION_LIMIT = 1000;
@@ -172,6 +171,14 @@ function haversineDistanceMeters(a: [number, number], b: [number, number]) {
 const graphCache = new Map<string, { graph: Graph; coords: ConnectorCoords; timestamp: number }>();
 const GRAPH_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
+// Focus hex cache - caches the hex with most degraded roads per region
+const focusHexCache = new Map<string, { h3_index: string | null; timestamp: number }>();
+const FOCUS_HEX_CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
+
+export function resetFocusHexCacheForTests() {
+  focusHexCache.clear();
+}
+
 async function loadGraphForRegion(
   regionId: string
 ): Promise<{ graph: Graph; coords: ConnectorCoords } | null> {
@@ -241,6 +248,44 @@ async function loadGraphForRegion(
     graphCache.set(cacheKey, { graph, coords, timestamp: Date.now() });
 
     return { graph, coords };
+  } catch {
+    return null;
+  }
+}
+
+async function getFocusHex(regionId: string): Promise<string | null> {
+  const cached = focusHexCache.get(regionId);
+  if (cached && Date.now() - cached.timestamp < FOCUS_HEX_CACHE_TTL_MS) {
+    return cached.h3_index;
+  }
+
+  const pool = getPool();
+
+  try {
+    // Find hex with most degraded roads, fallback to hex with most roads overall
+    const result = await pool.query<{ h3_index: string }>(
+      `
+      WITH road_counts AS (
+        SELECT
+          wfhc.h3_index,
+          COUNT(*) FILTER (WHERE fs.health < ${DEGRADED_HEALTH_THRESHOLD}) AS degraded_count,
+          COUNT(*) AS total_count
+        FROM world_feature_hex_cells wfhc
+        JOIN world_features wf ON wf.gers_id = wfhc.gers_id
+        JOIN feature_state fs ON fs.gers_id = wf.gers_id
+        WHERE wf.feature_type = 'road' AND wf.region_id = $1
+        GROUP BY wfhc.h3_index
+      )
+      SELECT h3_index FROM road_counts
+      ORDER BY degraded_count DESC, total_count DESC
+      LIMIT 1
+      `,
+      [regionId]
+    );
+
+    const h3_index = result.rows[0]?.h3_index ?? null;
+    focusHexCache.set(regionId, { h3_index, timestamp: Date.now() });
+    return h3_index;
   } catch {
     return null;
   }
@@ -721,8 +766,8 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       `
       SELECT
         COUNT(*) FILTER (WHERE wf.feature_type = 'road')::int AS total_roads,
-        COUNT(*) FILTER (WHERE wf.feature_type = 'road' AND fs.health > 80)::int AS healthy_roads,
-        COUNT(*) FILTER (WHERE wf.feature_type = 'road' AND fs.health < 30)::int AS degraded_roads,
+        COUNT(*) FILTER (WHERE wf.feature_type = 'road' AND fs.health >= ${DEGRADED_HEALTH_THRESHOLD})::int AS healthy_roads,
+        COUNT(*) FILTER (WHERE wf.feature_type = 'road' AND fs.health < ${DEGRADED_HEALTH_THRESHOLD})::int AS degraded_roads,
         AVG(fs.health)::float AS health_avg
       FROM world_features AS wf
       JOIN feature_state AS fs ON fs.gers_id = wf.gers_id
@@ -736,6 +781,9 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       [regionId]
     );
 
+    // Get focus hex (most degraded roads) with caching
+    const focusHex = await getFocusHex(regionId);
+
     return {
       region_id: region.region_id,
       name: region.name,
@@ -744,6 +792,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       pool_equipment: region.pool_equipment,
       pool_energy: region.pool_energy,
       pool_materials: region.pool_materials,
+      focus_h3_index: focusHex,
       crews: crewsResult.rows,
       tasks: tasksResult.rows,
       stats: {

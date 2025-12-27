@@ -66,6 +66,7 @@ export type Region = {
   pool_equipment: number;
   pool_energy: number;
   pool_materials: number;
+  focus_h3_index?: string | null;
   crews: Crew[];
   tasks: Task[];
   stats: {

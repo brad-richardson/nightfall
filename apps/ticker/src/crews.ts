@@ -1,7 +1,6 @@
 import type { FeatureDelta, FeedItem, TaskDelta } from "./deltas";
 import type { PoolLike } from "./ticker";
 import type { PhaseMultipliers } from "./multipliers";
-import { DEGRADED_HEALTH_THRESHOLD } from "@nightfall/config";
 import {
   type Point,
   findPath,
@@ -10,7 +9,6 @@ import {
 } from "@nightfall/pathfinding";
 import { loadGraphForRegion } from "./resources";
 
-const MIN_REPAIR_THRESHOLD = DEGRADED_HEALTH_THRESHOLD;
 const CREW_TRAVEL_MPS = 10; // Crew travel speed in meters per second
 const CREW_TRAVEL_MIN_S = 4;
 const CREW_TRAVEL_MAX_S = 120;

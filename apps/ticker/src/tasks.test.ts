@@ -10,7 +10,7 @@ describe("spawnDegradedRoadTasks", () => {
     expect(result).toEqual([{ task_id: "task-1", status: "queued", priority_score: 0 }]);
     expect(query).toHaveBeenCalledTimes(1);
     expect(String(query.mock.calls[0][0])).toContain("INSERT INTO tasks");
-    expect(String(query.mock.calls[0][0])).toContain("fs.status = 'degraded'");
+    expect(String(query.mock.calls[0][0])).toContain("fs.health < 70");
   });
 
   it("calculates initial priority_score based on road health and class weight", async () => {

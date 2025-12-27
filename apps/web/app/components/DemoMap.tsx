@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import maplibregl from "maplibre-gl";
 import * as pmtiles from "pmtiles";
-import { cellToBoundary } from "h3-js";
+import { cellToBoundary, cellToLatLng } from "h3-js";
 import { MapTooltip, type TooltipData } from "./MapTooltip";
 import {
   type ResourcePackage,
@@ -55,6 +55,7 @@ export default function DemoMap({
   crews,
   tasks,
   fallbackBbox,
+  focusH3Index,
   cycle,
   pmtilesRelease,
   children,
@@ -169,8 +170,17 @@ export default function DemoMap({
     const protocol = new pmtiles.Protocol();
     maplibregl.addProtocol("pmtiles", protocol.tile);
 
-    const centerLon = (fallbackBbox.xmin + fallbackBbox.xmax) / 2;
-    const centerLat = (fallbackBbox.ymin + fallbackBbox.ymax) / 2;
+    // Center on focus hex if available, otherwise use bbox center
+    let centerLon: number;
+    let centerLat: number;
+    if (focusH3Index) {
+      const [lat, lon] = cellToLatLng(focusH3Index);
+      centerLon = lon;
+      centerLat = lat;
+    } else {
+      centerLon = (fallbackBbox.xmin + fallbackBbox.xmax) / 2;
+      centerLat = (fallbackBbox.ymin + fallbackBbox.ymax) / 2;
+    }
     const maxBounds = getMaxBoundsFromBoundary(boundary);
 
     const mapInstance = new maplibregl.Map({
@@ -348,7 +358,7 @@ export default function DemoMap({
       }
       maplibregl.removeProtocol("pmtiles");
     };
-  }, [fallbackBbox, boundary, pmtilesBase]);
+  }, [fallbackBbox, focusH3Index, boundary, pmtilesBase]);
 
   // Tooltip handling
   useEffect(() => {
@@ -457,9 +467,13 @@ export default function DemoMap({
   useEffect(() => {
     if (!isLoaded || !map.current) return;
 
-    const healthyIds = features.filter(f => f.feature_type === "road" && (f.health ?? 100) > 80).map(f => f.gers_id);
-    const warningIds = features.filter(f => f.feature_type === "road" && (f.health ?? 100) <= 80 && (f.health ?? 100) > 30).map(f => f.gers_id);
-    const degradedIds = features.filter(f => f.feature_type === "road" && (f.health ?? 100) <= 30).map(f => f.gers_id);
+    // Visual thresholds are separate from task spawn thresholds:
+    // - Tasks spawn at DEGRADED_HEALTH_THRESHOLD (70%)
+    // - Visual degradation shows at 30% when user action is more urgent
+    const VISUAL_DEGRADED_THRESHOLD = 30;
+    const healthyIds = features.filter(f => f.feature_type === "road" && (f.health ?? 100) > VISUAL_DEGRADED_THRESHOLD).map(f => f.gers_id);
+    const warningIds: string[] = []; // Warning state not used
+    const degradedIds = features.filter(f => f.feature_type === "road" && (f.health ?? 100) <= VISUAL_DEGRADED_THRESHOLD).map(f => f.gers_id);
     const foodIds = features.filter(f => f.feature_type === "building" && f.generates_food).map(f => f.gers_id);
     const equipmentIds = features.filter(f => f.feature_type === "building" && f.generates_equipment).map(f => f.gers_id);
     const energyIds = features.filter(f => f.feature_type === "building" && f.generates_energy).map(f => f.gers_id);
@@ -773,8 +787,8 @@ export default function DemoMap({
       animationManager.start('repair-pulse', () => {
         if (!map.current) return;
         pulsePhase = (pulsePhase + 0.05) % (2 * Math.PI);
-        const opacity = 0.2 + 0.25 * Math.sin(pulsePhase);
-        const width = 12 + 6 * Math.sin(pulsePhase);
+        const opacity = Math.max(0, 0.3 + 0.25 * Math.sin(pulsePhase));
+        const width = Math.max(6, 12 + 6 * Math.sin(pulsePhase));
         map.current.setPaintProperty("game-roads-repair-pulse", "line-opacity", opacity);
         map.current.setPaintProperty("game-roads-repair-pulse", "line-width",
           ["interpolate", ["linear"], ["zoom"], 12, width, 16, width * 2]

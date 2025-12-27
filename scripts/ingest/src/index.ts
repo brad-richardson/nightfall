@@ -854,16 +854,20 @@ async function assignHubBuildings(pgPool: Pool, region: RegionConfig) {
       return;
     }
 
-    // Get all building-to-hex mappings for this region with footprint area proxy
+    // Get all building-to-hex mappings for this region with footprint area and center
     const buildingResult = await client.query<{
       h3_index: string;
       gers_id: string;
       area: number;
+      center_lon: number;
+      center_lat: number;
     }>(`
       SELECT
         wfh.h3_index,
         wf.gers_id,
-        (wf.bbox_xmax - wf.bbox_xmin) * (wf.bbox_ymax - wf.bbox_ymin) AS area
+        (wf.bbox_xmax - wf.bbox_xmin) * (wf.bbox_ymax - wf.bbox_ymin) AS area,
+        (wf.bbox_xmin + wf.bbox_xmax) / 2 AS center_lon,
+        (wf.bbox_ymin + wf.bbox_ymax) / 2 AS center_lat
       FROM world_features wf
       JOIN world_feature_hex_cells wfh ON wf.gers_id = wfh.gers_id
       WHERE wf.feature_type = 'building'
@@ -873,33 +877,60 @@ async function assignHubBuildings(pgPool: Pool, region: RegionConfig) {
     console.log(`Found ${buildingResult.rows.length} building-to-hex mappings for ${hexResult.rows.length} hexes`);
 
     // Group buildings by hex
-    const buildingsByHex: Map<string, Array<{ gers_id: string; area: number }>> = new Map();
+    const buildingsByHex: Map<string, Array<{ gers_id: string; area: number; center_lon: number; center_lat: number }>> = new Map();
     for (const row of buildingResult.rows) {
       if (!buildingsByHex.has(row.h3_index)) {
         buildingsByHex.set(row.h3_index, []);
       }
       buildingsByHex.get(row.h3_index)!.push({
         gers_id: row.gers_id,
-        area: row.area
+        area: row.area,
+        center_lon: row.center_lon,
+        center_lat: row.center_lat
       });
     }
 
     console.log(`Grouped buildings into ${buildingsByHex.size} hexes with buildings`);
 
-    // Find the building with the largest footprint in each hex
+    // Find the best building in each hex using weighted score:
+    // 70% closeness to hex center + 30% size
+    const CLOSENESS_WEIGHT = 0.7;
+    const SIZE_WEIGHT = 0.3;
     const hubAssignments: Array<{ h3_index: string; building_gers_id: string }> = [];
 
     for (const [h3Index, buildings] of buildingsByHex.entries()) {
       if (!buildings || buildings.length === 0) continue;
 
-      let largestBuilding = buildings[0];
-      for (let i = 1; i < buildings.length; i++) {
-        if (buildings[i].area > largestBuilding.area) {
-          largestBuilding = buildings[i];
+      // Get hex center (cellToLatLng returns [lat, lon])
+      const [hexLat, hexLon] = cellToLatLng(h3Index);
+
+      // Calculate distances and find max area for normalization
+      let maxArea = 0;
+      let maxDistance = 0;
+      const buildingsWithDistance = buildings.map(b => {
+        const distance = haversine(b.center_lat, b.center_lon, hexLat, hexLon);
+        if (b.area > maxArea) maxArea = b.area;
+        if (distance > maxDistance) maxDistance = distance;
+        return { ...b, distance };
+      });
+
+      // Calculate weighted scores and find best building
+      let bestBuilding = buildingsWithDistance[0];
+      let bestScore = -Infinity;
+
+      for (const building of buildingsWithDistance) {
+        // Normalize: closeness = 1 - (distance / maxDistance), size = area / maxArea
+        const normalizedCloseness = maxDistance > 0 ? 1 - (building.distance / maxDistance) : 1;
+        const normalizedSize = maxArea > 0 ? building.area / maxArea : 0;
+        const score = normalizedCloseness * CLOSENESS_WEIGHT + normalizedSize * SIZE_WEIGHT;
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestBuilding = building;
         }
       }
 
-      hubAssignments.push({ h3_index: h3Index, building_gers_id: largestBuilding.gers_id });
+      hubAssignments.push({ h3_index: h3Index, building_gers_id: bestBuilding.gers_id });
     }
 
     console.log(`Found ${hubAssignments.length} hub building assignments`);
