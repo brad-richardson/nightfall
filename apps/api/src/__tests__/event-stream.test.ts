@@ -13,11 +13,9 @@ describe("createDbEventStream", () => {
   let mockPool: Pool;
   let mockClient: MockPoolClient;
   let logger: { error: ReturnType<typeof vi.fn> };
-  let timers: number[];
 
   beforeEach(() => {
     vi.useFakeTimers();
-    timers = [];
 
     const emitter = new EventEmitter();
     mockClient = Object.assign(emitter, {
@@ -33,18 +31,9 @@ describe("createDbEventStream", () => {
     logger = {
       error: vi.fn()
     };
-
-    // Track setTimeout calls
-    const originalSetTimeout = global.setTimeout;
-    vi.spyOn(global, "setTimeout").mockImplementation(((fn, delay) => {
-      const id = originalSetTimeout(fn as () => void, delay as number) as unknown as number;
-      timers.push(id);
-      return id;
-    }) as typeof setTimeout);
   });
 
   afterEach(() => {
-    timers.forEach(clearTimeout);
     vi.useRealTimers();
   });
 
