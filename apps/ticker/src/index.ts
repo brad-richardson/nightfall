@@ -17,6 +17,7 @@ import type { FeatureDelta, TaskDelta } from "./deltas";
 import { notifyEvent } from "./notify";
 import { getDemoConfig } from "./demo";
 import { simulateBots } from "./bots";
+import { runLamplighter } from "./lamplighter";
 import { checkAndPerformReset } from "./reset";
 import { cleanupOldData } from "./cleanup";
 import { attachPoolErrorHandler } from "./pool";
@@ -156,6 +157,9 @@ async function runTick(client: PoolLike) {
 
   await simulateBots(client, demoConfig.enabled);
 
+  // The Lamplighter makes the world feel alive with per-region activity
+  const lamplighterResult = await runLamplighter(client, demoConfig.enabled, cycle.phase);
+
   await publishWorldDelta(
     client,
     [...rustHexes, ...completionResult.rustHexes],
@@ -209,7 +213,10 @@ async function runTick(client: PoolLike) {
     tasks_updated: priorityUpdates.length,
     crews_dispatched: dispatchResult.taskDeltas.length,
     crews_arrived: crewArrivalResult.featureDeltas.length,
-    tasks_completed: completionResult.taskDeltas.length
+    tasks_completed: completionResult.taskDeltas.length,
+    lamplighter_activities: lamplighterResult.regionActivities,
+    lamplighter_contributions: lamplighterResult.contributions,
+    lamplighter_votes: lamplighterResult.votes
   }, "tick stats");
 }
 
