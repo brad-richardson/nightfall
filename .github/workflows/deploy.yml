@@ -82,7 +82,7 @@ jobs:
         run: |
           echo "Waiting for deployment to stabilize..."
           sleep 15
-          curl -f https://nightfall-api.fly.dev/health || exit 1
+          curl -f https://nightfall.fly.dev/health || exit 1
           echo "Health check passed!"
 
       # Note: fly.ticker.toml deployment removed - ticker now runs in API container
@@ -105,6 +105,9 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+
+      - name: Build config package
+        run: pnpm --filter @nightfall/config build
 
       - name: Build static site
         run: pnpm --filter @nightfall/web build

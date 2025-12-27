@@ -1,4 +1,4 @@
-app = "nightfall-api"
+app = "nightfall"
 primary_region = "ord"
 
 # Note: This container now runs both API and ticker processes
