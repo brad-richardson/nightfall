@@ -1,21 +1,23 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { Package, Vote, Clock, AlertTriangle, Search, X, Users, CheckCircle2, Timer } from "lucide-react";
-import { formatNumber, formatLabel } from "../lib/formatters";
-import type { Task, Crew, Feature } from "../store";
+import { Package, Clock, AlertTriangle, Search, X, Users, CheckCircle2, Timer } from "lucide-react";
+import { formatLabel } from "../lib/formatters";
+import type { Task, Crew, Feature, UserVotes } from "../store";
+import VoteButton from "./VoteButton";
 
 type TaskListProps = {
   tasks: Task[];
   crews: Crew[];
   features: Feature[];
-  onVote: (taskId: string, weight: number) => void;
+  userVotes: UserVotes;
+  onVote: (taskId: string, weight: number) => Promise<void>;
 };
 
 type TaskFilter = "all" | "queued" | "in_progress" | "high_priority";
 type TaskSort = "priority" | "votes" | "cost" | "duration";
 
-export default function TaskList({ tasks, crews, features, onVote }: TaskListProps) {
+export default function TaskList({ tasks, crews, features, userVotes, onVote }: TaskListProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<TaskFilter>("all");
@@ -273,27 +275,24 @@ export default function TaskList({ tasks, crews, features, onVote }: TaskListPro
                 </div>
 
                 <div className="mt-4 flex items-center justify-between border-t border-white/5 pt-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold tabular-nums text-white/60">
-                      {formatNumber(Math.round(task.vote_score))} votes
-                    </span>
-                  </div>
-                  
                   {task.status !== "active" ? (
-                    <div className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                      <button
-                        onClick={() => onVote(task.task_id, 1)}
-                        className="flex h-7 w-7 items-center justify-center rounded-full bg-[color:var(--night-teal)]/20 text-[color:var(--night-teal)] transition-colors hover:bg-[color:var(--night-teal)] hover:text-white"
-                        title="Vote Up"
-                      >
-                        <Vote className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
+                    <VoteButton
+                      taskId={task.task_id}
+                      currentVoteScore={task.vote_score}
+                      userVote={userVotes[task.task_id]}
+                      onVote={onVote}
+                      size="sm"
+                    />
                   ) : (
-                    <div className="flex items-center gap-1.5 text-[color:var(--night-teal)]">
-                      <Timer className="h-3.5 w-3.5 animate-pulse" />
-                      <span className="text-[10px] font-bold uppercase tracking-wider">Working</span>
-                    </div>
+                    <>
+                      <span className="text-[10px] font-bold tabular-nums text-white/60">
+                        {Math.round(task.vote_score)} votes
+                      </span>
+                      <div className="flex items-center gap-1.5 text-[color:var(--night-teal)]">
+                        <Timer className="h-3.5 w-3.5 animate-pulse" />
+                        <span className="text-[10px] font-bold uppercase tracking-wider">Working</span>
+                      </div>
+                    </>
                   )}
                 </div>
               </div>

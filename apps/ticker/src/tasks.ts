@@ -29,6 +29,10 @@ export async function spawnDegradedRoadTasks(pool: PoolLike) {
     .map(([cls, info]) => `WHEN '${cls}' THEN ${info.repairAmount}`)
     .join("\n        ");
 
+  const priorityWeightCases = Object.entries(ROAD_CLASSES)
+    .map(([cls, info]) => `WHEN '${cls}' THEN ${info.priorityWeight}`)
+    .join("\n        ");
+
   const result = await pool.query<TaskDelta>(
     `
     INSERT INTO tasks (
@@ -73,7 +77,13 @@ export async function spawnDegradedRoadTasks(pool: PoolLike) {
         ${repairCases}
         ELSE 20
       END AS repair_amount,
-      0,
+      -- Calculate initial priority based on road health and class weight
+      (100 - fs.health) * (
+        CASE wf.road_class
+          ${priorityWeightCases}
+          ELSE 1
+        END
+      ),
       0,
       'queued'
     FROM world_features AS wf

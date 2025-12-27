@@ -94,6 +94,9 @@ export type AuthState = {
   token: string;
 };
 
+// Track user's votes: taskId -> weight (1 or -1)
+export type UserVotes = Record<string, number>;
+
 type State = {
   region: Region;
   features: Feature[];
@@ -103,6 +106,7 @@ type State = {
   availableRegions: { region_id: string; name: string }[];
   auth: AuthState;
   feedItems: FeedItem[];
+  userVotes: UserVotes;
 };
 
 type Actions = {
@@ -112,6 +116,8 @@ type Actions = {
   setCycle: (cycle: CycleState | ((prev: CycleState) => CycleState)) => void;
   setAuth: (auth: AuthState) => void;
   addFeedItem: (item: FeedItem) => void;
+  setUserVote: (taskId: string, weight: number) => void;
+  clearUserVote: (taskId: string) => void;
 };
 
 export const useStore = create<State & Actions>()(
@@ -149,6 +155,7 @@ export const useStore = create<State & Actions>()(
       availableRegions: [],
       auth: { clientId: "", token: "" },
       feedItems: [],
+      userVotes: {},
 
       setRegion: (updater) =>
         set((state) => ({
@@ -170,7 +177,17 @@ export const useStore = create<State & Actions>()(
       addFeedItem: (item) =>
         set((state) => ({
           feedItems: [item, ...state.feedItems].slice(0, 50)
-        }))
+        })),
+      setUserVote: (taskId, weight) =>
+        set((state) => ({
+          userVotes: { ...state.userVotes, [taskId]: weight }
+        })),
+      clearUserVote: (taskId) =>
+        set((state) => {
+          const { [taskId]: _removed, ...rest } = state.userVotes;
+          void _removed; // Silence unused variable warning
+          return { userVotes: rest };
+        })
     }),
     {
       name: "nightfall-auth",

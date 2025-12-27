@@ -169,6 +169,7 @@ export default function Dashboard({
   const hexes = useStore((state) => state.hexes);
   const cycle = useStore((state) => state.cycle);
   const auth = useStore((state) => state.auth);
+  const userVotes = useStore((state) => state.userVotes);
 
   // Get stable action references (actions never change)
   const setRegion = useStore.getState().setRegion;
@@ -176,6 +177,7 @@ export default function Dashboard({
   const setHexes = useStore.getState().setHexes;
   const setCycle = useStore.getState().setCycle;
   const setAuth = useStore.getState().setAuth;
+  const setUserVote = useStore.getState().setUserVote;
   
   // Use ref for lastEvent to avoid re-renders on every SSE event
   const lastEventRef = useRef<string | null>(null);
@@ -488,12 +490,16 @@ export default function Dashboard({
 
   useEventStream(apiBaseUrl, handleEvent);
 
-  const handleVote = useCallback(async (taskId: string, weight: number) => {
+  const handleVote = useCallback(async (taskId: string, weight: number): Promise<void> => {
     if (!auth.clientId || !auth.token) return;
+
+    const currentVote = userVotes[taskId];
+    const isTogglingOff = currentVote === weight;
+
     try {
       const res = await fetch(`${apiBaseUrl}/api/vote`, {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${auth.token}`
         },
@@ -503,19 +509,44 @@ export default function Dashboard({
         const data = await res.json();
         setRegion(prev => ({
           ...prev,
-          tasks: prev.tasks.map(t => 
-            t.task_id === taskId ? { 
-              ...t, 
+          tasks: prev.tasks.map(t =>
+            t.task_id === taskId ? {
+              ...t,
               vote_score: data.new_vote_score,
               priority_score: data.priority_score ?? t.priority_score
             } : t
           )
         }));
+
+        // Track user's vote state
+        if (isTogglingOff) {
+          // Toggling off - clear the vote (they clicked same button again)
+          setUserVote(taskId, 0);
+        } else {
+          setUserVote(taskId, weight);
+        }
+
+        // Show feedback toast
+        const action = isTogglingOff
+          ? "Vote removed"
+          : weight > 0
+            ? "Upvoted!"
+            : "Downvoted";
+        const description = isTogglingOff
+          ? "Your vote has been withdrawn"
+          : weight > 0
+            ? "This task will be prioritized higher"
+            : "This task will be prioritized lower";
+        toast.success(action, { description });
+      } else {
+        throw new Error("Vote failed");
       }
     } catch (err) {
       console.error("Failed to vote", err);
+      toast.error("Vote failed", { description: "Please try again" });
+      throw err;
     }
-  }, [apiBaseUrl, auth, setRegion]);
+  }, [apiBaseUrl, auth, userVotes, setRegion, setUserVote]);
 
   const handleContribute = useCallback(async (
     sourceGersId: string,
@@ -604,7 +635,7 @@ export default function Dashboard({
       <ResourceTicker deltas={resourceFeed} />
 
       <div className="rounded-3xl border border-[var(--night-outline)] bg-[color:var(--night-ink)]/80 p-5 text-white shadow-[0_18px_40px_rgba(24,20,14,0.2)]">
-        <TaskList tasks={region.tasks} crews={region.crews} features={features} onVote={handleVote} />
+        <TaskList tasks={region.tasks} crews={region.crews} features={features} userVotes={userVotes} onVote={handleVote} />
       </div>
 
       <div className="rounded-3xl border border-[var(--night-outline)] bg-white/60 p-5 shadow-[0_18px_40px_rgba(24,20,14,0.12)]">
@@ -761,7 +792,7 @@ export default function Dashboard({
 
           <MapOverlay position="bottom-left" className="!bottom-20 hidden w-[360px] max-h-[55vh] lg:block">
             <MapPanel title="Operations Queue" className="h-full overflow-hidden">
-              <TaskList tasks={region.tasks} crews={region.crews} features={features} onVote={handleVote} />
+              <TaskList tasks={region.tasks} crews={region.crews} features={features} userVotes={userVotes} onVote={handleVote} />
             </MapPanel>
           </MapOverlay>
 
@@ -797,6 +828,7 @@ export default function Dashboard({
               onVote={handleVote}
               onContribute={handleContribute}
               canContribute={Boolean(auth.token && auth.clientId)}
+              userVotes={userVotes}
             />
           </div>
         </div>
