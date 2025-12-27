@@ -3,9 +3,15 @@ import { createDbEventStream } from "../event-stream";
 import type { Pool, PoolClient } from "pg";
 import { EventEmitter } from "node:events";
 
+type MockPoolClient = PoolClient & EventEmitter & {
+  query: ReturnType<typeof vi.fn>;
+  release: ReturnType<typeof vi.fn>;
+  removeAllListeners: ReturnType<typeof vi.fn>;
+};
+
 describe("createDbEventStream", () => {
   let mockPool: Pool;
-  let mockClient: PoolClient;
+  let mockClient: MockPoolClient;
   let logger: { error: ReturnType<typeof vi.fn> };
   let timers: number[];
 
@@ -13,10 +19,12 @@ describe("createDbEventStream", () => {
     vi.useFakeTimers();
     timers = [];
 
-    mockClient = new EventEmitter() as unknown as PoolClient;
-    (mockClient as any).query = vi.fn().mockResolvedValue({ rows: [] });
-    (mockClient as any).release = vi.fn();
-    (mockClient as any).removeAllListeners = vi.fn();
+    const emitter = new EventEmitter();
+    mockClient = Object.assign(emitter, {
+      query: vi.fn().mockResolvedValue({ rows: [] }),
+      release: vi.fn(),
+      removeAllListeners: vi.fn()
+    }) as MockPoolClient;
 
     mockPool = {
       connect: vi.fn().mockResolvedValue(mockClient)
@@ -28,7 +36,7 @@ describe("createDbEventStream", () => {
 
     // Track setTimeout calls
     const originalSetTimeout = global.setTimeout;
-    vi.spyOn(global, "setTimeout").mockImplementation((fn: any, delay: number) => {
+    vi.spyOn(global, "setTimeout").mockImplementation((fn: (...args: unknown[]) => void, delay: number) => {
       const id = originalSetTimeout(fn, delay) as unknown as number;
       timers.push(id);
       return id;
@@ -45,8 +53,8 @@ describe("createDbEventStream", () => {
     await eventStream.start?.();
 
     expect(mockPool.connect).toHaveBeenCalledTimes(1);
-    expect((mockClient as any).query).toHaveBeenCalledWith("LISTEN phase_change");
-    expect((mockClient as any).query).toHaveBeenCalledWith("LISTEN world_delta");
+    expect(mockClient.query).toHaveBeenCalledWith("LISTEN phase_change");
+    expect(mockClient.query).toHaveBeenCalledWith("LISTEN world_delta");
   });
 
   it("emits events when notification is received", async () => {
@@ -56,7 +64,7 @@ describe("createDbEventStream", () => {
 
     await eventStream.start?.();
 
-    (mockClient as any).emit("notification", {
+    mockClient.emit("notification", {
       channel: "phase_change",
       payload: JSON.stringify({ phase: "night" })
     });
@@ -75,7 +83,7 @@ describe("createDbEventStream", () => {
     expect(firstClient).toHaveBeenCalledTimes(1);
 
     // Simulate client error
-    (mockClient as any).emit("error", new Error("Connection lost"));
+    mockClient.emit("error", new Error("Connection lost"));
 
     expect(logger.error).toHaveBeenCalledWith(
       expect.objectContaining({ err: expect.any(Error) }),
@@ -96,7 +104,7 @@ describe("createDbEventStream", () => {
     expect(firstClient).toHaveBeenCalledTimes(1);
 
     // Simulate connection end
-    (mockClient as any).emit("end");
+    mockClient.emit("end");
 
     expect(logger.error).toHaveBeenCalledWith(
       "event stream db connection ended - triggering reconnect"
@@ -112,15 +120,14 @@ describe("createDbEventStream", () => {
     const eventStream = createDbEventStream(mockPool, logger);
     await eventStream.start?.();
 
-    const queryMock = (mockClient as any).query as ReturnType<typeof vi.fn>;
-    const initialCallCount = queryMock.mock.calls.length;
+    const initialCallCount = mockClient.query.mock.calls.length;
 
     // Advance time by 30 seconds to trigger heartbeat
     await vi.advanceTimersByTimeAsync(30000);
 
     // Should have called SELECT 1 for heartbeat
-    expect(queryMock).toHaveBeenCalledWith("SELECT 1");
-    expect(queryMock.mock.calls.length).toBeGreaterThan(initialCallCount);
+    expect(mockClient.query).toHaveBeenCalledWith("SELECT 1");
+    expect(mockClient.query.mock.calls.length).toBeGreaterThan(initialCallCount);
   });
 
   it("triggers reconnection on heartbeat failure", async () => {
@@ -131,8 +138,7 @@ describe("createDbEventStream", () => {
     expect(firstClient).toHaveBeenCalledTimes(1);
 
     // Make heartbeat query fail
-    const queryMock = (mockClient as any).query as ReturnType<typeof vi.fn>;
-    queryMock.mockRejectedValueOnce(new Error("Heartbeat failed"));
+    mockClient.query.mockRejectedValueOnce(new Error("Heartbeat failed"));
 
     // Advance time by 30 seconds to trigger heartbeat
     await vi.advanceTimersByTimeAsync(30000);
@@ -154,9 +160,9 @@ describe("createDbEventStream", () => {
 
     await eventStream.stop?.();
 
-    expect((mockClient as any).query).toHaveBeenCalledWith("UNLISTEN phase_change");
-    expect((mockClient as any).query).toHaveBeenCalledWith("UNLISTEN world_delta");
-    expect((mockClient as any).release).toHaveBeenCalled();
+    expect(mockClient.query).toHaveBeenCalledWith("UNLISTEN phase_change");
+    expect(mockClient.query).toHaveBeenCalledWith("UNLISTEN world_delta");
+    expect(mockClient.release).toHaveBeenCalled();
   });
 
   it("handles invalid JSON payload gracefully", async () => {
@@ -166,7 +172,7 @@ describe("createDbEventStream", () => {
 
     await eventStream.start?.();
 
-    (mockClient as any).emit("notification", {
+    mockClient.emit("notification", {
       channel: "phase_change",
       payload: "invalid json {"
     });
