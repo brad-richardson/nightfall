@@ -727,6 +727,8 @@ export default function DemoMap({
 
   // Task completion animation
   useEffect(() => {
+    let fadeInterval: ReturnType<typeof setInterval> | null = null;
+
     const handleTaskCompleted = (e: Event) => {
       const customEvent = e as CustomEvent<{ gers_id: string }>;
       const gersId = customEvent.detail.gers_id;
@@ -741,11 +743,15 @@ export default function DemoMap({
       map.current.setFilter("game-roads-completion-flash", baseFilter);
       map.current.setPaintProperty("game-roads-completion-flash", "line-opacity", 0.9);
 
+      // Clear any existing interval before starting a new one
+      if (fadeInterval) clearInterval(fadeInterval);
+
       let opacity = 0.9;
-      const fadeInterval = setInterval(() => {
+      fadeInterval = setInterval(() => {
         opacity -= 0.05;
         if (opacity <= 0 || !map.current) {
-          clearInterval(fadeInterval);
+          if (fadeInterval) clearInterval(fadeInterval);
+          fadeInterval = null;
           map.current?.setFilter("game-roads-completion-flash", ["==", ["get", "id"], "none"]);
         } else {
           map.current?.setPaintProperty("game-roads-completion-flash", "line-opacity", opacity);
@@ -754,7 +760,11 @@ export default function DemoMap({
     };
 
     window.addEventListener("nightfall:task_completed", handleTaskCompleted);
-    return () => window.removeEventListener("nightfall:task_completed", handleTaskCompleted);
+    return () => {
+      window.removeEventListener("nightfall:task_completed", handleTaskCompleted);
+      // Clean up interval on unmount
+      if (fadeInterval) clearInterval(fadeInterval);
+    };
   }, [isLoaded]);
 
   // Highlight queued/pending task roads

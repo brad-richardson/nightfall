@@ -35,6 +35,27 @@ export default function VoteButton({
   const [pulseUp, setPulseUp] = useState(false);
   const [pulseDown, setPulseDown] = useState(false);
   const particleId = useRef(0);
+  // Track all timeouts for cleanup
+  const timeoutsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+
+  // Cleanup all timeouts on unmount
+  useEffect(() => {
+    const timeouts = timeoutsRef.current;
+    return () => {
+      timeouts.forEach(clearTimeout);
+      timeouts.clear();
+    };
+  }, []);
+
+  // Helper to create tracked timeouts
+  const safeTimeout = useCallback((callback: () => void, delay: number) => {
+    const id = setTimeout(() => {
+      timeoutsRef.current.delete(id);
+      callback();
+    }, delay);
+    timeoutsRef.current.add(id);
+    return id;
+  }, []);
 
   // Sync display score with actual score
   useEffect(() => {
@@ -61,10 +82,10 @@ export default function VoteButton({
     setParticles(prev => [...prev, ...newParticles]);
 
     // Clean up particles after animation by filtering on IDs
-    setTimeout(() => {
+    safeTimeout(() => {
       setParticles(prev => prev.filter(p => !newIds.includes(p.id)));
     }, 1000);
-  }, []);
+  }, [safeTimeout]);
 
   const handleVote = useCallback(async (weight: number) => {
     if (isVoting || disabled) return;
@@ -78,10 +99,10 @@ export default function VoteButton({
     // Trigger pulse animation
     if (isUpvote) {
       setPulseUp(true);
-      setTimeout(() => setPulseUp(false), 300);
+      safeTimeout(() => setPulseUp(false), 300);
     } else {
       setPulseDown(true);
-      setTimeout(() => setPulseDown(false), 300);
+      safeTimeout(() => setPulseDown(false), 300);
     }
 
     // Optimistic update with animation
@@ -100,9 +121,9 @@ export default function VoteButton({
       setDisplayScore(previousScore);
     } finally {
       setIsVoting(false);
-      setTimeout(() => setScoreChange(null), 600);
+      safeTimeout(() => setScoreChange(null), 600);
     }
-  }, [taskId, userVote, isVoting, disabled, displayScore, onVote, createParticles]);
+  }, [taskId, userVote, isVoting, disabled, displayScore, onVote, createParticles, safeTimeout]);
 
   const isUpvoted = userVote === 1;
   const isDownvoted = userVote === -1;

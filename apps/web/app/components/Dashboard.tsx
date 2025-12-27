@@ -315,6 +315,10 @@ export default function Dashboard({
                 region_id: delta.region_id
               });
             }
+            // Clean up completed/expired tasks from prevTasksRef to prevent unbounded growth
+            if (delta.status === 'done' || delta.status === 'expired') {
+              prevTasksRef.current.delete(delta.task_id);
+            }
           }
           tasks = tasks.filter(t => t.status !== 'done' && t.status !== 'expired');
           pending.taskUpdates.clear();
