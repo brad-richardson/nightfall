@@ -178,6 +178,7 @@ export default function Dashboard({
   const setCycle = useStore.getState().setCycle;
   const setAuth = useStore.getState().setAuth;
   const setUserVote = useStore.getState().setUserVote;
+  const clearUserVote = useStore.getState().clearUserVote;
   
   // Use ref for lastEvent to avoid re-renders on every SSE event
   const lastEventRef = useRef<string | null>(null);
@@ -521,7 +522,7 @@ export default function Dashboard({
         // Track user's vote state
         if (isTogglingOff) {
           // Toggling off - clear the vote (they clicked same button again)
-          setUserVote(taskId, 0);
+          clearUserVote(taskId);
         } else {
           setUserVote(taskId, weight);
         }
@@ -546,7 +547,7 @@ export default function Dashboard({
       toast.error("Vote failed", { description: "Please try again" });
       throw err;
     }
-  }, [apiBaseUrl, auth, userVotes, setRegion, setUserVote]);
+  }, [apiBaseUrl, auth, userVotes, setRegion, setUserVote, clearUserVote]);
 
   const handleContribute = useCallback(async (
     sourceGersId: string,

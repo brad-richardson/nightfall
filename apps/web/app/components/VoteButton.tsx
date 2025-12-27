@@ -44,10 +44,13 @@ export default function VoteButton({
   const createParticles = useCallback((isUpvote: boolean) => {
     const newParticles: FloatingParticle[] = [];
     const count = 3 + Math.floor(Math.random() * 3);
+    const newIds: number[] = [];
 
     for (let i = 0; i < count; i++) {
+      const id = particleId.current++;
+      newIds.push(id);
       newParticles.push({
-        id: particleId.current++,
+        id,
         x: Math.random() * 40 - 20,
         y: 0,
         text: isUpvote ? "+1" : "-1",
@@ -57,9 +60,9 @@ export default function VoteButton({
 
     setParticles(prev => [...prev, ...newParticles]);
 
-    // Clean up particles after animation
+    // Clean up particles after animation by filtering on IDs
     setTimeout(() => {
-      setParticles(prev => prev.filter(p => !newParticles.includes(p)));
+      setParticles(prev => prev.filter(p => !newIds.includes(p.id)));
     }, 1000);
   }, []);
 
