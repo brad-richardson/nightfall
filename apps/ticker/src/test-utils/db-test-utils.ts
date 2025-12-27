@@ -63,8 +63,8 @@ export class TestTransaction implements PoolLike {
     text: string,
     params?: unknown[]
   ): Promise<{ rows: T[]; rowCount?: number | null }> {
-    const result = await this.client.query<T>(text, params);
-    return { rows: result.rows, rowCount: result.rowCount };
+    const result = await this.client.query(text, params);
+    return { rows: result.rows as T[], rowCount: result.rowCount };
   }
 
   /**
