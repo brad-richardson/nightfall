@@ -31,3 +31,7 @@ export DATABASE_URL="postgresql://nightfall:nightfall@localhost:5433/nightfall?s
 
 pnpm run db:up
 node scripts/check-db.mjs
+
+# Run integration tests (requires the test database to be running)
+echo "Running integration tests..."
+pnpm vitest run --config vitest.integration.config.mts
