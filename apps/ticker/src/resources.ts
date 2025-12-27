@@ -189,7 +189,10 @@ export async function enqueueResourceTransfers(
     return [];
   }
 
+  const BUILDING_ACTIVATION_MINUTES = 2;
+
   // Step 1: Query buildings with resource outputs and coordinates
+  // Only include buildings that were activated within the last N minutes
   const buildingsResult = await pool.query<BuildingOutput>(
     `
     WITH feature_rust AS (
@@ -205,7 +208,10 @@ export async function enqueueResourceTransfers(
       FROM world_features AS wf
       JOIN world_feature_hex_cells AS wfhc ON wfhc.gers_id = wf.gers_id
       JOIN hex_cells AS h ON h.h3_index = wfhc.h3_index
+      JOIN feature_state AS fs ON fs.gers_id = wf.gers_id
       WHERE wf.feature_type = 'building'
+        AND fs.last_activated_at IS NOT NULL
+        AND fs.last_activated_at > now() - ($2 || ' minutes')::interval
       GROUP BY wf.gers_id, wf.region_id, wf.generates_food, wf.generates_equipment, wf.generates_energy, wf.generates_materials
     ),
     building_outputs AS (
@@ -259,7 +265,7 @@ export async function enqueueResourceTransfers(
           AND rt.status = 'in_transit'
       )
     `,
-    [multipliers.generation]
+    [multipliers.generation, BUILDING_ACTIVATION_MINUTES]
   );
 
   if (buildingsResult.rows.length === 0) {

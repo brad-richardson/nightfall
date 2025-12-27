@@ -1334,6 +1334,16 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         ]);
       }
 
+      // Activate the building so it continues auto-generating resources
+      if (sourceGersId) {
+        await pool.query(
+          `INSERT INTO feature_state (gers_id, last_activated_at)
+           VALUES ($1, now())
+           ON CONFLICT (gers_id) DO UPDATE SET last_activated_at = now()`,
+          [sourceGersId]
+        );
+      }
+
       await pool.query("COMMIT");
 
       return {
