@@ -7,6 +7,7 @@ const MAX_RUST_LEVEL = 0.95;
 
 export type RustCell = {
   h3_index: string;
+  region_id: string;
   rust_level: number;
   distance_from_center: number;
 };
@@ -26,6 +27,7 @@ type ComputeArgs = {
 
 export type RustUpdate = {
   h3_index: string;
+  region_id: string;
   rust_level: number;
 };
 
@@ -67,7 +69,7 @@ export function computeRustUpdates({
     next = Math.max(0, Math.min(MAX_RUST_LEVEL, next));
 
     if (Math.abs(next - current) > 1e-6) {
-      updates.push({ h3_index: cell.h3_index, rust_level: next });
+      updates.push({ h3_index: cell.h3_index, region_id: cell.region_id, rust_level: next });
     }
   }
 
@@ -92,7 +94,7 @@ function getNeighborIndexes(index: string) {
 
 export async function applyRustSpread(pool: PoolLike, multipliers: PhaseMultipliers): Promise<RustUpdate[]> {
   const cellsResult = await pool.query<RustCell>(
-    "SELECT h3_index, rust_level, distance_from_center FROM hex_cells FOR UPDATE"
+    "SELECT h3_index, region_id, rust_level, distance_from_center FROM hex_cells FOR UPDATE"
   );
   const cells = cellsResult.rows;
 

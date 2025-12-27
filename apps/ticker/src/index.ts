@@ -8,7 +8,7 @@ import type { PoolLike } from "./ticker";
 import { logger } from "./logger";
 import { syncCycleState } from "./cycle-store";
 import { getPhaseMultipliers, applyDemoMultiplier } from "./multipliers";
-import { applyRustSpread, type RustUpdate } from "./rust";
+import { applyRustSpread } from "./rust";
 import { applyRoadDecay } from "./decay";
 import { enqueueResourceTransfers, applyArrivedResourceTransfers, type ResourceTransfer } from "./resources";
 import { dispatchCrews, completeFinishedTasks } from "./crews";
@@ -69,12 +69,14 @@ async function fetchRegionSnapshots(client: PoolLike, regionIds: string[]): Prom
   return result.rows;
 }
 
+type HexUpdate = { h3_index: string; rust_level: number };
+
 async function publishWorldDelta(
   client: PoolLike,
-  rustHexes: RustUpdate[],
+  hexes: HexUpdate[],
   regionIds: string[]
 ) {
-  const hexUpdates = Array.from(new Map(rustHexes.map((h) => [h.h3_index, h])).values());
+  const hexUpdates = Array.from(new Map(hexes.map((h) => [h.h3_index, h])).values());
   const regionsChanged = Array.from(new Set(regionIds));
 
   const regionUpdates = regionsChanged.length > 0 ? await fetchRegionSnapshots(client, regionsChanged) : [];
@@ -145,10 +147,11 @@ async function runTick(client: PoolLike) {
     client,
     [...rustHexes, ...completionResult.rustHexes],
     [
-      ...arrivalResult.regionIds, 
-      ...dispatchResult.regionIds, 
+      ...arrivalResult.regionIds,
+      ...dispatchResult.regionIds,
       ...completionResult.regionIds,
-      ...decayFeatureDeltas.map(d => d.region_id)
+      ...decayFeatureDeltas.map(d => d.region_id),
+      ...rustHexes.map(h => h.region_id)
     ]
   );
 

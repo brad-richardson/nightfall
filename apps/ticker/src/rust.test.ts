@@ -15,8 +15,8 @@ const multipliers = {
 describe("computeRustUpdates", () => {
   it("spreads toward higher neighbors and applies pushback", () => {
     const cells = [
-      { h3_index: "a", rust_level: 0.2, distance_from_center: 1 },
-      { h3_index: "b", rust_level: 0.6, distance_from_center: 1 }
+      { h3_index: "a", region_id: "test", rust_level: 0.2, distance_from_center: 1 },
+      { h3_index: "b", region_id: "test", rust_level: 0.6, distance_from_center: 1 }
     ];
     const roadStats = new Map([
       ["b", { healthy: 1, total: 1 }]
@@ -37,7 +37,7 @@ describe("computeRustUpdates", () => {
   });
 
   it("does not spread into center cells", () => {
-    const cells = [{ h3_index: "center", rust_level: 0.4, distance_from_center: 0 }];
+    const cells = [{ h3_index: "center", region_id: "test", rust_level: 0.4, distance_from_center: 0 }];
     const updates = computeRustUpdates({
       cells,
       roadStats: new Map(),
@@ -94,8 +94,8 @@ describe("applyRustSpread", () => {
       .fn()
       .mockResolvedValueOnce({
         rows: [
-          { h3_index: baseCell, rust_level: 0.2, distance_from_center: 1 },
-          { h3_index: neighborCell, rust_level: 0.6, distance_from_center: 1 }
+          { h3_index: baseCell, region_id: "test", rust_level: 0.2, distance_from_center: 1 },
+          { h3_index: neighborCell, region_id: "test", rust_level: 0.6, distance_from_center: 1 }
         ]
       })
       .mockResolvedValueOnce({ rows: [] })

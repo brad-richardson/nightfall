@@ -668,26 +668,17 @@ export default function Dashboard({
                   </p>
                 </div>
               </div>
-            </MapPanel>
-
-            <MapPanel title="Network Snapshot">
-              <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                <div className="rounded-xl bg-white/5 px-2 py-2">
+              <div className="mt-2 grid w-full grid-cols-2 gap-3 text-xs">
+                <div className="rounded-xl bg-white/5 px-2 py-2 text-center">
                   <p className="text-[9px] uppercase tracking-[0.2em] text-white/40">Healthy</p>
                   <p className="mt-1 text-sm font-semibold text-[color:var(--night-teal)]">
                     {formatNumber(counts.healthy)}
                   </p>
                 </div>
-                <div className="rounded-xl bg-white/5 px-2 py-2">
+                <div className="rounded-xl bg-white/5 px-2 py-2 text-center">
                   <p className="text-[9px] uppercase tracking-[0.2em] text-white/40">Degraded</p>
                   <p className="mt-1 text-sm font-semibold text-red-400">
                     {formatNumber(counts.degraded)}
-                  </p>
-                </div>
-                <div className="rounded-xl bg-white/5 px-2 py-2">
-                  <p className="text-[9px] uppercase tracking-[0.2em] text-white/40">Features</p>
-                  <p className="mt-1 text-sm font-semibold text-white">
-                    {formatNumber(features.length)}
                   </p>
                 </div>
               </div>
