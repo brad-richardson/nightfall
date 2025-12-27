@@ -77,6 +77,7 @@ export default function DemoMap({
   const breathePhaseRef = useRef(0);
   const hoverTimeoutRef = useRef<number | null>(null);
   const tooltipDismissRef = useRef<number | null>(null);
+  const fadeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const featuresRef = useRef(features);
   const tasksRef = useRef(tasks);
 
@@ -741,11 +742,20 @@ export default function DemoMap({
       map.current.setFilter("game-roads-completion-flash", baseFilter);
       map.current.setPaintProperty("game-roads-completion-flash", "line-opacity", 0.9);
 
+      // Clear any existing interval before starting a new one (using ref to avoid closure issues)
+      if (fadeIntervalRef.current) {
+        clearInterval(fadeIntervalRef.current);
+        fadeIntervalRef.current = null;
+      }
+
       let opacity = 0.9;
-      const fadeInterval = setInterval(() => {
+      fadeIntervalRef.current = setInterval(() => {
         opacity -= 0.05;
         if (opacity <= 0 || !map.current) {
-          clearInterval(fadeInterval);
+          if (fadeIntervalRef.current) {
+            clearInterval(fadeIntervalRef.current);
+            fadeIntervalRef.current = null;
+          }
           map.current?.setFilter("game-roads-completion-flash", ["==", ["get", "id"], "none"]);
         } else {
           map.current?.setPaintProperty("game-roads-completion-flash", "line-opacity", opacity);
@@ -754,7 +764,14 @@ export default function DemoMap({
     };
 
     window.addEventListener("nightfall:task_completed", handleTaskCompleted);
-    return () => window.removeEventListener("nightfall:task_completed", handleTaskCompleted);
+    return () => {
+      window.removeEventListener("nightfall:task_completed", handleTaskCompleted);
+      // Clean up interval on unmount
+      if (fadeIntervalRef.current) {
+        clearInterval(fadeIntervalRef.current);
+        fadeIntervalRef.current = null;
+      }
+    };
   }, [isLoaded]);
 
   // Highlight queued/pending task roads
