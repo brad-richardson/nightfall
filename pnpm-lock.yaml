@@ -102,9 +102,6 @@ importers:
       dotenv:
         specifier: ^17.2.3
         version: 17.2.3
-      h3-js:
-        specifier: ^4.4.0
-        version: 4.4.0
       pg:
         specifier: ^8.12.0
         version: 8.16.3
