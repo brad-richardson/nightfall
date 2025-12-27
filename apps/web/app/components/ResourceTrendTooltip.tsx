@@ -44,12 +44,14 @@ export function ResourceTrendTooltip({
     };
 
     update();
-    // Update every second while visible
-    const interval = setInterval(update, 1000);
+    // Update at same interval as data recording (5 seconds)
+    const interval = setInterval(update, 5000);
     return () => clearInterval(interval);
   }, [isVisible, resourceType]);
 
   // Position the tooltip relative to anchor
+  // Re-calculate when history changes as it affects tooltip size
+  const historyLength = history.length;
   useEffect(() => {
     if (!isVisible || !anchorRect || !tooltipRef.current) return;
 
@@ -80,7 +82,7 @@ export function ResourceTrendTooltip({
     }
 
     setPosition({ top, left });
-  }, [isVisible, anchorRect]);
+  }, [isVisible, anchorRect, historyLength]);
 
   if (!isVisible) return null;
 

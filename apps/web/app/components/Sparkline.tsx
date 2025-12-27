@@ -27,24 +27,27 @@ export function Sparkline({
   strokeWidth = 1.5,
   className = ""
 }: SparklineProps) {
-  const { path, areaPath } = useMemo(() => {
+  const { path, areaPath, endPoint } = useMemo(() => {
     if (data.length < 2) {
-      return { path: "", areaPath: "" };
+      return { path: "", areaPath: "", endPoint: null, isFlat: false };
     }
 
     const min = Math.min(...data);
     const max = Math.max(...data);
-    const range = max - min || 1; // Avoid division by zero
+    const range = max - min;
+    const isFlat = range === 0;
 
     // Padding from edges
     const padding = 2;
     const chartWidth = width - padding * 2;
     const chartHeight = height - padding * 2;
 
-    // Calculate points
+    // Calculate points - for flat data, draw a horizontal line in the middle
     const points = data.map((value, index) => {
       const x = padding + (index / (data.length - 1)) * chartWidth;
-      const y = padding + chartHeight - ((value - min) / range) * chartHeight;
+      const y = isFlat
+        ? padding + chartHeight / 2 // Center line for flat data
+        : padding + chartHeight - ((value - min) / range) * chartHeight;
       return { x, y };
     });
 
@@ -60,7 +63,15 @@ export function Sparkline({
       ` L ${padding} ${height - padding}` +
       " Z";
 
-    return { path: linePath, areaPath: areaPathStr };
+    // Store the last point for the endpoint circle
+    const lastPoint = points[points.length - 1];
+
+    return {
+      path: linePath,
+      areaPath: areaPathStr,
+      endPoint: lastPoint,
+      isFlat
+    };
   }, [data, width, height]);
 
   if (data.length < 2) {
@@ -107,16 +118,10 @@ export function Sparkline({
         strokeLinejoin="round"
       />
       {/* Dot at the end (current value) */}
-      {data.length > 0 && (
+      {endPoint && (
         <circle
-          cx={width - 2}
-          cy={
-            2 +
-            (height - 4) -
-            ((data[data.length - 1] - Math.min(...data)) /
-              (Math.max(...data) - Math.min(...data) || 1)) *
-              (height - 4)
-          }
+          cx={endPoint.x}
+          cy={endPoint.y}
           r={2.5}
           fill={color}
         />

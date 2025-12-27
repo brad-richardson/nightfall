@@ -115,9 +115,12 @@ export function getResourceTrend(type: ResourceType): {
   const changePercent =
     comparePoint.value > 0 ? (change / comparePoint.value) * 100 : 0;
 
+  // Use proportional threshold: 1% of current value or minimum of 5
+  // This scales better across different resource magnitudes
+  const threshold = Math.max(5, current * 0.01);
   let trend: "up" | "down" | "stable" = "stable";
-  if (change > 5) trend = "up";
-  else if (change < -5) trend = "down";
+  if (change > threshold) trend = "up";
+  else if (change < -threshold) trend = "down";
 
   return {
     current,
