@@ -10,7 +10,9 @@ async function start() {
   const app = buildServer();
 
   try {
+    console.log(`[startup] Attempting to listen on ${config.HOST}:${config.PORT}`);
     await app.listen({ port: config.PORT, host: config.HOST });
+    console.log(`[startup] Successfully listening on ${config.HOST}:${config.PORT}`);
   } catch (error) {
     app.log.error(error);
     process.exit(1);

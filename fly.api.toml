@@ -1,5 +1,5 @@
 app = "nightfall"
-primary_region = "ord"
+primary_region = "ewr"
 
 # Note: This container now runs both API and ticker processes
 # See start-combined.sh for details
@@ -12,13 +12,10 @@ primary_region = "ord"
   release_command = "pnpm run db:up"
 
 [env]
-  HOST = "0.0.0.0"
-  PORT = "8080"
   NODE_ENV = "production"
-  LOG_LEVEL = "info"
 
 [[services]]
-  internal_port = 8080
+  internal_port = 3000
   protocol = "tcp"
 
   [services.concurrency]
