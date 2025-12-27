@@ -18,6 +18,7 @@ import { fetchWithRetry } from "../lib/retry";
 import { formatNumber } from "../lib/formatters";
 import { ResourcePoolsPanel } from "./sidebar/ResourcePoolsPanel";
 import { RegionHealthPanel } from "./sidebar/RegionHealthPanel";
+import { recordResourceValues, clearResourceHistory } from "../lib/resourceHistory";
 
 type ResourceType = "food" | "equipment" | "energy" | "materials";
 
@@ -217,6 +218,14 @@ export default function Dashboard({
       availableRegions,
       isDemoMode
     });
+    // Clear history and record initial values for the new region
+    clearResourceHistory();
+    recordResourceValues({
+      pool_food: initialRegion.pool_food,
+      pool_equipment: initialRegion.pool_equipment,
+      pool_energy: initialRegion.pool_energy,
+      pool_materials: initialRegion.pool_materials
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -270,6 +279,13 @@ export default function Dashboard({
             health_avg: update.health_avg ?? prev.stats.health_avg
           }
         }));
+        // Record resource values for trendline history
+        recordResourceValues({
+          pool_food: update.pool_food,
+          pool_equipment: update.pool_equipment,
+          pool_energy: update.pool_energy,
+          pool_materials: update.pool_materials
+        });
         pending.regionUpdate = null;
       }
 
