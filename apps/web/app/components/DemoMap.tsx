@@ -91,7 +91,7 @@ export default function DemoMap({
 
   const repairingRoadIds = useMemo(() => {
     const ids = tasks
-      .filter(t => t.status === "in_progress")
+      .filter(t => t.status === "active")
       .map(t => t.target_gers_id)
       .filter((id): id is string => Boolean(id));
     return Array.from(new Set(ids));

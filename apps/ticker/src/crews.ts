@@ -3,6 +3,7 @@ import type { PoolLike } from "./ticker";
 import type { PhaseMultipliers } from "./multipliers";
 
 const MIN_REPAIR_THRESHOLD = 30;
+const CREW_TRAVEL_TIME_S = 8; // Fixed travel time in seconds
 
 type CompletedTask = TaskDelta & { region_id: string };
 
@@ -20,6 +21,11 @@ export type DispatchResult = {
   regionIds: string[];
 };
 
+export type ArrivalResult = {
+  featureDeltas: FeatureDelta[];
+  regionIds: string[];
+};
+
 export type CompletionResult = {
   taskDeltas: TaskDelta[];
   featureDeltas: FeatureDelta[];
@@ -28,9 +34,8 @@ export type CompletionResult = {
   feedItems: FeedItem[];
 };
 
-export async function dispatchCrews(pool: PoolLike, multipliers: PhaseMultipliers) {
+export async function dispatchCrews(pool: PoolLike) {
   const taskDeltas: TaskDelta[] = [];
-  const featureDeltas: FeatureDelta[] = [];
   const regionIds: string[] = [];
 
   const idleResult = await pool.query<{ crew_id: string; region_id: string }>(
@@ -100,11 +105,6 @@ export async function dispatchCrews(pool: PoolLike, multipliers: PhaseMultiplier
         continue;
       }
 
-      const durationSeconds = Math.max(
-        1,
-        Math.ceil(task.duration_s / multipliers.repair_speed)
-      );
-
       await pool.query(
         `UPDATE regions SET
           pool_food = pool_food - $2,
@@ -139,6 +139,80 @@ export async function dispatchCrews(pool: PoolLike, multipliers: PhaseMultiplier
         [task.task_id]
       );
 
+      // Set crew to 'traveling' - road status will be updated when crew arrives
+      await pool.query(
+        "UPDATE crews SET status = 'traveling', active_task_id = $2, busy_until = now() + ($3 * interval '1 second') WHERE crew_id = $1",
+        [crew.crew_id, task.task_id, CREW_TRAVEL_TIME_S]
+      );
+
+      await pool.query("COMMIT");
+
+      const taskDelta = taskUpdate.rows[0];
+      if (taskDelta) {
+        taskDeltas.push(taskDelta);
+      }
+
+      regionIds.push(crew.region_id);
+    } catch (error) {
+      await pool.query("ROLLBACK");
+      throw error;
+    }
+  }
+
+  // featureDeltas are now empty since roads are updated when crews arrive
+  return { taskDeltas, featureDeltas: [], regionIds } satisfies DispatchResult;
+}
+
+/**
+ * Transition crews that have finished traveling to 'working' status.
+ * Also sets the road to 'repairing' and starts the repair timer.
+ */
+export async function arriveCrews(
+  pool: PoolLike,
+  multipliers: PhaseMultipliers
+): Promise<ArrivalResult> {
+  const featureDeltas: FeatureDelta[] = [];
+  const regionIds: string[] = [];
+
+  // Find crews that have finished traveling
+  const travelingResult = await pool.query<{
+    crew_id: string;
+    region_id: string;
+    active_task_id: string;
+    duration_s: number;
+    target_gers_id: string;
+  }>(
+    `
+    SELECT
+      c.crew_id,
+      c.region_id,
+      c.active_task_id,
+      t.duration_s,
+      t.target_gers_id
+    FROM crews AS c
+    JOIN tasks AS t ON t.task_id = c.active_task_id
+    WHERE c.status = 'traveling'
+      AND c.busy_until <= now()
+    FOR UPDATE SKIP LOCKED
+    `
+  );
+
+  for (const crew of travelingResult.rows) {
+    await pool.query("BEGIN");
+
+    try {
+      const repairDurationS = Math.max(
+        1,
+        Math.ceil(crew.duration_s / multipliers.repair_speed)
+      );
+
+      // Update crew to 'working' with repair duration
+      await pool.query(
+        "UPDATE crews SET status = 'working', busy_until = now() + ($2 * interval '1 second') WHERE crew_id = $1",
+        [crew.crew_id, repairDurationS]
+      );
+
+      // Set road to 'repairing'
       const featureUpdate = await pool.query<FeatureDelta>(
         `
         UPDATE feature_state AS fs
@@ -148,20 +222,10 @@ export async function dispatchCrews(pool: PoolLike, multipliers: PhaseMultiplier
           AND fs.gers_id = $1
         RETURNING fs.gers_id, wf.region_id, fs.health, fs.status
         `,
-        [task.target_gers_id]
-      );
-
-      await pool.query(
-        "UPDATE crews SET status = 'working', active_task_id = $2, busy_until = now() + ($3 * interval '1 second') WHERE crew_id = $1",
-        [crew.crew_id, task.task_id, durationSeconds]
+        [crew.target_gers_id]
       );
 
       await pool.query("COMMIT");
-
-      const taskDelta = taskUpdate.rows[0];
-      if (taskDelta) {
-        taskDeltas.push(taskDelta);
-      }
 
       const featureDelta = featureUpdate.rows[0];
       if (featureDelta) {
@@ -175,7 +239,7 @@ export async function dispatchCrews(pool: PoolLike, multipliers: PhaseMultiplier
     }
   }
 
-  return { taskDeltas, featureDeltas, regionIds } satisfies DispatchResult;
+  return { featureDeltas, regionIds };
 }
 
 export async function completeFinishedTasks(

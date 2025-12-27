@@ -21,7 +21,7 @@ const tasks = [
     task_id: "task-2",
     target_gers_id: "road-bravo-5678",
     priority_score: 40,
-    status: "in_progress",
+    status: "active",
     vote_score: 50,
     cost_food: 20,
     cost_equipment: 10,
