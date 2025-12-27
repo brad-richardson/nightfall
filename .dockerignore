@@ -55,8 +55,7 @@ scripts/ingest/data/
 .git/
 .gitignore
 
-# Docker
-Dockerfile
+# Docker (exclude main Dockerfile but keep Dockerfile.api etc for reference)
 .dockerignore
 
 # CI/CD
