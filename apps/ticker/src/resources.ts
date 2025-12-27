@@ -3,7 +3,6 @@ import type { PhaseMultipliers } from "./multipliers";
 import { logger } from "./logger";
 import {
   type Graph,
-  type GraphEdge,
   type ConnectorCoords,
   type Point,
   findPath,
