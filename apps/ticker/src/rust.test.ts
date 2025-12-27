@@ -60,6 +60,16 @@ describe("applyRustSpread", () => {
     expect(query).toHaveBeenCalledTimes(1);
   });
 
+  it("uses SELECT FOR UPDATE to prevent race conditions", async () => {
+    const query = vi.fn().mockResolvedValueOnce({ rows: [] });
+
+    await applyRustSpread({ query }, multipliers);
+
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("FOR UPDATE")
+    );
+  });
+
   it("issues update when rust changes", async () => {
     const latLngToCell =
       (h3 as { latLngToCell?: LatLngToCell; geoToH3?: LatLngToCell })

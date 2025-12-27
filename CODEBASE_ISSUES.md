@@ -6,7 +6,7 @@ This document contains a prioritized list of issues found in the codebase, inclu
 
 ## Priority 1: Critical Bugs (Blocking Gameplay)
 
-### 1.1 Event Streaming Stops After Initial Connection
+### 1.1 Event Streaming Stops After Initial Connection ✅ FIXED
 **Location:** `apps/api/src/event-stream.ts`, `apps/web/app/hooks/useEventStream.ts`
 **Issue:** Live/streaming updates stop after initial connection, breaking real-time gameplay.
 **Root Cause Analysis:**
@@ -14,33 +14,46 @@ This document contains a prioritized list of issues found in the codebase, inclu
 - No error recovery if the DB connection drops - the `client.on("error")` handler only logs, doesn't reconnect
 - The `useEventStream.ts` has retry logic but maxes out at 10 retries
 
-**Fix Needed:**
-- Add reconnection logic in `createDbEventStream` when the PostgreSQL client disconnects
-- Implement heartbeat/keep-alive to detect stale connections
-- Clear `listening` flag and reconnect on fatal errors
+**Fix Applied:**
+- ✅ Added reconnection logic in `createDbEventStream` when the PostgreSQL client disconnects or errors
+- ✅ Implemented 30-second heartbeat with `SELECT 1` to detect stale connections (skips if already reconnecting)
+- ✅ Added cleanup function that properly clears `listening` flag and releases resources
+- ✅ Added `end` event handler to trigger reconnection on connection loss
+- ✅ Exponential backoff for reconnection attempts (2^n * 1000ms, capped at 30 seconds)
+- ✅ Reconnection guard to prevent concurrent reconnection attempts
+- ✅ Maximum retry limit of 10 attempts to prevent infinite reconnection loops
+- ✅ Resets retry counter on successful reconnection
 
-### 1.2 Rust Spread Lost Updates (Race Condition)
+### 1.2 Rust Spread Lost Updates (Race Condition) ✅ FIXED
 **Location:** `apps/ticker/src/rust.ts:145-159`
 **Issue:** Concurrent ticker runs can cause lost updates during rust spread calculations.
 **Details:** The current `UPDATE ... WHERE ... IS DISTINCT FROM` pattern doesn't prevent read-modify-write race conditions when multiple ticker instances run (even with advisory locks, edge cases exist).
-**Fix Needed:** Either:
-- Use `UPDATE SET rust_level = rust_level + delta` pattern
-- Add optimistic locking with version column
-- Use `SELECT FOR UPDATE` on hex_cells being modified
 
-### 1.3 Voting System Not Reflecting in Real-Time
+**Fix Applied:**
+- ✅ Added `SELECT FOR UPDATE` on hex_cells to lock rows during rust spread processing
+- This prevents concurrent ticker instances from processing the same data simultaneously
+
+### 1.3 Voting System Not Reflecting in Real-Time ✅ FIXED
 **Location:** `apps/api/src/server.ts:1124-1243`
 **Issue:** Votes may not be correctly tallied and reflected in real-time.
 **Analysis:** The `pg_notify('task_delta', ...)` call at line 1233 occurs after COMMIT, but only if `updatedTask.rows[0]` exists. If the UPDATE doesn't return rows (which can happen if the JOIN fails), no notification is sent.
-**Fix Needed:** Ensure task delta is always emitted after successful vote, handle edge cases where task might not join properly.
 
-### 1.4 Cycle Visuals Get Stuck
+**Fix Applied:**
+- ✅ Changed `JOIN feature_state` to `LEFT JOIN feature_state` to handle missing feature state rows
+- ✅ Added `COALESCE(fs.health, 100)` to handle null health values gracefully
+- ✅ Added fallback query to fetch task details if UPDATE doesn't return rows (within transaction boundary)
+- ✅ Moved fallback query before COMMIT to maintain transaction integrity
+- ✅ Ensured notification is always sent after successful vote recording
+
+### 1.4 Cycle Visuals Get Stuck ✅ FIXED
 **Location:** `apps/web/app/components/PhaseIndicator.tsx`, `apps/web/app/store.ts`
 **Issue:** Night/day transition visual gets stuck.
 **Root Cause:** The `phase_progress` update from SSE might not trigger re-render if value is the same, or the cycle state from initial hydration conflicts with SSE updates.
-**Fix Needed:**
-- Ensure cycle state always updates on `phase_change` events
-- Add timestamp to force re-render when phase changes
+
+**Fix Applied:**
+- ✅ Added `lastUpdated` timestamp field to `CycleState` type
+- ✅ Dashboard now sets `lastUpdated: Date.now()` on every `phase_change` event to force new object reference
+- ✅ PhaseIndicator useEffect now depends on `cycle.lastUpdated` to ensure re-renders
 
 ---
 

@@ -298,7 +298,8 @@ export default function Dashboard({
           return {
             ...prev,
             ...incoming,
-            phase_progress: incoming.phase_progress ?? prev.phase_progress
+            phase_progress: incoming.phase_progress ?? prev.phase_progress,
+            lastUpdated: Date.now() // Always set timestamp to force re-render
           };
         });
         break;

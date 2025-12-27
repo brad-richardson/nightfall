@@ -92,7 +92,7 @@ function getNeighborIndexes(index: string) {
 
 export async function applyRustSpread(pool: PoolLike, multipliers: PhaseMultipliers): Promise<RustUpdate[]> {
   const cellsResult = await pool.query<RustCell>(
-    "SELECT h3_index, rust_level, distance_from_center FROM hex_cells"
+    "SELECT h3_index, rust_level, distance_from_center FROM hex_cells FOR UPDATE"
   );
   const cells = cellsResult.rows;
 

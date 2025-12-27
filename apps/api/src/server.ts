@@ -1200,14 +1200,14 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         `
         UPDATE tasks AS t
         SET vote_score = $2::float,
-            priority_score = (100 - fs.health) * (
+            priority_score = (100 - COALESCE(fs.health, 100)) * (
               CASE wf.road_class
                 ${weightCases}
                 ELSE 1
               END
             ) + $2::float
         FROM world_features AS wf
-        JOIN feature_state AS fs ON fs.gers_id = wf.gers_id
+        LEFT JOIN feature_state AS fs ON fs.gers_id = wf.gers_id
         WHERE t.task_id = $1
           AND wf.gers_id = t.target_gers_id
         RETURNING
@@ -1226,9 +1226,34 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         [taskId, voteScore]
       );
 
+      // Ensure we have task data to send in notification
+      let taskDelta = updatedTask.rows[0];
+      if (!taskDelta) {
+        // Fallback: fetch task details if UPDATE didn't return rows (before COMMIT to stay in transaction)
+        const fallbackTask = await pool.query<{
+          task_id: string;
+          status: string;
+          priority_score: number;
+          vote_score: number;
+          cost_labor: number;
+          cost_materials: number;
+          duration_s: number;
+          repair_amount: number;
+          task_type: string;
+          target_gers_id: string;
+          region_id: string;
+        }>(
+          `SELECT task_id, status, priority_score, vote_score, cost_labor, cost_materials,
+                  duration_s, repair_amount, task_type, target_gers_id, region_id
+           FROM tasks WHERE task_id = $1`,
+          [taskId]
+        );
+        taskDelta = fallbackTask.rows[0];
+      }
+
       await pool.query("COMMIT");
 
-      const taskDelta = updatedTask.rows[0];
+      // Send notification after successful commit if we have task data
       if (taskDelta) {
         await pool.query("SELECT pg_notify('task_delta', $1)", [
           JSON.stringify(taskDelta)

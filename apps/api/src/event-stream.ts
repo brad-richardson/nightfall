@@ -35,6 +35,66 @@ export function createDbEventStream(
   const emitter = new EventEmitter();
   let client: PoolClient | null = null;
   let listening = false;
+  let reconnectTimeout: NodeJS.Timeout | null = null;
+  let heartbeatInterval: NodeJS.Timeout | null = null;
+  let isReconnecting = false;
+  let reconnectAttempts = 0;
+  const MAX_RECONNECT_ATTEMPTS = 10;
+
+  async function cleanup() {
+    if (heartbeatInterval) {
+      clearInterval(heartbeatInterval);
+      heartbeatInterval = null;
+    }
+    if (reconnectTimeout) {
+      clearTimeout(reconnectTimeout);
+      reconnectTimeout = null;
+    }
+    if (client) {
+      try {
+        client.removeAllListeners();
+        client.release();
+      } catch (error) {
+        logger.error({ err: error }, "error releasing client during cleanup");
+      }
+      client = null;
+    }
+    listening = false;
+  }
+
+  async function reconnect() {
+    // Guard against concurrent reconnection attempts
+    if (isReconnecting) {
+      return;
+    }
+
+    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      logger.error("max reconnection attempts reached, giving up");
+      isReconnecting = false;
+      return;
+    }
+
+    isReconnecting = true;
+    logger.error({ attempt: reconnectAttempts + 1 }, "attempting to reconnect event stream");
+    await cleanup();
+
+    // Implement exponential backoff: 2^n * 1000ms, capped at 30 seconds
+    const delay = Math.min(Math.pow(2, reconnectAttempts) * 1000, 30000);
+    reconnectAttempts++;
+
+    reconnectTimeout = setTimeout(async () => {
+      try {
+        await start();
+        reconnectAttempts = 0; // Reset on successful reconnection
+        isReconnecting = false;
+      } catch (error) {
+        logger.error({ err: error, attempt: reconnectAttempts }, "failed to reconnect event stream");
+        isReconnecting = false;
+        // Try again with next exponential backoff
+        reconnect();
+      }
+    }, delay);
+  }
 
   async function start() {
     if (listening) {
@@ -63,17 +123,35 @@ export function createDbEventStream(
     });
 
     client.on("error", (error) => {
-      logger.error({ err: error }, "event stream db error");
+      logger.error({ err: error }, "event stream db error - triggering reconnect");
+      reconnect();
+    });
+
+    client.on("end", () => {
+      logger.error("event stream db connection ended - triggering reconnect");
+      reconnect();
     });
 
     for (const channel of channels) {
       await client.query(`LISTEN ${channel}`);
     }
+
+    // Set up heartbeat to detect stale connections
+    heartbeatInterval = setInterval(async () => {
+      if (client && !isReconnecting) {
+        try {
+          await client.query("SELECT 1");
+        } catch (error) {
+          logger.error({ err: error }, "heartbeat failed - triggering reconnect");
+          reconnect();
+        }
+      }
+    }, 30000); // Heartbeat every 30 seconds
   }
 
   async function stop() {
     if (!client) {
-      listening = false;
+      await cleanup();
       return;
     }
 
@@ -81,10 +159,10 @@ export function createDbEventStream(
       for (const channel of channels) {
         await client.query(`UNLISTEN ${channel}`);
       }
+    } catch (error) {
+      logger.error({ err: error }, "error unlistening from channels");
     } finally {
-      client.release();
-      client = null;
-      listening = false;
+      await cleanup();
     }
   }
 

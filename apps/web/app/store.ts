@@ -8,6 +8,7 @@ export type CycleState = {
   phase_progress: number;
   next_phase: Phase;
   next_phase_in_seconds: number;
+  lastUpdated?: number; // Timestamp to force re-renders
 };
 
 export type Feature = {
@@ -133,7 +134,8 @@ export const useStore = create<State & Actions>()(
         phase: "day",
         phase_progress: 0,
         next_phase: "dusk",
-        next_phase_in_seconds: 0
+        next_phase_in_seconds: 0,
+        lastUpdated: Date.now()
       },
       isDemoMode: false,
       availableRegions: [],
