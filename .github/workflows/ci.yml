@@ -46,6 +46,15 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: |
+            packages/pathfinding/dist
+            apps/api/dist
+            apps/ticker/dist
+          retention-days: 1
 
   # UI tests need DB - runs after fast jobs pass
   ui-test:
@@ -78,8 +87,10 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Build packages
-        run: pnpm run build
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output
 
       - name: Cache Playwright browsers
         uses: actions/cache@v4
