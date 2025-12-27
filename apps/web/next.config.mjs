@@ -12,7 +12,7 @@ const nextConfig = {
   serverExternalPackages: ['@nightfall/config'],
   // Allow local requests from Playwright/IP address
   allowedDevOrigins: ['127.0.0.1:3000', 'localhost:3000'],
-  output: isExport ? "export" : undefined,
+  output: isExport ? "export" : "standalone",
   trailingSlash: isExport ? true : undefined,
   basePath,
   assetPrefix: basePath ? `${basePath}/` : undefined,
