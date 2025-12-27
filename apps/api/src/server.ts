@@ -537,8 +537,8 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     };
   });
 
-  app.get("/api/region/:region_id", async (request, reply) => {
-    const regionId = (request.params as { region_id: string }).region_id;
+  app.get<{ Params: { region_id: string } }>("/api/region/:region_id", async (request, reply) => {
+    const regionId = request.params.region_id;
     const pool = getPool();
 
     const regionResult = await pool.query<{
@@ -641,15 +641,14 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     };
   });
 
-  app.get("/api/features", async (request, reply) => {
-    const query = request.query as { bbox?: string; types?: string };
-    const bbox = parseBBox(query.bbox);
+  app.get<{ Querystring: { bbox?: string; types?: string } }>("/api/features", async (request, reply) => {
+    const bbox = parseBBox(request.query.bbox);
     if (!bbox) {
       reply.status(400);
       return { ok: false, error: "invalid_bbox" };
     }
 
-    const types = parseTypes(query.types);
+    const types = parseTypes(request.query.types);
     const pool = getPool();
 
     const values: Array<number | string[] | string> = [bbox[0], bbox[1], bbox[2], bbox[3]];
@@ -714,19 +713,18 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     return { features: featuresResult.rows };
   });
 
-  app.get("/api/hexes", async (request) => {
-    const query = request.query as { bbox?: string; region_id?: string };
+  app.get<{ Querystring: { bbox?: string; region_id?: string } }>("/api/hexes", async (request) => {
     const pool = getPool();
-    
+
     let whereClause = "";
     const values: (string | number)[] = [];
 
-    if (query.region_id) {
+    if (request.query.region_id) {
       whereClause = "WHERE region_id = $1";
-      values.push(query.region_id);
-    } else if (query.bbox) {
+      values.push(request.query.region_id);
+    } else if (request.query.bbox) {
       // Fallback: Find regions overlapping the bbox, then get their hexes
-      const bbox = parseBBox(query.bbox);
+      const bbox = parseBBox(request.query.bbox);
       if (bbox) {
         whereClause = "WHERE region_id IN (SELECT region_id FROM regions WHERE ST_Intersects(boundary, ST_MakeEnvelope($1, $2, $3, $4, 4326)))";
         values.push(...bbox);
@@ -1273,8 +1271,8 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     }
   });
 
-  app.get("/api/tasks/:task_id", async (request, reply) => {
-    const taskId = (request.params as { task_id: string }).task_id;
+  app.get<{ Params: { task_id: string } }>("/api/tasks/:task_id", async (request, reply) => {
+    const taskId = request.params.task_id;
     const pool = getPool();
 
     const taskResult = await pool.query<{

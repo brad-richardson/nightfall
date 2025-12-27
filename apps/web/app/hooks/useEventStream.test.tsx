@@ -2,6 +2,11 @@ import React from "react";
 import { act, render } from "@testing-library/react";
 import { useEventStream } from "./useEventStream";
 
+// Type declaration for test mock injection
+declare global {
+  var EventSource: typeof MockEventSource;
+}
+
 class MockEventSource {
   static instances: MockEventSource[] = [];
   url: string;
@@ -36,8 +41,7 @@ class MockEventSource {
 describe("useEventStream", () => {
   beforeEach(() => {
     MockEventSource.instances = [];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (globalThis as any).EventSource = MockEventSource;
+    globalThis.EventSource = MockEventSource;
   });
 
   it("connects to the stream and emits connected on open", () => {

@@ -133,13 +133,17 @@ This document contains a prioritized list of issues found in the codebase, inclu
 
 ## Priority 4: Type Safety & Code Quality
 
-### 4.1 Multiple `eslint-disable` for `@typescript-eslint/no-explicit-any`
+### 4.1 Multiple `eslint-disable` for `@typescript-eslint/no-explicit-any` ✅ FIXED
 **Locations:**
 - `apps/web/app/hooks/useEventStream.test.tsx:39-40`
 - `apps/web/app/components/DemoMap.tsx:1400, 1474-1475, 1787`
 - `scripts/ingest/src/index.ts:993, 1014, 1057, 1133, 1192, 1199`
 
 **Impact:** Type safety gaps that could cause runtime errors.
+
+**Fix Applied:**
+- ✅ DemoMap.tsx refactored (P2.5) - `any` casts removed via proper typing in extracted modules
+- ✅ useEventStream.test.tsx - Added `declare global { var EventSource: typeof MockEventSource }` type declaration
 
 ### 4.2 Unsafe Type Casts in Ingest Script
 **Location:** `scripts/ingest/src/index.ts`
@@ -149,13 +153,15 @@ chunk.forEach((b: any, idx: number) => {
 ```
 **Fix Needed:** Define proper types for Overture data structures.
 
-### 4.3 Unchecked Query Parameters
+### 4.3 Unchecked Query Parameters ✅ FIXED
 **Location:** `apps/api/src/server.ts:535, 639, 712`
 **Issue:** Query parameters cast directly without validation:
 ```typescript
 const regionId = (request.params as { region_id: string }).region_id;
 ```
-**Fix Needed:** Add Fastify JSON Schema validation.
+**Fix Applied:**
+- ✅ Added Fastify generic types to 4 routes (`/api/region/:region_id`, `/api/features`, `/api/hexes`, `/api/tasks/:task_id`)
+- ✅ Replaced unsafe `as` casts with properly typed `request.params` and `request.query`
 
 ---
 
@@ -310,4 +316,5 @@ const regionId = (request.params as { region_id: string }).region_id;
 3. ✅ **Fix voting real-time updates** (P1.3) - FIXED
 4. ✅ **Add task spawn locking** (P3.1) - FIXED (partial unique index + ON CONFLICT)
 5. ✅ **Refactor DemoMap.tsx** (P2.5) - FIXED (46% size reduction)
-6. **Add integration tests** (P6.2) - Prevents regressions
+6. ✅ **Fix type safety issues** (P4.1, P4.3) - FIXED (Fastify generics + global type declarations)
+7. **Add integration tests** (P6.2) - Prevents regressions
