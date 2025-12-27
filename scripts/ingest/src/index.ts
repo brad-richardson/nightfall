@@ -952,11 +952,12 @@ async function ingestRoadGraph(
   const classFilter = ROAD_CLASS_FILTER.map((roadClass) => `'${roadClass}'`).join(", ");
 
   // Query segments with full geometry coordinates for interpolation
+  // Use TO_JSON to properly serialize the connectors array
   const segmentsWithConnectors = await runDuckDB(`
     SELECT
       id,
       class,
-      connectors,
+      TO_JSON(connectors) as connectors_json,
       ST_AsGeoJSON(geometry) as geometry_json
     FROM read_parquet('${segmentsPath}')
     WHERE
@@ -974,22 +975,17 @@ async function ingestRoadGraph(
   const connectorMap = new Map<string, { lng: number; lat: number }>();
 
   for (const segment of segmentsWithConnectors) {
-    if (!segment.connectors || !Array.isArray(segment.connectors)) continue;
+    // connectors_json is already parsed by DuckDB's JSON output
+    const connectors = segment.connectors_json;
+    if (!Array.isArray(connectors) || connectors.length === 0) continue;
 
-    // Parse geometry JSON
-    let coords: number[][] = [];
-    try {
-      const geom = JSON.parse(segment.geometry_json);
-      if (geom.type === "LineString" && Array.isArray(geom.coordinates)) {
-        coords = geom.coordinates;
-      }
-    } catch {
-      continue;
-    }
-
+    // geometry_json is already parsed by DuckDB's JSON output
+    const geom = segment.geometry_json;
+    if (!geom || geom.type !== "LineString" || !Array.isArray(geom.coordinates)) continue;
+    const coords: number[][] = geom.coordinates;
     if (coords.length === 0) continue;
 
-    for (const conn of segment.connectors) {
+    for (const conn of connectors) {
       if (!conn.connector_id) continue;
 
       // Interpolate position along the line using `at` value
@@ -1054,10 +1050,11 @@ async function ingestRoadGraph(
     }> = [];
 
     for (const segment of segmentsWithConnectors) {
-      if (!segment.connectors || !Array.isArray(segment.connectors)) continue;
+      const connectors = segment.connectors_json;
+      if (!Array.isArray(connectors)) continue;
 
       // Sort connectors by `at` value to get from -> to order
-      const sortedConnectors = [...segment.connectors]
+      const sortedConnectors = [...connectors]
         .filter((c: any) => c.connector_id)
         .sort((a: any, b: any) => (a.at ?? 0) - (b.at ?? 0));
 
