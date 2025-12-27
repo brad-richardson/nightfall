@@ -180,9 +180,6 @@ export default function Dashboard({
   const setUserVote = useStore.getState().setUserVote;
   const clearUserVote = useStore.getState().clearUserVote;
   
-  // Use ref for lastEvent to avoid re-renders on every SSE event
-  const lastEventRef = useRef<string | null>(null);
-  const [lastEventDisplay, setLastEventDisplay] = useState<string | null>(null);
   const [resourceDeltas, setResourceDeltas] = useState<ResourceDelta[]>([]);
   const prevTasksRef = useRef<Map<string, string>>(new Map());
   const hasHydratedRef = useRef(false);
@@ -233,11 +230,6 @@ export default function Dashboard({
   useEffect(() => {
     const interval = setInterval(() => {
       const pending = pendingUpdatesRef.current;
-
-      // Sync lastEvent display
-      if (lastEventRef.current !== lastEventDisplay) {
-        setLastEventDisplay(lastEventRef.current);
-      }
 
       // Skip if no pending updates
       if (!pending.dirty) return;
@@ -336,7 +328,7 @@ export default function Dashboard({
       pending.dirty = false;
     }, 150); // Apply batched updates every 150ms
     return () => clearInterval(interval);
-  }, [lastEventDisplay, setCycle, setHexes, setRegion, setFeatures]);
+  }, [setCycle, setHexes, setRegion, setFeatures]);
 
   // Use ref to avoid stale closure issues in event handler
   const regionRef = useRef(region);
@@ -345,8 +337,6 @@ export default function Dashboard({
   }, [region]);
 
   const handleEvent = useCallback((payload: EventPayload) => {
-    // Update ref (doesn't trigger re-render - display syncs periodically)
-    lastEventRef.current = `${payload.event} @ ${new Date().toLocaleTimeString()}`;
     const pending = pendingUpdatesRef.current;
 
     switch (payload.event) {
@@ -747,12 +737,7 @@ export default function Dashboard({
               </h2>
             </MapPanel>
 
-            <div className="flex flex-wrap items-center gap-3">
-              <PhaseIndicator />
-              <div className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-[10px] uppercase tracking-[0.4em] text-[color:var(--night-teal)]">
-                {lastEventDisplay ? `Live: ${lastEventDisplay}` : "Connecting..."}
-              </div>
-            </div>
+            <PhaseIndicator />
           </div>
 
           <MapOverlay position="top-right" className="!top-24 hidden w-72 flex-col gap-4 lg:flex">
