@@ -12,8 +12,9 @@ import {
   normalizeCategories,
   ROAD_CLASS_FILTER,
   REGION_CONFIGS,
-  shouldSeedDemo
-} from "./index";
+  shouldSeedDemo,
+  interpolateLineString
+} from "./index.js";
 
 const region = {
   regionId: "test_region",
@@ -364,5 +365,72 @@ describe("per-hex building limiting", () => {
     const limited = limitBuildingsPerHex(buildings, 1);
 
     expect(limited.length).toBe(2);
+  });
+});
+
+describe("interpolateLineString", () => {
+  it("returns [0, 0] for empty coords", () => {
+    expect(interpolateLineString([], 0.5)).toEqual([0, 0]);
+  });
+
+  it("returns the single point for single-point coords", () => {
+    expect(interpolateLineString([[10, 20]], 0.5)).toEqual([10, 20]);
+  });
+
+  it("returns start point for t <= 0", () => {
+    const coords = [[0, 0], [10, 10]];
+    expect(interpolateLineString(coords, 0)).toEqual([0, 0]);
+    expect(interpolateLineString(coords, -1)).toEqual([0, 0]);
+  });
+
+  it("returns end point for t >= 1", () => {
+    const coords = [[0, 0], [10, 10]];
+    expect(interpolateLineString(coords, 1)).toEqual([10, 10]);
+    expect(interpolateLineString(coords, 2)).toEqual([10, 10]);
+  });
+
+  it("interpolates midpoint on a two-point line", () => {
+    const coords = [[0, 0], [10, 20]];
+    const result = interpolateLineString(coords, 0.5);
+    expect(result[0]).toBeCloseTo(5);
+    expect(result[1]).toBeCloseTo(10);
+  });
+
+  it("interpolates at 25% on a two-point line", () => {
+    const coords = [[0, 0], [100, 0]];
+    const result = interpolateLineString(coords, 0.25);
+    expect(result[0]).toBeCloseTo(25);
+    expect(result[1]).toBeCloseTo(0);
+  });
+
+  it("interpolates correctly on a multi-segment line", () => {
+    // Three points forming an L-shape: (0,0) -> (10,0) -> (10,10)
+    // First segment length: 10, second segment length: 10, total: 20
+    const coords = [[0, 0], [10, 0], [10, 10]];
+
+    // t=0.25 should be at (5, 0) - quarter of total distance
+    const result1 = interpolateLineString(coords, 0.25);
+    expect(result1[0]).toBeCloseTo(5);
+    expect(result1[1]).toBeCloseTo(0);
+
+    // t=0.5 should be at (10, 0) - exactly at the corner
+    const result2 = interpolateLineString(coords, 0.5);
+    expect(result2[0]).toBeCloseTo(10);
+    expect(result2[1]).toBeCloseTo(0);
+
+    // t=0.75 should be at (10, 5) - three quarters of total distance
+    const result3 = interpolateLineString(coords, 0.75);
+    expect(result3[0]).toBeCloseTo(10);
+    expect(result3[1]).toBeCloseTo(5);
+  });
+
+  it("handles unequal segment lengths", () => {
+    // (0,0) -> (30,0) -> (30,10): first segment 30, second segment 10, total 40
+    const coords = [[0, 0], [30, 0], [30, 10]];
+
+    // t=0.5 is at distance 20, which is still in first segment at (20, 0)
+    const result = interpolateLineString(coords, 0.5);
+    expect(result[0]).toBeCloseTo(20);
+    expect(result[1]).toBeCloseTo(0);
   });
 });

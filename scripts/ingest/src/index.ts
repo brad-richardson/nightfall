@@ -15,6 +15,45 @@ import {
 
 export { ROAD_CLASS_FILTER, REGION_CONFIGS, H3_RESOLUTION };
 
+/**
+ * Interpolate a point along a LineString at position t (0-1).
+ * Used to find connector positions along road segments.
+ */
+export function interpolateLineString(coords: number[][], t: number): [number, number] {
+  if (coords.length === 0) return [0, 0];
+  if (coords.length === 1) return coords[0] as [number, number];
+  if (t <= 0) return coords[0] as [number, number];
+  if (t >= 1) return coords[coords.length - 1] as [number, number];
+
+  // Calculate total length and segment lengths
+  let totalLength = 0;
+  const segmentLengths: number[] = [];
+  for (let i = 0; i < coords.length - 1; i++) {
+    const dx = coords[i + 1][0] - coords[i][0];
+    const dy = coords[i + 1][1] - coords[i][1];
+    const len = Math.sqrt(dx * dx + dy * dy);
+    segmentLengths.push(len);
+    totalLength += len;
+  }
+
+  // Find target distance
+  const targetDist = t * totalLength;
+  let accum = 0;
+
+  for (let i = 0; i < segmentLengths.length; i++) {
+    if (accum + segmentLengths[i] >= targetDist) {
+      // Interpolate within this segment
+      const segProgress = (targetDist - accum) / segmentLengths[i];
+      const lng = coords[i][0] + (coords[i + 1][0] - coords[i][0]) * segProgress;
+      const lat = coords[i][1] + (coords[i + 1][1] - coords[i][1]) * segProgress;
+      return [lng, lat];
+    }
+    accum += segmentLengths[i];
+  }
+
+  return coords[coords.length - 1] as [number, number];
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -912,18 +951,13 @@ async function ingestRoadGraph(
   const segmentsPath = resolveOverturePath(dataDir, { theme: "transportation", type: "segment" });
   const classFilter = ROAD_CLASS_FILTER.map((roadClass) => `'${roadClass}'`).join(", ");
 
-  // Query segments with geometry and connectors array
-  // Use ST_LineInterpolatePoint to get connector positions from the `at` value
+  // Query segments with full geometry coordinates for interpolation
   const segmentsWithConnectors = await runDuckDB(`
     SELECT
       id,
       class,
-      ST_Length(geometry) as geom_length,
       connectors,
-      ST_X(ST_LineInterpolatePoint(geometry, 0.0)) as start_lng,
-      ST_Y(ST_LineInterpolatePoint(geometry, 0.0)) as start_lat,
-      ST_X(ST_LineInterpolatePoint(geometry, 1.0)) as end_lng,
-      ST_Y(ST_LineInterpolatePoint(geometry, 1.0)) as end_lat
+      ST_AsGeoJSON(geometry) as geometry_json
     FROM read_parquet('${segmentsPath}')
     WHERE
       bbox.xmin > ${region.bbox.xmin} AND
@@ -942,22 +976,25 @@ async function ingestRoadGraph(
   for (const segment of segmentsWithConnectors) {
     if (!segment.connectors || !Array.isArray(segment.connectors)) continue;
 
+    // Parse geometry JSON
+    let coords: number[][] = [];
+    try {
+      const geom = JSON.parse(segment.geometry_json);
+      if (geom.type === "LineString" && Array.isArray(geom.coordinates)) {
+        coords = geom.coordinates;
+      }
+    } catch {
+      continue;
+    }
+
+    if (coords.length === 0) continue;
+
     for (const conn of segment.connectors) {
       if (!conn.connector_id) continue;
 
-      // Use `at` to determine position (0 = start, 1 = end)
+      // Interpolate position along the line using `at` value
       const at = conn.at ?? 0;
-      let lng: number, lat: number;
-
-      if (at <= 0.5) {
-        // Closer to start
-        lng = segment.start_lng;
-        lat = segment.start_lat;
-      } else {
-        // Closer to end
-        lng = segment.end_lng;
-        lat = segment.end_lat;
-      }
+      const [lng, lat] = interpolateLineString(coords, at);
 
       // Only store if we don't have it yet (first occurrence wins)
       if (!connectorMap.has(conn.connector_id)) {
