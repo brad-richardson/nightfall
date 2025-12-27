@@ -104,22 +104,30 @@ This document contains a prioritized list of issues found in the codebase, inclu
 
 ## Priority 3: Data Consistency & Race Conditions
 
-### 3.1 Task Spawn Race Condition
+### 3.1 Task Spawn Race Condition ✅ FIXED
 **Location:** `apps/ticker/src/tasks.ts:7-87`
-**Issue:** `spawnDegradedRoadTasks` can create duplicate tasks if called concurrently.
-**Details:** The `NOT EXISTS` check at lines 65-70 isn't atomic with the INSERT.
-**Fix Needed:** Use `INSERT ... ON CONFLICT DO NOTHING` with unique constraint on `(target_gers_id, status)` or use advisory locks per road.
+**Issue:** `spawnDegradedRoadTasks` could create duplicate tasks if called concurrently.
+**Fix Applied:**
+- Added partial unique index `tasks_target_active_unique` on `(target_gers_id)` WHERE status IN ('queued', 'active')
+- Modified INSERT to use `ON CONFLICT ... DO NOTHING` instead of `NOT EXISTS` subquery
+- Migration: `db/migrations/20251227000000_add_task_uniqueness_constraint.sql`
 
-### 3.2 SSE Client Count Inaccuracy
-**Location:** `apps/api/src/server.ts:288, 364-370`
-**Issue:** `sseClients` counter is incremented on connection but may not always be decremented:
-- If `eventStream.start()` throws after increment
-- Race conditions on cleanup
-**Fix Needed:** Use try/finally pattern consistently, or use a Set of client IDs.
+### 3.2 SSE Client Count Inaccuracy ✅ FIXED
+**Location:** `apps/api/src/server.ts:385-399`
+**Issue:** `sseClients` counter could leak if `eventStream.subscribe()` threw after increment.
+**Fix Applied:**
+- Moved `eventStream.subscribe()` inside the try block with `eventStream.start()`
+- Now both operations are caught and cleaned up if either fails
+- Cleanup handler is registered before try block to ensure it always fires
 
-### 3.3 Resource Transfer Timing Issues
-**Location:** `apps/ticker/src/resources.ts`
-**Issue:** Resource transfers depend on clock synchronization between API and Ticker. If clocks drift, transfers can arrive early/late or be processed twice.
+### 3.3 Resource Transfer Timing Issues ✅ VERIFIED OK
+**Location:** `apps/ticker/src/resources.ts`, `apps/api/src/server.ts`
+**Issue:** Concern about clock drift between API and Ticker.
+**Status:** Already correctly handled - all timing uses PostgreSQL's `now()` function:
+- API: `now()` and `now() + interval` (server.ts:1062-1063)
+- Ticker enqueue: `now()` and `now() + interval` (resources.ts:189-190)
+- Ticker arrival: `arrive_at <= now()` (resources.ts:225)
+- Database is single source of truth for time, no clock drift possible.
 
 ---
 
@@ -300,6 +308,6 @@ const regionId = (request.params as { region_id: string }).region_id;
 1. ✅ **Fix SSE reliability** (P1.1) - FIXED
 2. **Add CORS allowlist** (P5.1) - Security vulnerability
 3. ✅ **Fix voting real-time updates** (P1.3) - FIXED
-4. **Add task spawn locking** (P3.1) - Prevents duplicate tasks
+4. ✅ **Add task spawn locking** (P3.1) - FIXED (partial unique index + ON CONFLICT)
 5. ✅ **Refactor DemoMap.tsx** (P2.5) - FIXED (46% size reduction)
 6. **Add integration tests** (P6.2) - Prevents regressions

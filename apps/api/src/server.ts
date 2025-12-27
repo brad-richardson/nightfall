@@ -384,6 +384,12 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
 
     try {
       await eventStream.start?.();
+      unsubscribe = eventStream.subscribe((payload) => {
+        writeSseEvent(reply.raw, payload.event, payload.data);
+        if (once) {
+          reply.raw.end();
+        }
+      });
     } catch (error) {
       app.log.error({ err: error }, "event stream unavailable");
       reply.raw.writeHead(503, { "Content-Type": "application/json" });
@@ -391,17 +397,6 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       cleanup();
       return;
     }
-
-    unsubscribe = eventStream.subscribe((payload) => {
-      writeSseEvent(reply.raw, payload.event, payload.data);
-
-      if (once) {
-        // cleanup will be called by 'close' event when we end the response?
-        // Or we should call it manually?
-        // If we end the response, the socket closes.
-        reply.raw.end();
-      }
-    });
   });
 
   app.post("/api/hello", async (request, reply) => {

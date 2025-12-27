@@ -62,12 +62,7 @@ export async function spawnDegradedRoadTasks(pool: PoolLike) {
     JOIN feature_state AS fs ON fs.gers_id = wf.gers_id
     WHERE wf.feature_type = 'road'
       AND fs.status = 'degraded'
-      AND NOT EXISTS (
-        SELECT 1
-        FROM tasks AS t
-        WHERE t.target_gers_id = wf.gers_id
-          AND t.status IN ('queued', 'active')
-      )
+    ON CONFLICT (target_gers_id) WHERE status IN ('queued', 'active') DO NOTHING
     RETURNING
       task_id,
       status,
