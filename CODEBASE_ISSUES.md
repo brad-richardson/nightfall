@@ -167,23 +167,32 @@ const regionId = (request.params as { region_id: string }).region_id;
 
 ## Priority 5: Security Concerns
 
-### 5.1 CORS Disabled Pending Stabilization
+### 5.1 CORS Disabled Pending Stabilization ✅ FIXED
 **Location:** `TODO.md:25`
 **Issue:** CORS is currently disabled; needs explicit allowlist + tests.
 **Risk:** Cross-origin attacks possible in current state.
+
+**Fix Applied:**
+- ✅ Added `ALLOWED_ORIGINS` config option (comma-separated list)
+- ✅ CORS uses allowlist in production, allows all origins in development
+- ✅ Added to `fly.api.toml` with GitHub Pages domain
+- ✅ Documented in `.env.example`
 
 ### 5.2 Admin Secret Validation Timing
 **Location:** `apps/api/src/server.ts:189-206`
 **Status:** Good - Already uses `timingSafeEqual` for admin secret verification.
 
-### 5.3 SQL Injection via Road Class Names
+### 5.3 SQL Injection via Road Class Names ✅ FIXED
 **Location:** `apps/api/src/server.ts:1151-1153`, `apps/ticker/src/tasks.ts:8-23`
 **Issue:** Road class names from config are interpolated directly into SQL:
 ```typescript
 .map(([cls, info]) => `WHEN '${cls}' THEN ${info.priorityWeight}`)
 ```
 **Risk:** If `ROAD_CLASSES` keys contain special characters, SQL injection is possible.
-**Fix Needed:** Use parameterized queries or validate road class names match `/^[a-z_]+$/`.
+
+**Fix Applied:**
+- ✅ Added runtime validation in `packages/config/src/index.ts`
+- ✅ All road class names must match `/^[a-z_]+$/` (throws at module load if invalid)
 
 ### 5.4 JWT Secret Validation Only in Production
 **Location:** `apps/api/src/config.ts:16`
@@ -312,9 +321,11 @@ const regionId = (request.params as { region_id: string }).region_id;
 ## Recommended Action Order
 
 1. ✅ **Fix SSE reliability** (P1.1) - FIXED
-2. **Add CORS allowlist** (P5.1) - Security vulnerability
+2. ✅ **Add CORS allowlist** (P5.1) - FIXED (ALLOWED_ORIGINS env var + fly.api.toml)
 3. ✅ **Fix voting real-time updates** (P1.3) - FIXED
 4. ✅ **Add task spawn locking** (P3.1) - FIXED (partial unique index + ON CONFLICT)
 5. ✅ **Refactor DemoMap.tsx** (P2.5) - FIXED (46% size reduction)
 6. ✅ **Fix type safety issues** (P4.1, P4.3) - FIXED (Fastify generics + global type declarations)
-7. **Add integration tests** (P6.2) - Prevents regressions
+7. ✅ **Fix SQL injection risk** (P5.3) - FIXED (road class name validation)
+8. **Add integration tests** (P6.2) - Prevents regressions
+9. **Add ticker health reporting** (P8.2) - Observability

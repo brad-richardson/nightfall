@@ -6,6 +6,7 @@ const configSchema = z.object({
   DATABASE_URL: z.string().url().default("postgresql://nightfall:nightfall@localhost:5432/nightfall?sslmode=disable"),
   APP_VERSION: z.string().default("dev"),
   // Security & Rate Limiting
+  ALLOWED_ORIGINS: z.string().optional(), // Comma-separated list of allowed origins for CORS
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60 * 1000), // 1 minute
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(200), // 200 requests per window
   SSE_MAX_CLIENTS: z.coerce.number().int().positive().default(1000),

@@ -95,6 +95,14 @@ export const ROAD_CLASSES: Record<string, RoadClassInfo> = {
   }
 };
 
+// Validate road class names are safe for SQL interpolation (defense in depth)
+const VALID_ROAD_CLASS = /^[a-z_]+$/;
+Object.keys(ROAD_CLASSES).forEach(cls => {
+  if (!VALID_ROAD_CLASS.test(cls)) {
+    throw new Error(`Invalid road class name: ${cls}. Must match /^[a-z_]+$/`);
+  }
+});
+
 export const ROAD_CLASS_FILTER = Object.keys(ROAD_CLASSES);
 
 export const REGION_CONFIGS: Record<string, RegionConfig> = {

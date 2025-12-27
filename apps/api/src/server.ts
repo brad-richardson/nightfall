@@ -288,10 +288,12 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   const config = getConfig();
   let sseClients = 0;
 
-  // TODO: Configure proper CORS origins for production (front-end domain)
-  // TODO: Configure proper cache-control headers for production
+  // CORS: Use allowlist in production, allow all in development
+  const corsOrigin = config.ALLOWED_ORIGINS
+    ? config.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+    : true; // Allow all origins in development when not specified
   app.register(cors, {
-    origin: true, // Allow all origins for now
+    origin: corsOrigin,
     credentials: true,
   });
   app.register(helmet, {
