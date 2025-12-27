@@ -4,9 +4,7 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from "react"
 import maplibregl from "maplibre-gl";
 import * as pmtiles from "pmtiles";
 import { cellToBoundary } from "h3-js";
-import { ROAD_CLASS_FILTER } from "@nightfall/config";
 import { MapTooltip, type TooltipData } from "./MapTooltip";
-import type { Phase } from "../store";
 import {
   type ResourcePackage,
   buildResourcePath,
@@ -14,8 +12,14 @@ import {
   easeInOutCubic
 } from "../lib/resourceAnimation";
 import { AnimationManager } from "../lib/animationManager";
+
+// Import from extracted modules
+import type {
+  CrewPath,
+  ResourceTransferPayload,
+  DemoMapProps
+} from "./map/types";
 import {
-  CREW_COLORS,
   PHASE_FILTERS,
   RUST_FILL_OPACITY_BASE,
   RUST_LINE_OPACITY_BASE,
@@ -24,90 +28,24 @@ import {
   COLORS,
   getTransitionGradient
 } from "./map/mapConfig";
-
-type Feature = {
-  gers_id: string;
-  feature_type: string;
-  h3_index?: string | null;
-  bbox: [number, number, number, number] | null;
-  geometry?: {
-    type: "Point" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
-    coordinates: number[] | number[][] | number[][][] | number[][][][] | number[][][][];
-  } | null;
-  health?: number | null;
-  status?: string | null;
-  road_class?: string | null;
-  place_category?: string | null;
-  generates_labor?: boolean;
-  generates_materials?: boolean;
-  is_hub?: boolean;
-};
-
-type Crew = {
-  crew_id: string;
-  status: string;
-  active_task_id: string | null;
-  busy_until?: string | null;
-};
-
-type Task = {
-  task_id: string;
-  target_gers_id: string;
-  status?: string;
-};
-
-type Hex = {
-  h3_index: string;
-  rust_level: number;
-};
-
-type CrewPath = {
-  crew_id: string;
-  task_id: string;
-  path: [number, number][];
-  startTime: number;
-  endTime: number;
-  status: "traveling" | "working";
-};
-
-type ResourceTransferPayload = {
-  transfer_id: string;
-  region_id: string;
-  source_gers_id: string | null;
-  hub_gers_id: string | null;
-  resource_type: "labor" | "materials";
-  amount: number;
-  depart_at: string;
-  arrive_at: string;
-};
-
-type Boundary =
-  | { type: "Polygon"; coordinates: number[][][] }
-  | { type: "MultiPolygon"; coordinates: number[][][][] };
-
-type Bbox = {
-  xmin: number;
-  ymin: number;
-  xmax: number;
-  ymax: number;
-};
-
-type DemoMapProps = {
-  boundary: Boundary | null;
-  features: Feature[];
-  hexes: Hex[];
-  crews: Crew[];
-  tasks: Task[];
-  fallbackBbox: Bbox;
-  cycle: {
-    phase: Phase;
-    phase_progress: number;
-    next_phase: Phase;
-  };
-  pmtilesRelease: string;
-  children?: React.ReactNode;
-  className?: string;
-};
+import {
+  getAllInitialLayers,
+  getHexLayers,
+  getCrewLayers,
+  getCentralHubLayers,
+  getCrewPathLayers,
+  getResourcePackageLayers,
+  BASE_ROAD_FILTER
+} from "./map/layers";
+import {
+  getFeatureCenter,
+  getNearestHubCenter,
+  getFallbackCenter,
+  getMaxBoundsFromBoundary,
+  extractRoadFeaturesForPath,
+  normalizePercent,
+  makeIdFilter
+} from "./map/utils";
 
 export default function DemoMap({
   boundary,
@@ -133,21 +71,23 @@ export default function DemoMap({
   const [isMobile, setIsMobile] = useState(false);
   const [crewPaths, setCrewPaths] = useState<CrewPath[]>([]);
 
-  // Centralized animation manager for all requestAnimationFrame loops
   const animationManager = useMemo(() => new AnimationManager(60), []);
-
   const breathePhaseRef = useRef(0);
   const hoverTimeoutRef = useRef<number | null>(null);
   const tooltipDismissRef = useRef<number | null>(null);
+  const featuresRef = useRef(features);
+  const tasksRef = useRef(tasks);
+
   const pmtilesBase = useMemo(
     () => `https://d3c1b7bog2u1nn.cloudfront.net/${pmtilesRelease}`,
     [pmtilesRelease]
   );
 
-  const featuresRef = useRef(features);
-  const tasksRef = useRef(tasks);
+  const fallbackCenter = useMemo<[number, number]>(
+    () => getFallbackCenter(fallbackBbox),
+    [fallbackBbox]
+  );
 
-  // Get IDs of roads currently being repaired (in_progress tasks)
   const repairingRoadIds = useMemo(() => {
     const ids = tasks
       .filter(t => t.status === "in_progress")
@@ -156,24 +96,17 @@ export default function DemoMap({
     return Array.from(new Set(ids));
   }, [tasks]);
 
-  const roadFeaturesForPath = useMemo(() => {
-    const roads: { geometry: { coordinates: number[][] } }[] = [];
-    for (const feature of features) {
-      if (feature.feature_type !== "road" || !feature.geometry) continue;
-      if (feature.geometry.type === "LineString") {
-        roads.push({ geometry: { coordinates: feature.geometry.coordinates as number[][] } });
-      } else if (feature.geometry.type === "MultiLineString") {
-        const multiCoords = feature.geometry.coordinates as number[][][];
-        for (const line of multiCoords) {
-          roads.push({ geometry: { coordinates: line } });
-        }
-      }
-    }
-    return roads;
-  }, [features]);
+  const roadFeaturesForPath = useMemo(
+    () => extractRoadFeaturesForPath(features),
+    [features]
+  );
 
-  const travelingCrewIds = useMemo(() => new Set(crewPaths.map((path) => path.crew_id)), [crewPaths]);
+  const travelingCrewIds = useMemo(
+    () => new Set(crewPaths.map((path) => path.crew_id)),
+    [crewPaths]
+  );
 
+  // Media query effects
   useEffect(() => {
     const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
     const mobileQuery = window.matchMedia("(max-width: 768px)");
@@ -184,8 +117,6 @@ export default function DemoMap({
     };
 
     update();
-
-    // Use standard addEventListener (supported by all modern browsers)
     motionQuery.addEventListener("change", update);
     mobileQuery.addEventListener("change", update);
     return () => {
@@ -194,6 +125,7 @@ export default function DemoMap({
     };
   }, []);
 
+  // Resize observer
   useEffect(() => {
     const node = mapShellRef.current;
     if (!node) return;
@@ -215,6 +147,7 @@ export default function DemoMap({
     return () => observer.disconnect();
   }, []);
 
+  // Track queued task road IDs
   useEffect(() => {
     const ids = tasks
       .filter((t) => t.status === "queued" || t.status === "pending")
@@ -223,19 +156,13 @@ export default function DemoMap({
     setQueuedTaskRoadIds(Array.from(new Set(ids)));
   }, [tasks]);
 
-  useEffect(() => {
-    featuresRef.current = features;
-  }, [features]);
+  // Keep refs updated
+  useEffect(() => { featuresRef.current = features; }, [features]);
+  useEffect(() => { tasksRef.current = tasks; }, [tasks]);
 
+  // Map initialization
   useEffect(() => {
-    tasksRef.current = tasks;
-  }, [tasks]);
-
-  useEffect(() => {
-    if (!mapContainer.current) return;
-
-    // Prevent re-initialization if map already exists
-    if (map.current) return;
+    if (!mapContainer.current || map.current) return;
 
     setIsLoaded(false);
     const protocol = new pmtiles.Protocol();
@@ -243,55 +170,7 @@ export default function DemoMap({
 
     const centerLon = (fallbackBbox.xmin + fallbackBbox.xmax) / 2;
     const centerLat = (fallbackBbox.ymin + fallbackBbox.ymax) / 2;
-
-    // Calculate maxBounds from boundary if available
-    let maxBounds: maplibregl.LngLatBoundsLike | undefined = undefined;
-    if (boundary) {
-      const coords = boundary.type === "Polygon" ? boundary.coordinates.flat() : boundary.coordinates.flat(2);
-      if (coords.length > 0) {
-        let xmin = Number.POSITIVE_INFINITY;
-        let ymin = Number.POSITIVE_INFINITY;
-        let xmax = Number.NEGATIVE_INFINITY;
-        let ymax = Number.NEGATIVE_INFINITY;
-
-        for (const [lon, lat] of coords) {
-          xmin = Math.min(xmin, lon);
-          ymin = Math.min(ymin, lat);
-          xmax = Math.max(xmax, lon);
-          ymax = Math.max(ymax, lat);
-        }
-        // Add a buffer (0.05 degrees) so the user can pan slightly outside
-        maxBounds = [
-          [xmin - 0.05, ymin - 0.05],
-          [xmax + 0.05, ymax + 0.05]
-        ];
-      }
-    }
-
-    // Base road filter - roads in our class list
-    const baseRoadFilter: maplibregl.FilterSpecification = ["all",
-      ["==", ["get", "subtype"], "road"],
-      ["in", ["get", "class"], ["literal", ROAD_CLASS_FILTER]]
-    ];
-
-    // Filter for roads that have routes OR have route-like names
-    // This helps show connected road networks at lower zoom levels
-    const hasRouteFilter: maplibregl.FilterSpecification = ["any",
-      // Has routes array (from Overture)
-      ["all",
-        ["has", "routes"],
-        ["!=", ["get", "routes"], "[]"],
-        ["!=", ["get", "routes"], null]
-      ],
-      // OR primary name contains route indicators
-      ["any",
-        ["in", "Route", ["coalesce", ["get", "primary"], ""]],
-        ["in", "Highway", ["coalesce", ["get", "primary"], ""]],
-        ["in", "US-", ["coalesce", ["get", "primary"], ""]],
-        ["in", "SR-", ["coalesce", ["get", "primary"], ""]],
-        ["in", "State Route", ["coalesce", ["get", "primary"], ""]]
-      ]
-    ];
+    const maxBounds = getMaxBoundsFromBoundary(boundary);
 
     const mapInstance = new maplibregl.Map({
       container: mapContainer.current,
@@ -316,351 +195,7 @@ export default function DemoMap({
             attribution: "Overture Maps"
           }
         },
-        layers: [
-          // === BASE LAYERS ===
-          {
-            id: "background",
-            type: "background",
-            paint: { "background-color": COLORS.background }
-          },
-          {
-            id: "landuse",
-            source: "overture_base",
-            "source-layer": "land_use",
-            type: "fill",
-            paint: { "fill-color": COLORS.landuse }
-          },
-          {
-            id: "water",
-            source: "overture_base",
-            "source-layer": "water",
-            type: "fill",
-            paint: { "fill-color": COLORS.water }
-          },
-          {
-            id: "water-outline",
-            source: "overture_base",
-            "source-layer": "water",
-            type: "line",
-            paint: {
-              "line-color": COLORS.waterOutline,
-              "line-width": 1,
-              "line-opacity": 0.5
-            }
-          },
-          {
-            id: "buildings",
-            source: "overture_buildings",
-            "source-layer": "building",
-            type: "fill",
-            paint: {
-              "fill-color": COLORS.buildings,
-              "fill-opacity": 0.9,
-              "fill-outline-color": COLORS.buildingOutline
-            }
-          },
-      {
-        id: "buildings-labor",
-        source: "overture_buildings",
-        "source-layer": "building",
-        type: "fill",
-        filter: ["==", ["get", "id"], "none"],
-        paint: {
-          "fill-color": COLORS.buildingsLabor,
-          "fill-opacity": 0.85,
-          "fill-outline-color": COLORS.buildingOutline
-        }
-      },
-      {
-        id: "buildings-materials",
-        source: "overture_buildings",
-        "source-layer": "building",
-        type: "fill",
-        filter: ["==", ["get", "id"], "none"],
-        paint: {
-          "fill-color": COLORS.buildingsMaterials,
-          "fill-opacity": 0.85,
-          "fill-outline-color": COLORS.buildingOutline
-        }
-      },
-      // Hub building glow layer
-      {
-        id: "buildings-hub-glow",
-        source: "overture_buildings",
-        "source-layer": "building",
-        type: "fill",
-        filter: ["==", ["get", "id"], "none"],
-        paint: {
-          "fill-color": "#ffffff",
-          "fill-opacity": 0.3
-        }
-      },
-      // Hub building highlight layer
-      {
-        id: "buildings-hub",
-        source: "overture_buildings",
-        "source-layer": "building",
-        type: "line",
-        filter: ["==", ["get", "id"], "none"],
-        paint: {
-          "line-color": "#ffffff",
-          "line-width": 3,
-          "line-opacity": 0.95
-        }
-      },
-
-          // === ROAD LAYERS ===
-          // Route roads - shown at lower zoom for connectivity
-          {
-            id: "roads-routes",
-            source: "overture_transportation",
-            "source-layer": "segment",
-            type: "line",
-            minzoom: 8,
-            maxzoom: 13,
-            filter: ["all",
-              ["==", ["get", "subtype"], "road"],
-              hasRouteFilter
-            ],
-            layout: { "line-cap": "round", "line-join": "round" },
-            paint: {
-              "line-color": COLORS.roadsRoute,
-              "line-width": ["interpolate", ["linear"], ["zoom"], 8, 0.5, 13, 2]
-            }
-          },
-          // Regular road hierarchy
-          {
-            id: "roads-low",
-            source: "overture_transportation",
-            "source-layer": "segment",
-            type: "line",
-            minzoom: 13,
-            filter: ["all", baseRoadFilter, ["in", ["get", "class"], ["literal", ["residential", "service"]]]],
-            layout: { "line-cap": "round", "line-join": "round" },
-            paint: {
-              "line-color": COLORS.roadsLow,
-              "line-width": ["interpolate", ["linear"], ["zoom"], 13, 0.5, 16, 1.5]
-            }
-          },
-          {
-            id: "roads-mid",
-            source: "overture_transportation",
-            "source-layer": "segment",
-            type: "line",
-            minzoom: 10,
-            filter: ["any",
-              ["all", baseRoadFilter, ["in", ["get", "class"], ["literal", ["primary", "secondary", "tertiary"]]]],
-              // Also show any road with routes at mid-zoom
-              ["all",
-                ["==", ["get", "subtype"], "road"],
-                hasRouteFilter
-              ]
-            ],
-            layout: { "line-cap": "round", "line-join": "round" },
-            paint: {
-              "line-color": COLORS.roadsMid,
-              "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.8, 16, 2.5]
-            }
-          },
-          {
-            id: "roads-high",
-            source: "overture_transportation",
-            "source-layer": "segment",
-            type: "line",
-            minzoom: 6,
-            filter: ["all", baseRoadFilter, ["in", ["get", "class"], ["literal", ["motorway", "trunk"]]]],
-            layout: { "line-cap": "round", "line-join": "round" },
-            paint: {
-              "line-color": COLORS.roadsHigh,
-              "line-width": ["interpolate", ["linear"], ["zoom"], 6, 0.5, 10, 1.5, 16, 3]
-            }
-          },
-
-          // === GAME STATE GLOW LAYERS ===
-          {
-            id: "game-roads-healthy-glow",
-            source: "overture_transportation",
-            "source-layer": "segment",
-            type: "line",
-            filter: ["all", baseRoadFilter, ["==", ["get", "id"], "none"]],
-            layout: { "line-cap": "round", "line-join": "round" },
-            paint: {
-              "line-color": COLORS.healthy,
-              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 6, 16, 14],
-              "line-blur": 4,
-              "line-opacity": 0.15
-            }
-          },
-          {
-            id: "game-roads-healthy",
-            source: "overture_transportation",
-            "source-layer": "segment",
-            type: "line",
-            filter: ["all", baseRoadFilter, ["==", ["get", "id"], "none"]],
-            layout: { "line-cap": "round", "line-join": "round" },
-            paint: {
-              "line-color": COLORS.healthy,
-              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 1.5, 16, 4],
-              "line-opacity": 0.7
-            }
-          },
-          {
-            id: "game-roads-warning-glow",
-            source: "overture_transportation",
-            "source-layer": "segment",
-            type: "line",
-            filter: ["all", baseRoadFilter, ["==", ["get", "id"], "none"]],
-            layout: { "line-cap": "round", "line-join": "round" },
-            paint: {
-              "line-color": COLORS.warning,
-              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 7, 16, 16],
-              "line-blur": 4,
-              "line-opacity": 0.2
-            }
-          },
-          {
-            id: "game-roads-warning",
-            source: "overture_transportation",
-            "source-layer": "segment",
-            type: "line",
-            filter: ["all", baseRoadFilter, ["==", ["get", "id"], "none"]],
-            layout: { "line-cap": "round", "line-join": "round" },
-            paint: {
-              "line-color": COLORS.warning,
-              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 1.8, 16, 5],
-              "line-opacity": 0.8
-            }
-          },
-          {
-            id: "game-roads-degraded-glow",
-            source: "overture_transportation",
-            "source-layer": "segment",
-            type: "line",
-            filter: ["all", baseRoadFilter, ["==", ["get", "id"], "none"]],
-            layout: { "line-cap": "round", "line-join": "round" },
-            paint: {
-              "line-color": COLORS.degraded,
-              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 8, 16, 18],
-              "line-blur": 5,
-              "line-opacity": 0.25
-            }
-          },
-          {
-            id: "game-roads-degraded",
-            source: "overture_transportation",
-            "source-layer": "segment",
-            type: "line",
-            filter: ["all", baseRoadFilter, ["==", ["get", "id"], "none"]],
-            layout: { "line-cap": "round", "line-join": "round" },
-            paint: {
-              "line-color": COLORS.degraded,
-              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 2, 16, 6],
-              "line-opacity": 0.9
-            }
-          },
-
-          // === TASK HIGHLIGHT LAYERS ===
-          {
-            id: "game-roads-task-highlight-glow",
-            source: "overture_transportation",
-            "source-layer": "segment",
-            type: "line",
-            filter: ["all", baseRoadFilter, ["==", ["get", "id"], "none"]],
-            layout: { "line-cap": "round", "line-join": "round" },
-            paint: {
-              "line-color": "#f0ddc2",
-              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 6, 16, 14],
-              "line-blur": 4,
-              "line-opacity": 0.25
-            }
-          },
-          {
-            id: "game-roads-task-highlight-dash",
-            source: "overture_transportation",
-            "source-layer": "segment",
-            type: "line",
-            filter: ["all", baseRoadFilter, ["==", ["get", "id"], "none"]],
-            layout: { "line-cap": "round", "line-join": "round" },
-            paint: {
-              "line-color": "#ffffff",
-              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 2, 16, 4],
-              "line-dasharray": [2, 3],
-              "line-opacity": 0.6
-            }
-          },
-
-          // === REPAIR PULSE LAYER ===
-          {
-            id: "game-roads-repair-pulse",
-            source: "overture_transportation",
-            "source-layer": "segment",
-            type: "line",
-            filter: ["==", ["get", "id"], "none"],
-            layout: { "line-cap": "round", "line-join": "round" },
-            paint: {
-              "line-color": "#3eb0c0",
-              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 10, 16, 24],
-              "line-blur": 8,
-              "line-opacity": 0.4
-            }
-          },
-          // === COMPLETION FLASH LAYER ===
-          {
-            id: "game-roads-completion-flash",
-            source: "overture_transportation",
-            "source-layer": "segment",
-            type: "line",
-            filter: ["==", ["get", "id"], "none"],
-            layout: { "line-cap": "round", "line-join": "round" },
-            paint: {
-              "line-color": "#ffffff",
-              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 20, 16, 40],
-              "line-blur": 12,
-              "line-opacity": 0.8
-            }
-          },
-          // === INTERACTION LAYERS ===
-          {
-            id: "game-feature-hover",
-            source: "overture_transportation",
-            "source-layer": "segment",
-            type: "line",
-            filter: ["==", ["get", "id"], ""],
-            layout: { "line-cap": "round", "line-join": "round" },
-            paint: {
-              "line-color": COLORS.selection,
-              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 3, 16, 7],
-              "line-opacity": 0.25
-            }
-          },
-          {
-            id: "game-feature-selection-glow",
-            source: "overture_transportation",
-            "source-layer": "segment",
-            type: "line",
-            filter: ["==", ["get", "id"], "none"],
-            layout: { "line-cap": "round", "line-join": "round" },
-            paint: {
-              "line-color": COLORS.selection,
-              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 12, 16, 24],
-              "line-blur": 6,
-              "line-opacity": 0.3
-            }
-          },
-          {
-            id: "game-feature-selection",
-            source: "overture_transportation",
-            "source-layer": "segment",
-            type: "line",
-            filter: ["==", ["get", "id"], "none"],
-            layout: { "line-cap": "round", "line-join": "round" },
-            paint: {
-              "line-color": COLORS.selection,
-              "line-width": ["interpolate", ["linear"], ["zoom"], 12, 2, 16, 5],
-              "line-opacity": 0.9
-            }
-          }
-        ]
+        layers: getAllInitialLayers()
       },
       center: [centerLon, centerLat],
       zoom: 14,
@@ -669,7 +204,7 @@ export default function DemoMap({
     map.current = mapInstance;
 
     mapInstance.on("load", () => {
-      // Add source for the boundary mask (The Fog)
+      // Add boundary mask
       if (boundary) {
         map.current?.addSource("game-boundary-mask", {
           type: "geojson",
@@ -678,11 +213,9 @@ export default function DemoMap({
             geometry: {
               type: "Polygon",
               coordinates: [
-                // Outer ring: World
                 [[-180, -90], [180, -90], [180, 90], [-180, 90], [-180, -90]],
-                // Inner ring: Hole (the boundary)
-                ...(boundary.type === "Polygon" 
-                  ? boundary.coordinates 
+                ...(boundary.type === "Polygon"
+                  ? boundary.coordinates
                   : boundary.coordinates.flat(1)) as number[][][]
               ]
             },
@@ -701,170 +234,49 @@ export default function DemoMap({
         });
       }
 
-      // Add source for hex cells
+      // Add hex source and layers
       map.current?.addSource("game-hexes", {
         type: "geojson",
-        data: {
-          type: "FeatureCollection",
-          features: []
-        }
+        data: { type: "FeatureCollection", features: [] }
       });
 
-      // Add hex fill layer with reduced opacity so fog doesn't overwhelm
-      map.current?.addLayer({
-        id: "game-hex-fill",
-        type: "fill",
-        source: "game-hexes",
-        paint: {
-          "fill-color": [
-            "interpolate",
-            ["linear"],
-            ["get", "rust_level"],
-            0, COLORS.healthy,
-            0.5, COLORS.warning,
-            1, COLORS.degraded
-          ],
-          "fill-color-transition": { duration: 1500, delay: 0 },
-          "fill-opacity": RUST_FILL_OPACITY_BASE,
-          "fill-opacity-transition": { duration: 1500, delay: 0 }
-        }
-      }, "game-roads-healthy-glow");
+      const hexLayers = getHexLayers();
+      map.current?.addLayer(hexLayers.fill as maplibregl.AddLayerObject, "game-roads-healthy-glow");
+      map.current?.addLayer(hexLayers.outline as maplibregl.AddLayerObject, "game-roads-healthy-glow");
 
-      // Add hex outline layer with improved visibility
-      map.current?.addLayer({
-        id: "game-hex-outline",
-        type: "line",
-        source: "game-hexes",
-        paint: {
-          "line-color": [
-            "interpolate",
-            ["linear"],
-            ["get", "rust_level"],
-            0, COLORS.healthy,
-            0.5, COLORS.warning,
-            1, COLORS.degraded
-          ],
-          "line-color-transition": { duration: 1500, delay: 0 },
-          "line-width": [
-            "interpolate",
-            ["linear"],
-            ["get", "rust_level"],
-            0, 1,
-            0.5, 1.2,
-            1, 2
-          ],
-          "line-width-transition": { duration: 1500, delay: 0 },
-          "line-opacity": RUST_LINE_OPACITY_BASE,
-          "line-opacity-transition": { duration: 1500, delay: 0 }
-        }
-      }, "game-roads-healthy-glow");
-
-      // Add crews layer
+      // Add crews source and layers
       map.current?.addSource("game-crews", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] }
       });
-      
-      map.current?.addLayer({
-        id: "game-crews-point",
-        type: "circle",
-        source: "game-crews",
-        paint: {
-          "circle-radius": 8,
-          "circle-color": [
-            "match",
-            ["get", "status"],
-            "idle", CREW_COLORS.idle,
-            "traveling", CREW_COLORS.traveling,
-            "working", CREW_COLORS.working,
-            "returning", CREW_COLORS.returning,
-            "#ffffff"
-          ],
-          "circle-stroke-width": 3,
-          "circle-stroke-color": "#ffffff",
-          "circle-opacity": 0.9
-        }
-      });
 
-      // Add crew glow layer for working crews
-      map.current?.addLayer({
-        id: "game-crews-glow",
-        type: "circle",
-        source: "game-crews",
-        filter: ["==", ["get", "status"], "working"],
-        paint: {
-          "circle-radius": 16,
-          "circle-color": CREW_COLORS.working,
-          "circle-blur": 1,
-          "circle-opacity": 0.4
-        }
-      }, "game-crews-point");
+      for (const layer of getCrewLayers()) {
+        map.current?.addLayer(layer as maplibregl.AddLayerObject);
+      }
 
+      // Add central hub source and layers
       map.current?.addSource("game-central-hub", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] }
       });
 
-      map.current?.addLayer({
-        id: "game-central-hub-glow",
-        type: "circle",
-        source: "game-central-hub",
-        paint: {
-          "circle-radius": 22,
-          "circle-color": "#f0ddc2",
-          "circle-blur": 0.8,
-          "circle-opacity": 0.35
-        }
-      });
+      for (const layer of getCentralHubLayers()) {
+        map.current?.addLayer(layer as maplibregl.AddLayerObject);
+      }
 
-      map.current?.addLayer({
-        id: "game-central-hub-core",
-        type: "circle",
-        source: "game-central-hub",
-        paint: {
-          "circle-radius": 6,
-          "circle-color": "#ffffff",
-          "circle-stroke-width": 2,
-          "circle-stroke-color": "#f0ddc2",
-          "circle-opacity": 0.9
-        }
-      });
-
-      // Add crew travel path sources/layers
+      // Add crew paths source and layers
       map.current?.addSource("game-crew-paths", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] }
       });
-
-      map.current?.addLayer({
-        id: "game-crew-path-line",
-        type: "line",
-        source: "game-crew-paths",
-        paint: {
-          "line-color": "#f0ddc2",
-          "line-width": 2,
-          "line-dasharray": [2, 2],
-          "line-opacity": 0.6
-        }
-      }, "game-crews-point");
-
       map.current?.addSource("game-crew-markers", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] }
       });
 
-      map.current?.addLayer({
-        id: "game-crew-path-head",
-        type: "circle",
-        source: "game-crew-markers",
-        paint: {
-          "circle-radius": 6,
-          "circle-color": CREW_COLORS.traveling,
-          "circle-stroke-width": 2,
-          "circle-stroke-color": "#ffffff",
-          "circle-opacity": 0.9
-        }
-      });
+      const crewPathLayers = getCrewPathLayers();
+      map.current?.addLayer(crewPathLayers[0] as maplibregl.AddLayerObject, "game-crews-point");
+      map.current?.addLayer(crewPathLayers[1] as maplibregl.AddLayerObject);
 
       // Add resource packages source and layers
       map.current?.addSource("game-resource-packages", {
@@ -872,66 +284,9 @@ export default function DemoMap({
         data: { type: "FeatureCollection", features: [] }
       });
 
-      // Trail/path layer
-      map.current?.addLayer({
-        id: "game-resource-trail",
-        type: "line",
-        source: "game-resource-packages",
-        filter: ["==", ["get", "featureType"], "trail"],
-        paint: {
-          "line-color": [
-            "match",
-            ["get", "resourceType"],
-            "labor", "#3eb0c0",
-            "materials", "#f08a4e",
-            "#ffffff"
-          ],
-          "line-width": 3,
-          "line-opacity": 0.4,
-          "line-dasharray": [2, 2]
-        }
-      });
-
-      // Package glow layer
-      map.current?.addLayer({
-        id: "game-resource-package-glow",
-        type: "circle",
-        source: "game-resource-packages",
-        filter: ["==", ["get", "featureType"], "package"],
-        paint: {
-          "circle-radius": 14,
-          "circle-color": [
-            "match",
-            ["get", "resourceType"],
-            "labor", "#3eb0c0",
-            "materials", "#f08a4e",
-            "#ffffff"
-          ],
-          "circle-blur": 1,
-          "circle-opacity": ["get", "opacity"]
-        }
-      });
-
-      // Package point layer
-      map.current?.addLayer({
-        id: "game-resource-package",
-        type: "circle",
-        source: "game-resource-packages",
-        filter: ["==", ["get", "featureType"], "package"],
-        paint: {
-          "circle-radius": 6,
-          "circle-color": [
-            "match",
-            ["get", "resourceType"],
-            "labor", "#3eb0c0",
-            "materials", "#f08a4e",
-            "#ffffff"
-          ],
-          "circle-stroke-width": 2,
-          "circle-stroke-color": "#ffffff",
-          "circle-opacity": ["get", "opacity"]
-        }
-      });
+      for (const layer of getResourcePackageLayers()) {
+        map.current?.addLayer(layer as maplibregl.AddLayerObject);
+      }
 
       setIsLoaded(true);
       map.current?.resize();
@@ -951,27 +306,20 @@ export default function DemoMap({
         const gersId = feature.properties?.id;
         const type = feature.layer.id.includes("buildings") ? "building" : "road";
 
-        // Update both selection layers
         mapInstance.setFilter("game-feature-selection", ["==", ["get", "id"], gersId]);
         mapInstance.setFilter("game-feature-selection-glow", ["==", ["get", "id"], gersId]);
 
         window.dispatchEvent(new CustomEvent("nightfall:feature_selected", {
-          detail: { 
-            gers_id: gersId, 
-            type,
-            position: { x: e.point.x, y: e.point.y }
-          }
+          detail: { gers_id: gersId, type, position: { x: e.point.x, y: e.point.y } }
         }));
       } else {
         mapInstance.setFilter("game-feature-selection", ["==", ["get", "id"], "none"]);
         mapInstance.setFilter("game-feature-selection-glow", ["==", ["get", "id"], "none"]);
-        window.dispatchEvent(new CustomEvent("nightfall:feature_selected", {
-          detail: null
-        }));
+        window.dispatchEvent(new CustomEvent("nightfall:feature_selected", { detail: null }));
       }
     });
 
-    // Hover handlers for all interactive road layers
+    // Hover handlers
     const interactiveLayers = [
       "game-roads-healthy", "game-roads-warning", "game-roads-degraded",
       "roads-low", "roads-mid", "roads-high", "roads-routes"
@@ -1001,30 +349,16 @@ export default function DemoMap({
     };
   }, [fallbackBbox, boundary, pmtilesBase]);
 
-  // Hover/tap tooltips
+  // Tooltip handling
   useEffect(() => {
     if (!isLoaded || !map.current) return;
 
     const mapInstance = map.current;
     const tooltipLayers = [
-      "game-roads-healthy",
-      "game-roads-warning",
-      "game-roads-degraded",
-      "roads-low",
-      "roads-mid",
-      "roads-high",
-      "roads-routes",
-      "buildings",
-      "buildings-labor",
-      "buildings-materials",
-      "buildings-hub",
-      "game-hex-fill"
+      "game-roads-healthy", "game-roads-warning", "game-roads-degraded",
+      "roads-low", "roads-mid", "roads-high", "roads-routes",
+      "buildings", "buildings-labor", "buildings-materials", "buildings-hub", "game-hex-fill"
     ];
-
-    const normalizePercent = (value: number | null | undefined) => {
-      if (value === null || value === undefined || Number.isNaN(value)) return 0;
-      return value <= 1 ? value * 100 : value;
-    };
 
     const buildTooltipData = (
       feature: maplibregl.MapGeoJSONFeature,
@@ -1035,17 +369,11 @@ export default function DemoMap({
 
       if (layerId.includes("hex")) {
         const rust = normalizePercent(Number(feature.properties?.rust_level));
-        return {
-          type: "hex",
-          position: { x: point.x, y: point.y },
-          data: { rust_level: rust }
-        };
+        return { type: "hex", position: { x: point.x, y: point.y }, data: { rust_level: rust } };
       }
 
       if (layerId.includes("buildings") || layerId.includes("building")) {
-        const match = gersId
-          ? featuresRef.current.find((f) => f.gers_id === gersId)
-          : null;
+        const match = gersId ? featuresRef.current.find((f) => f.gers_id === gersId) : null;
         return {
           type: "building",
           position: { x: point.x, y: point.y },
@@ -1076,28 +404,20 @@ export default function DemoMap({
     };
 
     const resolveTooltip = (point: maplibregl.Point) => {
-      const featuresAtPoint = mapInstance.queryRenderedFeatures(point, {
-        layers: tooltipLayers
-      });
-
+      const featuresAtPoint = mapInstance.queryRenderedFeatures(point, { layers: tooltipLayers });
       if (!featuresAtPoint.length) {
         setTooltipData(null);
         return;
       }
 
-      // Prioritize specific features over hexes
       const nonHexFeature = featuresAtPoint.find(f => !f.layer.id.includes("hex"));
       const topFeature = nonHexFeature ?? featuresAtPoint[0];
-      
-      const data = buildTooltipData(topFeature, point);
-      setTooltipData(data);
+      setTooltipData(buildTooltipData(topFeature, point));
     };
 
     const scheduleTooltip = (point: maplibregl.Point) => {
       if (hoverTimeoutRef.current) window.clearTimeout(hoverTimeoutRef.current);
-      hoverTimeoutRef.current = window.setTimeout(() => {
-        resolveTooltip(point);
-      }, 200);
+      hoverTimeoutRef.current = window.setTimeout(() => resolveTooltip(point), 200);
     };
 
     const clearTooltip = () => {
@@ -1111,27 +431,21 @@ export default function DemoMap({
       scheduleTooltip(e.point);
     };
 
-    const handleMouseLeave = () => {
-      clearTooltip();
-    };
-
     const handleClick = (e: maplibregl.MapMouseEvent) => {
       if (!isMobile) return;
       resolveTooltip(e.point);
       if (tooltipDismissRef.current) window.clearTimeout(tooltipDismissRef.current);
-      tooltipDismissRef.current = window.setTimeout(() => {
-        setTooltipData(null);
-      }, 3000);
+      tooltipDismissRef.current = window.setTimeout(() => setTooltipData(null), 3000);
     };
 
     mapInstance.on("mousemove", handleMouseMove);
     mapInstance.on("click", handleClick);
-    mapInstance.getCanvas().addEventListener("mouseleave", handleMouseLeave);
+    mapInstance.getCanvas().addEventListener("mouseleave", clearTooltip);
 
     return () => {
       mapInstance.off("mousemove", handleMouseMove);
       mapInstance.off("click", handleClick);
-      mapInstance.getCanvas().removeEventListener("mouseleave", handleMouseLeave);
+      mapInstance.getCanvas().removeEventListener("mouseleave", clearTooltip);
       clearTooltip();
     };
   }, [isLoaded, isMobile]);
@@ -1145,106 +459,19 @@ export default function DemoMap({
     const degradedIds = features.filter(f => f.feature_type === "road" && (f.health ?? 100) <= 30).map(f => f.gers_id);
     const laborIds = features.filter(f => f.feature_type === "building" && f.generates_labor).map(f => f.gers_id);
     const materialIds = features.filter(f => f.feature_type === "building" && f.generates_materials).map(f => f.gers_id);
+    const hubIds = features.filter(f => f.feature_type === "building" && f.is_hub).map(f => f.gers_id);
 
-    const baseFilter = ["all",
-      ["==", ["get", "subtype"], "road"],
-      ["in", ["get", "class"], ["literal", ROAD_CLASS_FILTER]]
-    ] as maplibregl.FilterSpecification;
-
-    const makeIdFilter = (ids: string[]) =>
-      ["in", ["get", "id"], ["literal", ids.length ? ids : ["__none__"]]] as maplibregl.ExpressionSpecification;
-
-    // Update both main and glow layers for each health state
-    map.current.setFilter("game-roads-healthy", ["all", baseFilter, makeIdFilter(healthyIds)] as maplibregl.FilterSpecification);
-    map.current.setFilter("game-roads-healthy-glow", ["all", baseFilter, makeIdFilter(healthyIds)] as maplibregl.FilterSpecification);
-
-    map.current.setFilter("game-roads-warning", ["all", baseFilter, makeIdFilter(warningIds)] as maplibregl.FilterSpecification);
-    map.current.setFilter("game-roads-warning-glow", ["all", baseFilter, makeIdFilter(warningIds)] as maplibregl.FilterSpecification);
-
-    map.current.setFilter("game-roads-degraded", ["all", baseFilter, makeIdFilter(degradedIds)] as maplibregl.FilterSpecification);
-    map.current.setFilter("game-roads-degraded-glow", ["all", baseFilter, makeIdFilter(degradedIds)] as maplibregl.FilterSpecification);
-
+    map.current.setFilter("game-roads-healthy", ["all", BASE_ROAD_FILTER, makeIdFilter(healthyIds)] as maplibregl.FilterSpecification);
+    map.current.setFilter("game-roads-healthy-glow", ["all", BASE_ROAD_FILTER, makeIdFilter(healthyIds)] as maplibregl.FilterSpecification);
+    map.current.setFilter("game-roads-warning", ["all", BASE_ROAD_FILTER, makeIdFilter(warningIds)] as maplibregl.FilterSpecification);
+    map.current.setFilter("game-roads-warning-glow", ["all", BASE_ROAD_FILTER, makeIdFilter(warningIds)] as maplibregl.FilterSpecification);
+    map.current.setFilter("game-roads-degraded", ["all", BASE_ROAD_FILTER, makeIdFilter(degradedIds)] as maplibregl.FilterSpecification);
+    map.current.setFilter("game-roads-degraded-glow", ["all", BASE_ROAD_FILTER, makeIdFilter(degradedIds)] as maplibregl.FilterSpecification);
     map.current.setFilter("buildings-labor", makeIdFilter(laborIds) as maplibregl.FilterSpecification);
     map.current.setFilter("buildings-materials", makeIdFilter(materialIds) as maplibregl.FilterSpecification);
-
-    // Hub buildings
-    const hubIds = features.filter(f => f.feature_type === "building" && f.is_hub).map(f => f.gers_id);
     map.current.setFilter("buildings-hub", makeIdFilter(hubIds) as maplibregl.FilterSpecification);
     map.current.setFilter("buildings-hub-glow", makeIdFilter(hubIds) as maplibregl.FilterSpecification);
-
   }, [features, isLoaded]);
-
-  const fallbackCenter = useMemo<[number, number]>(() => {
-    return [
-      (fallbackBbox.xmin + fallbackBbox.xmax) / 2,
-      (fallbackBbox.ymin + fallbackBbox.ymax) / 2
-    ];
-  }, [fallbackBbox]);
-
-  const getFeatureCenter = useCallback((feature: Feature): [number, number] | null => {
-    if (feature.bbox) {
-      return [
-        (feature.bbox[0] + feature.bbox[2]) / 2,
-        (feature.bbox[1] + feature.bbox[3]) / 2
-      ];
-    }
-
-    if (!feature.geometry) return null;
-
-    const g = feature.geometry;
-    if (g.type === "Point") return g.coordinates as [number, number];
-    if (g.type === "LineString") {
-      const coords = g.coordinates as number[][];
-      if (coords.length === 0) return null;
-      const mid = coords[Math.floor(coords.length / 2)];
-      return [mid[0], mid[1]];
-    }
-    if (g.type === "MultiLineString") {
-      const lines = g.coordinates as number[][][];
-      const firstLine = lines[0];
-      if (!firstLine || firstLine.length === 0) return null;
-      const mid = firstLine[Math.floor(firstLine.length / 2)];
-      return [mid[0], mid[1]];
-    }
-    if (g.type === "Polygon") {
-      const ring = (g.coordinates as number[][][])[0];
-      if (!ring?.length) return null;
-      const sumLng = ring.reduce((s, c) => s + c[0], 0);
-      const sumLat = ring.reduce((s, c) => s + c[1], 0);
-      return [sumLng / ring.length, sumLat / ring.length];
-    }
-    if (g.type === "MultiPolygon") {
-      const ring = (g.coordinates as number[][][][])[0]?.[0];
-      if (!ring?.length) return null;
-      const sumLng = ring.reduce((s, c) => s + c[0], 0);
-      const sumLat = ring.reduce((s, c) => s + c[1], 0);
-      return [sumLng / ring.length, sumLat / ring.length];
-    }
-    return null;
-  }, []);
-
-  const getNearestHubCenter = useCallback((target?: [number, number] | null): [number, number] | null => {
-    const hubs = features.filter((f) => f.feature_type === "building" && f.is_hub);
-    if (hubs.length === 0) return null;
-
-    let bestCenter: [number, number] | null = null;
-    let bestDistance = Number.POSITIVE_INFINITY;
-
-    for (const hub of hubs) {
-      const center = getFeatureCenter(hub);
-      if (!center) continue;
-      if (!target) return center;
-      const dx = center[0] - target[0];
-      const dy = center[1] - target[1];
-      const distance = Math.sqrt(dx * dx + dy * dy);
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        bestCenter = center;
-      }
-    }
-
-    return bestCenter;
-  }, [features, getFeatureCenter]);
 
   // Sync central hub marker
   useEffect(() => {
@@ -1281,17 +508,15 @@ export default function DemoMap({
 
     hubSource.setData({
       type: "FeatureCollection",
-      features: [
-        {
-          type: "Feature",
-          properties: {},
-          geometry: { type: "Point", coordinates: bestCenter }
-        }
-      ]
+      features: [{
+        type: "Feature" as const,
+        properties: {},
+        geometry: { type: "Point" as const, coordinates: bestCenter }
+      }]
     });
-  }, [features, fallbackCenter, getFeatureCenter, isLoaded]);
+  }, [features, fallbackCenter, isLoaded]);
 
-  // Sync hex data to GeoJSON source
+  // Sync hex data
   useEffect(() => {
     if (!isLoaded || !map.current) return;
 
@@ -1306,27 +531,20 @@ export default function DemoMap({
             coordinates[0].push(coordinates[0][0]);
 
             return {
-              type: "Feature",
-              geometry: {
-                type: "Polygon",
-                coordinates
-              },
-              properties: {
-                h3_index: h.h3_index,
-                rust_level: h.rust_level
-              }
+              type: "Feature" as const,
+              geometry: { type: "Polygon" as const, coordinates },
+              properties: { h3_index: h.h3_index, rust_level: h.rust_level }
             };
           } catch (e) {
             console.error("Failed to calculate boundary for hex", h.h3_index, e);
             return null;
           }
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        }).filter((f) => f !== null) as any
+        }).filter((f): f is NonNullable<typeof f> => f !== null)
       });
     }
   }, [hexes, isLoaded]);
 
-  // Build crew travel paths for traveling crews
+  // Build crew travel paths
   useEffect(() => {
     if (!crews.length) {
       setCrewPaths([]);
@@ -1345,7 +563,7 @@ export default function DemoMap({
       const destination = targetFeature ? getFeatureCenter(targetFeature) : null;
       if (!destination) continue;
 
-      const hubCenter = getNearestHubCenter(destination) ?? fallbackCenter;
+      const hubCenter = getNearestHubCenter(features, destination) ?? fallbackCenter;
       const path = buildResourcePath(hubCenter, destination, roadFeaturesForPath);
 
       const busyUntil = crew.busy_until ? new Date(crew.busy_until).getTime() : null;
@@ -1363,50 +581,37 @@ export default function DemoMap({
     }
 
     setCrewPaths(paths);
-  }, [crews, tasks, features, roadFeaturesForPath, getFeatureCenter, getNearestHubCenter, fallbackCenter]);
+  }, [crews, tasks, features, roadFeaturesForPath, fallbackCenter]);
 
   // Sync crews data
   useEffect(() => {
     if (!isLoaded || !map.current) return;
 
     const crewFeatures = crews.map(crew => {
-        if (travelingCrewIds.has(crew.crew_id)) return null;
-        if (!crew.active_task_id) return null;
-        const task = tasks.find(t => t.task_id === crew.active_task_id);
-        if (!task) return null;
-        const feature = features.find(f => f.gers_id === task.target_gers_id);
-        if (!feature) return null;
-        
-        let coords: [number, number] | null = null;
-        if (feature.bbox) {
-            coords = [(feature.bbox[0] + feature.bbox[2])/2, (feature.bbox[1] + feature.bbox[3])/2];
-        } else if (feature.geometry) {
-             const g = feature.geometry;
-             if (g.type === 'Point') coords = g.coordinates as [number, number];
-             else if (g.type === 'LineString') coords = (g.coordinates as number[][])[0] as [number, number];
-             else if (g.type === 'Polygon') coords = (g.coordinates as number[][][])[0][0] as [number, number];
-        }
+      if (travelingCrewIds.has(crew.crew_id)) return null;
+      if (!crew.active_task_id) return null;
+      const task = tasks.find(t => t.task_id === crew.active_task_id);
+      if (!task) return null;
+      const feature = features.find(f => f.gers_id === task.target_gers_id);
+      if (!feature) return null;
 
-        if (!coords) return null;
+      const coords = getFeatureCenter(feature);
+      if (!coords) return null;
 
-        return {
-            type: "Feature",
-            geometry: { type: "Point", coordinates: coords },
-            properties: { ...crew }
-        };
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    }).filter((f) => f !== null) as any;
+      return {
+        type: "Feature" as const,
+        geometry: { type: "Point" as const, coordinates: coords },
+        properties: { ...crew }
+      };
+    }).filter((f): f is NonNullable<typeof f> => f !== null);
 
     const source = map.current.getSource("game-crews") as maplibregl.GeoJSONSource;
     if (source) {
-        source.setData({
-            type: "FeatureCollection",
-            features: crewFeatures
-        });
+      source.setData({ type: "FeatureCollection", features: crewFeatures });
     }
   }, [crews, tasks, features, isLoaded, travelingCrewIds]);
 
-  // Sync crew path data to GeoJSON source
+  // Sync crew path data
   useEffect(() => {
     if (!isLoaded || !map.current) return;
 
@@ -1415,9 +620,9 @@ export default function DemoMap({
       pathSource.setData({
         type: "FeatureCollection",
         features: crewPaths.map((cp) => ({
-          type: "Feature",
+          type: "Feature" as const,
           properties: { crew_id: cp.crew_id },
-          geometry: { type: "LineString", coordinates: cp.path }
+          geometry: { type: "LineString" as const, coordinates: cp.path }
         }))
       });
     }
@@ -1432,9 +637,7 @@ export default function DemoMap({
   useEffect(() => {
     if (!isLoaded || !map.current) return;
 
-    // Stop any existing crew animation
     animationManager.stop('crew-paths');
-
     if (crewPaths.length === 0) return;
 
     const mapInstance = map.current;
@@ -1444,24 +647,17 @@ export default function DemoMap({
     const updateMarkers = (now: number) => {
       const markerFeatures = crewPaths.map((cp) => {
         const duration = Math.max(1, cp.endTime - cp.startTime);
-        const progress = (now - cp.startTime) / duration;
-        const clampedProgress = Math.max(0, Math.min(1, progress));
-        const position = interpolatePath(cp.path, clampedProgress);
+        const progress = Math.max(0, Math.min(1, (now - cp.startTime) / duration));
+        const position = interpolatePath(cp.path, progress);
 
         return {
           type: "Feature" as const,
           properties: { crew_id: cp.crew_id },
-          geometry: {
-            type: "Point" as const,
-            coordinates: position
-          }
+          geometry: { type: "Point" as const, coordinates: position }
         };
       });
 
-      markerSource.setData({
-        type: "FeatureCollection",
-        features: markerFeatures
-      });
+      markerSource.setData({ type: "FeatureCollection", features: markerFeatures });
     };
 
     if (prefersReducedMotion) {
@@ -1487,7 +683,7 @@ export default function DemoMap({
     return () => animationManager.stop('crew-paths');
   }, [crewPaths, isLoaded, prefersReducedMotion, animationManager]);
 
-  // Listen for task completion events and animate
+  // Task completion animation
   useEffect(() => {
     const handleTaskCompleted = (e: Event) => {
       const customEvent = e as CustomEvent<{ gers_id: string }>;
@@ -1495,7 +691,6 @@ export default function DemoMap({
 
       if (!map.current || !isLoaded) return;
 
-      // Flash the completion layer
       const baseFilter: maplibregl.FilterSpecification = ["all",
         ["==", ["get", "subtype"], "road"],
         ["==", ["get", "id"], gersId]
@@ -1504,7 +699,6 @@ export default function DemoMap({
       map.current.setFilter("game-roads-completion-flash", baseFilter);
       map.current.setPaintProperty("game-roads-completion-flash", "line-opacity", 0.9);
 
-      // Animate fade out
       let opacity = 0.9;
       const fadeInterval = setInterval(() => {
         opacity -= 0.05;
@@ -1534,7 +728,7 @@ export default function DemoMap({
     map.current.setFilter("game-roads-task-highlight-dash", taskFilter);
   }, [queuedTaskRoadIds, isLoaded]);
 
-  // Animate repair pulse for roads being repaired
+  // Animate repair pulse
   useEffect(() => {
     if (!isLoaded || !map.current) return;
 
@@ -1544,8 +738,6 @@ export default function DemoMap({
     ];
 
     map.current.setFilter("game-roads-repair-pulse", baseFilter);
-
-    // Start pulse animation
     animationManager.stop('repair-pulse');
 
     if (repairingRoadIds.length > 0) {
@@ -1565,21 +757,15 @@ export default function DemoMap({
     return () => animationManager.stop('repair-pulse');
   }, [repairingRoadIds, isLoaded, animationManager]);
 
-  // Prepare rust opacity transitions
+  // Rust opacity transitions
   useEffect(() => {
     if (!isLoaded || !map.current) return;
 
-    map.current.setPaintProperty("game-hex-fill", "fill-opacity-transition", {
-      duration: 1000,
-      delay: 0
-    });
-    map.current.setPaintProperty("game-hex-outline", "line-opacity-transition", {
-      duration: 1000,
-      delay: 0
-    });
+    map.current.setPaintProperty("game-hex-fill", "fill-opacity-transition", { duration: 1000, delay: 0 });
+    map.current.setPaintProperty("game-hex-outline", "line-opacity-transition", { duration: 1000, delay: 0 });
   }, [isLoaded]);
 
-  // Animate rust "breathing" during night/dusk phases
+  // Animate rust "breathing"
   useEffect(() => {
     if (!isLoaded || !map.current) return;
 
@@ -1599,7 +785,6 @@ export default function DemoMap({
       );
     };
 
-    // Stop any existing rust animation
     animationManager.stop('rust-breathing');
 
     if (prefersReducedMotion || (cycle.phase !== "night" && cycle.phase !== "dusk")) {
@@ -1610,28 +795,22 @@ export default function DemoMap({
     animationManager.start('rust-breathing', () => {
       breathePhaseRef.current += 0.015;
       const pulse = 1 + 0.1 * Math.sin(breathePhaseRef.current);
-      const multiplier = pulse * phaseMultiplier;
-      applyStaticOpacity(multiplier);
+      applyStaticOpacity(pulse * phaseMultiplier);
     });
 
     return () => animationManager.stop('rust-breathing');
   }, [cycle.phase, isLoaded, prefersReducedMotion, animationManager]);
 
+  // Resource transfer spawning
   const spawnResourceTransfer = useCallback((transfer: ResourceTransferPayload) => {
     if (!isLoaded) return;
-
-    console.debug("[spawnResourceTransfer] Received transfer", transfer);
 
     const departAt = Date.parse(transfer.depart_at);
     const arriveAt = Date.parse(transfer.arrive_at);
     const startTime = Number.isNaN(departAt) ? Date.now() : departAt;
-    // Add 10s buffer to endTime to handle potential client/server clock desync
     const endTime = (Number.isNaN(arriveAt) ? startTime + 4000 : arriveAt) + 10000;
 
-    if (Date.now() >= endTime) {
-      console.debug("[spawnResourceTransfer] Skipping transfer: already arrived", { now: Date.now(), endTime });
-      return;
-    }
+    if (Date.now() >= endTime) return;
 
     const sourceFeature = transfer.source_gers_id
       ? features.find((f) => f.gers_id === transfer.source_gers_id)
@@ -1643,35 +822,25 @@ export default function DemoMap({
     const sourceCenter = sourceFeature ? getFeatureCenter(sourceFeature) : fallbackCenter;
     const hubCenter = hubFeature
       ? getFeatureCenter(hubFeature)
-      : getNearestHubCenter(sourceCenter) ?? fallbackCenter;
+      : getNearestHubCenter(features, sourceCenter) ?? fallbackCenter;
 
-    if (!sourceCenter || !hubCenter) {
-      console.warn("[spawnResourceTransfer] Transfer missing source or hub center", { sourceCenter, hubCenter, transfer });
-      return;
-    }
+    if (!sourceCenter || !hubCenter) return;
 
-    console.debug("[spawnResourceTransfer] Building path", { sourceCenter, hubCenter, roadCount: roadFeaturesForPath.length });
     const path = buildResourcePath(sourceCenter, hubCenter, roadFeaturesForPath);
     const duration = Math.max(1000, endTime - startTime);
 
     setResourcePackages((prev) => {
-      if (prev.some((pkg) => pkg.id === transfer.transfer_id)) {
-        return prev;
-      }
-      console.debug("[spawnResourceTransfer] Adding package to state", transfer.transfer_id);
-      return [
-        ...prev,
-        {
-          id: transfer.transfer_id,
-          type: transfer.resource_type,
-          path,
-          progress: 0,
-          startTime,
-          duration
-        }
-      ];
+      if (prev.some((pkg) => pkg.id === transfer.transfer_id)) return prev;
+      return [...prev, {
+        id: transfer.transfer_id,
+        type: transfer.resource_type,
+        path,
+        progress: 0,
+        startTime,
+        duration
+      }];
     });
-  }, [features, fallbackCenter, getFeatureCenter, getNearestHubCenter, isLoaded, roadFeaturesForPath]);
+  }, [features, fallbackCenter, isLoaded, roadFeaturesForPath]);
 
   // Listen for transfer events
   useEffect(() => {
@@ -1687,15 +856,11 @@ export default function DemoMap({
   // Animate resource packages
   useEffect(() => {
     if (!isLoaded || !map.current || resourcePackages.length === 0) {
-      // Stop animation if no packages
       animationManager.stop('resource-packages');
 
-      // Clean up source if no packages
       if (isLoaded && map.current) {
         const source = map.current.getSource("game-resource-packages") as maplibregl.GeoJSONSource;
-        if (source) {
-          source.setData({ type: "FeatureCollection", features: [] });
-        }
+        if (source) source.setData({ type: "FeatureCollection", features: [] });
       }
       return;
     }
@@ -1707,59 +872,45 @@ export default function DemoMap({
 
       const now = Date.now();
       const activePackages: ResourcePackage[] = [];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const geoFeatures: any[] = [];
+      const geoFeatures: GeoJSON.Feature[] = [];
 
       for (const pkg of resourcePackages) {
         const elapsed = now - pkg.startTime;
         const rawProgress = Math.max(0, Math.min(1, elapsed / pkg.duration));
 
         if (rawProgress < 1) {
-          // Update progress with easing
           const easedProgress = easeInOutCubic(rawProgress);
           const position = interpolatePath(pkg.path, easedProgress);
 
-          // Calculate opacity (fade in/out at edges)
           let opacity = 1;
           if (rawProgress < 0.1) opacity = rawProgress / 0.1;
           else if (rawProgress > 0.9) opacity = (1 - rawProgress) / 0.1;
 
-          // Add trail (completed portion of path)
           const trailCoords = [];
           for (let t = 0; t <= easedProgress; t += 0.02) {
             trailCoords.push(interpolatePath(pkg.path, t));
           }
           if (trailCoords.length > 1) {
             geoFeatures.push({
-              type: "Feature",
-              geometry: { type: "LineString", coordinates: trailCoords },
+              type: "Feature" as const,
+              geometry: { type: "LineString" as const, coordinates: trailCoords },
               properties: { featureType: "trail", resourceType: pkg.type }
             });
           }
 
-          // Add package point
           geoFeatures.push({
-            type: "Feature",
-            geometry: { type: "Point", coordinates: position },
-            properties: {
-              featureType: "package",
-              resourceType: pkg.type,
-              opacity
-            }
+            type: "Feature" as const,
+            geometry: { type: "Point" as const, coordinates: position },
+            properties: { featureType: "package", resourceType: pkg.type, opacity }
           });
 
           activePackages.push({ ...pkg, progress: easedProgress });
         }
-        // Package completed - don't add to active list
       }
 
-      // Update source
       const source = mapInstance.getSource("game-resource-packages") as maplibregl.GeoJSONSource;
-      if (source) {
-        source.setData({ type: "FeatureCollection", features: geoFeatures });
-      }
+      if (source) source.setData({ type: "FeatureCollection", features: geoFeatures });
 
-      // Update state if packages changed
       if (activePackages.length !== resourcePackages.length) {
         setResourcePackages((prev) => {
           const activeIds = new Set(activePackages.map(p => p.id));
@@ -1767,7 +918,6 @@ export default function DemoMap({
         });
       }
 
-      // Stop animation if all packages completed
       if (activePackages.length === 0) {
         animationManager.stop('resource-packages');
       }
@@ -1776,11 +926,17 @@ export default function DemoMap({
     return () => animationManager.stop('resource-packages');
   }, [resourcePackages, isLoaded, animationManager]);
 
+  // Map resize sync
   useEffect(() => {
     if (!map.current || !isLoaded) return;
     if (mapSize.width === 0 || mapSize.height === 0) return;
     map.current.resize();
   }, [isLoaded, mapSize.width, mapSize.height]);
+
+  // Cleanup animations on unmount
+  useEffect(() => {
+    return () => animationManager.stopAll();
+  }, [animationManager]);
 
   const isTransitioning = cycle.phase_progress > 0.9;
   const transitionOpacity = prefersReducedMotion ? 0 : isTransitioning ? 0.15 : 0;
@@ -1789,14 +945,7 @@ export default function DemoMap({
   const rootClassName = [
     "relative overflow-hidden rounded-3xl border border-[var(--night-outline)] bg-[#101216] shadow-[0_20px_60px_rgba(0,0,0,0.5)]",
     className
-  ]
-    .filter(Boolean)
-    .join(" ");
-
-  // Cleanup all animations on unmount
-  useEffect(() => {
-    return () => animationManager.stopAll();
-  }, [animationManager]);
+  ].filter(Boolean).join(" ");
 
   return (
     <div className={rootClassName}>
@@ -1806,26 +955,19 @@ export default function DemoMap({
       >
         <div
           className="phase-transition-overlay"
-          style={{
-            opacity: transitionOpacity,
-            background: transitionGradient
-          }}
+          style={{ opacity: transitionOpacity, background: transitionGradient }}
         />
         <div
           ref={mapContainer}
           className="map-surface absolute inset-0"
           style={{
             filter: PHASE_FILTERS[cycle.phase],
-            transition: prefersReducedMotion
-              ? "none"
-              : "filter 2500ms cubic-bezier(0.4, 0, 0.2, 1)"
+            transition: prefersReducedMotion ? "none" : "filter 2500ms cubic-bezier(0.4, 0, 0.2, 1)"
           }}
         />
         <MapTooltip tooltip={tooltipData} containerSize={mapSize} />
         {children ? (
-          <div className="pointer-events-none absolute inset-0 z-30">
-            {children}
-          </div>
+          <div className="pointer-events-none absolute inset-0 z-30">{children}</div>
         ) : null}
       </div>
     </div>
