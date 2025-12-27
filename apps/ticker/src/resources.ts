@@ -9,6 +9,7 @@ import {
   findNearestConnector,
   buildWaypoints,
 } from "@nightfall/pathfinding";
+import { gridDisk } from "h3-js";
 
 export type ResourceTransfer = {
   transfer_id: string;
@@ -90,21 +91,25 @@ async function loadGraphForHex(
   pool: PoolLike,
   h3Index: string
 ): Promise<{ graph: Graph; coords: ConnectorCoords } | null> {
+  // Expand to include the hex and its immediate neighbors (k=1 ring = 7 hexes)
+  const hexes = gridDisk(h3Index, 1);
+  const cacheKey = hexes.sort().join(",");
+
   // Check cache
-  const cached = graphCache.get(h3Index);
+  const cached = graphCache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < GRAPH_CACHE_TTL_MS) {
     return { graph: cached.graph, coords: cached.coords };
   }
 
   try {
-    // Load connectors for this hex
+    // Load connectors for this hex and neighbors
     const connectorsResult = await pool.query<{
       connector_id: string;
       lng: number;
       lat: number;
     }>(
-      `SELECT connector_id, lng, lat FROM road_connectors WHERE h3_index = $1`,
-      [h3Index]
+      `SELECT connector_id, lng, lat FROM road_connectors WHERE h3_index = ANY($1)`,
+      [hexes]
     );
 
     if (connectorsResult.rows.length === 0) {
@@ -132,8 +137,8 @@ async function loadGraphForHex(
         COALESCE(fs.health, 100) as health
       FROM road_edges e
       LEFT JOIN feature_state fs ON fs.gers_id = e.segment_gers_id
-      WHERE e.h3_index = $1`,
-      [h3Index]
+      WHERE e.h3_index = ANY($1)`,
+      [hexes]
     );
 
     // Build adjacency list
@@ -151,7 +156,7 @@ async function loadGraphForHex(
     }
 
     // Cache the result
-    graphCache.set(h3Index, { graph, coords, timestamp: Date.now() });
+    graphCache.set(cacheKey, { graph, coords, timestamp: Date.now() });
 
     return { graph, coords };
   } catch (error) {

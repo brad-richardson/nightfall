@@ -18,6 +18,7 @@ import {
   findNearestConnector,
   buildWaypoints,
 } from "@nightfall/pathfinding";
+import { gridDisk } from "h3-js";
 
 const LAMBDA = 0.1;
 const CONTRIBUTION_LIMIT = 1000;
@@ -174,7 +175,11 @@ const GRAPH_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 async function loadGraphForHex(
   h3Index: string
 ): Promise<{ graph: Graph; coords: ConnectorCoords } | null> {
-  const cached = graphCache.get(h3Index);
+  // Expand to include the hex and its immediate neighbors (k=1 ring = 7 hexes)
+  const hexes = gridDisk(h3Index, 1);
+  const cacheKey = hexes.sort().join(",");
+
+  const cached = graphCache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < GRAPH_CACHE_TTL_MS) {
     return { graph: cached.graph, coords: cached.coords };
   }
@@ -187,8 +192,8 @@ async function loadGraphForHex(
       lng: number;
       lat: number;
     }>(
-      `SELECT connector_id, lng, lat FROM road_connectors WHERE h3_index = $1`,
-      [h3Index]
+      `SELECT connector_id, lng, lat FROM road_connectors WHERE h3_index = ANY($1)`,
+      [hexes]
     );
 
     if (connectorsResult.rows.length === 0) {
@@ -215,8 +220,8 @@ async function loadGraphForHex(
         COALESCE(fs.health, 100) as health
       FROM road_edges e
       LEFT JOIN feature_state fs ON fs.gers_id = e.segment_gers_id
-      WHERE e.h3_index = $1`,
-      [h3Index]
+      WHERE e.h3_index = ANY($1)`,
+      [hexes]
     );
 
     const graph: Graph = new Map();
@@ -232,7 +237,7 @@ async function loadGraphForHex(
       });
     }
 
-    graphCache.set(h3Index, { graph, coords, timestamp: Date.now() });
+    graphCache.set(cacheKey, { graph, coords, timestamp: Date.now() });
 
     return { graph, coords };
   } catch {
@@ -1158,10 +1163,12 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       // Try A* pathfinding with road graph, fallback to haversine
       let travelSeconds: number;
       let pathWaypoints: { coord: Point; arrive_at: string }[] | null = null;
+      let pathfindingDebug = "";
 
       const graphData = source.h3_index ? await loadGraphForHex(source.h3_index) : null;
       if (graphData) {
         const { graph, coords } = graphData;
+        pathfindingDebug = `h3=${source.h3_index}, connectors=${coords.size}, edges=${graph.size}`;
 
         const startConnector = findNearestConnector(coords, sourceCenter as Point);
         const endConnector = findNearestConnector(coords, hubCenter as Point);
@@ -1182,8 +1189,10 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
               departAtMs,
               config.RESOURCE_TRAVEL_MPS
             );
+            pathfindingDebug += `, path=${pathResult.connectorIds.length} waypoints`;
           } else {
             // No path found, fallback to haversine
+            pathfindingDebug += `, NO_PATH (start=${startConnector}, end=${endConnector})`;
             const distanceMeters = haversineDistanceMeters(sourceCenter, hubCenter);
             travelSeconds = clamp(
               (distanceMeters * config.RESOURCE_DISTANCE_MULTIPLIER) / config.RESOURCE_TRAVEL_MPS,
@@ -1193,6 +1202,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
           }
         } else {
           // No connectors found, fallback to haversine
+          pathfindingDebug += `, NO_CONNECTORS (start=${startConnector}, end=${endConnector})`;
           const distanceMeters = haversineDistanceMeters(sourceCenter, hubCenter);
           travelSeconds = clamp(
             (distanceMeters * config.RESOURCE_DISTANCE_MULTIPLIER) / config.RESOURCE_TRAVEL_MPS,
@@ -1202,6 +1212,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         }
       } else {
         // No graph data, fallback to haversine
+        pathfindingDebug = source.h3_index ? `h3=${source.h3_index}, NO_GRAPH_DATA` : "NO_H3_INDEX";
         const distanceMeters = haversineDistanceMeters(sourceCenter, hubCenter);
         travelSeconds = clamp(
           (distanceMeters * config.RESOURCE_DISTANCE_MULTIPLIER) / config.RESOURCE_TRAVEL_MPS,
@@ -1209,6 +1220,8 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
           config.RESOURCE_TRAVEL_MAX_S
         );
       }
+
+      app.log.info({ pathfindingDebug, source: source.gers_id, hub: hub.gers_id }, "pathfinding result");
 
       const transferRows: Array<{ type: string; amount: number }> = [];
       if (appliedFood > 0) transferRows.push({ type: "food", amount: appliedFood });

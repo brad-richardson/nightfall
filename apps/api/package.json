@@ -19,6 +19,7 @@
     "@nightfall/pathfinding": "workspace:*",
     "dotenv": "^16.6.1",
     "fastify": "^5.6.2",
+    "h3-js": "^4.4.0",
     "pg": "^8.12.0",
     "zod": "^4.2.1"
   },

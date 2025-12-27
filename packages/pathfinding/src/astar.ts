@@ -128,11 +128,13 @@ export function findPath(
 
 /**
  * Find the nearest connector to a given point.
+ * maxDistanceMeters should be large enough to find connectors across
+ * the expanded hex search area (k=1 gridDisk covers ~3.5km diameter).
  */
 export function findNearestConnector(
   connectorCoords: ConnectorCoords,
   point: Point,
-  maxDistanceMeters: number = 500
+  maxDistanceMeters: number = 2000
 ): string | null {
   let bestConnector: string | null = null;
   let bestDistance = Infinity;
