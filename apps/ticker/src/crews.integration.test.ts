@@ -349,9 +349,9 @@ describe("completeFinishedTasks integration", () => {
 
     // Set both crews to 'working' with busy_until in the past
     await tx.query(
-      `UPDATE crews SET status = 'working', active_task_id = $2, busy_until = now() - interval '1 second'
+      `UPDATE crews SET status = 'working', active_task_id = $1, busy_until = now() - interval '1 second'
        WHERE crew_id = '00000000-0000-0000-0000-000000000001'`,
-      [regionId, task1Result.rows[0].task_id]
+      [task1Result.rows[0].task_id]
     );
 
     await tx.query(

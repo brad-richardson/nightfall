@@ -73,10 +73,8 @@ export class TestTransaction implements PoolLike {
    */
   async connect(): Promise<PoolClientLike> {
     return {
-      query: this.query.bind(this),
-      release: async () => {
-        // No-op: release is handled by rollback()
-      }
+      query: this.query.bind(this)
+      // release is optional and handled by rollback()
     };
   }
 
@@ -136,7 +134,6 @@ export async function insertTestFixtures(
     hexIndex?: string;
     gersId?: string;
     crewId?: string;
-    taskId?: string;
   } = {}
 ): Promise<{
   regionId: string;
