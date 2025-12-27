@@ -1,7 +1,7 @@
 import type { FeatureDelta } from "./deltas";
 import type { PoolLike } from "./ticker";
 import type { PhaseMultipliers } from "./multipliers";
-import { ROAD_CLASSES } from "@nightfall/config";
+import { ROAD_CLASSES, DEGRADED_HEALTH_THRESHOLD } from "@nightfall/config";
 
 export async function applyRoadDecay(pool: PoolLike, multipliers: PhaseMultipliers) {
   const decayCases = Object.entries(ROAD_CLASSES)
@@ -24,7 +24,7 @@ export async function applyRoadDecay(pool: PoolLike, multipliers: PhaseMultiplie
     SET
       health = GREATEST(0, fs.health - decay.decay_value),
       status = CASE
-        WHEN GREATEST(0, fs.health - decay.decay_value) < 30 THEN 'degraded'
+        WHEN GREATEST(0, fs.health - decay.decay_value) < ${DEGRADED_HEALTH_THRESHOLD} THEN 'degraded'
         ELSE 'normal'
       END,
       updated_at = now()

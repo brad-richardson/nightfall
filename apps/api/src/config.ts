@@ -17,7 +17,7 @@ const configSchema = z.object({
       (val) => process.env.NODE_ENV !== 'production' || val !== 'dev-secret-do-not-use-in-prod',
       { message: 'JWT_SECRET must be set to a secure value in production (not the default)' }
     ),
-  RESOURCE_TRAVEL_MPS: z.coerce.number().positive().default(8),
+  RESOURCE_TRAVEL_MPS: z.coerce.number().positive().default(10),
   RESOURCE_TRAVEL_MIN_S: z.coerce.number().positive().default(4),
   RESOURCE_TRAVEL_MAX_S: z.coerce.number().positive().default(45),
   RESOURCE_DISTANCE_MULTIPLIER: z.coerce.number().positive().default(1.25)

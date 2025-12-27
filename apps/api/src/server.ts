@@ -172,12 +172,10 @@ function haversineDistanceMeters(a: [number, number], b: [number, number]) {
 const graphCache = new Map<string, { graph: Graph; coords: ConnectorCoords; timestamp: number }>();
 const GRAPH_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-async function loadGraphForHex(
-  h3Index: string
+async function loadGraphForRegion(
+  regionId: string
 ): Promise<{ graph: Graph; coords: ConnectorCoords } | null> {
-  // Expand to include the hex and its immediate neighbors (k=1 ring = 7 hexes)
-  const hexes = gridDisk(h3Index, 1);
-  const cacheKey = hexes.sort().join(",");
+  const cacheKey = `region:${regionId}`;
 
   const cached = graphCache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < GRAPH_CACHE_TTL_MS) {
@@ -187,13 +185,14 @@ async function loadGraphForHex(
   const pool = getPool();
 
   try {
+    // Load ALL connectors for the region to ensure complete graph coverage
     const connectorsResult = await pool.query<{
       connector_id: string;
       lng: number;
       lat: number;
     }>(
-      `SELECT connector_id, lng, lat FROM road_connectors WHERE h3_index = ANY($1)`,
-      [hexes]
+      `SELECT connector_id, lng, lat FROM road_connectors WHERE region_id = $1`,
+      [regionId]
     );
 
     if (connectorsResult.rows.length === 0) {
@@ -205,6 +204,8 @@ async function loadGraphForHex(
       coords.set(row.connector_id, [row.lng, row.lat]);
     }
 
+    // Load ALL edges for the region
+    const connectorIds = Array.from(coords.keys());
     const edgesResult = await pool.query<{
       from_connector: string;
       to_connector: string;
@@ -220,8 +221,8 @@ async function loadGraphForHex(
         COALESCE(fs.health, 100) as health
       FROM road_edges e
       LEFT JOIN feature_state fs ON fs.gers_id = e.segment_gers_id
-      WHERE e.h3_index = ANY($1)`,
-      [hexes]
+      WHERE e.from_connector = ANY($1)`,
+      [connectorIds]
     );
 
     const graph: Graph = new Map();
@@ -1055,16 +1056,18 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
           }>(
             `
             SELECT
-              gers_id,
-              h3_index,
-              bbox_xmin,
-              bbox_xmax,
-              bbox_ymin,
-              bbox_ymax
-            FROM world_features
-            WHERE gers_id = $1
-              AND region_id = $2
-              AND feature_type = 'building'
+              wf.gers_id,
+              wfh.h3_index,
+              wf.bbox_xmin,
+              wf.bbox_xmax,
+              wf.bbox_ymin,
+              wf.bbox_ymax
+            FROM world_features wf
+            LEFT JOIN world_feature_hex_cells wfh ON wfh.gers_id = wf.gers_id
+            WHERE wf.gers_id = $1
+              AND wf.region_id = $2
+              AND wf.feature_type = 'building'
+            LIMIT 1
             `,
             [sourceGersId, regionId]
           )
@@ -1087,12 +1090,13 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         `
         SELECT
           wf.gers_id,
-          wf.h3_index,
+          wfh.h3_index,
           wf.bbox_xmin,
           wf.bbox_xmax,
           wf.bbox_ymin,
           wf.bbox_ymax
         FROM world_features AS wf
+        LEFT JOIN world_feature_hex_cells wfh ON wfh.gers_id = wf.gers_id
         WHERE wf.region_id = $1
           AND wf.is_hub IS TRUE
         ORDER BY wf.created_at ASC
@@ -1165,15 +1169,20 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       let pathWaypoints: { coord: Point; arrive_at: string }[] | null = null;
       let pathfindingDebug = "";
 
-      const graphData = source.h3_index ? await loadGraphForHex(source.h3_index) : null;
+      const graphData = await loadGraphForRegion(regionId);
       if (graphData) {
         const { graph, coords } = graphData;
-        pathfindingDebug = `h3=${source.h3_index}, connectors=${coords.size}, edges=${graph.size}`;
+        pathfindingDebug = `region=${regionId}, connectors=${coords.size}, edges=${graph.size}`;
 
         const startConnector = findNearestConnector(coords, sourceCenter as Point);
         const endConnector = findNearestConnector(coords, hubCenter as Point);
 
         if (startConnector && endConnector) {
+          // Debug: Check if connectors have edges
+          const startEdges = graph.get(startConnector)?.length ?? 0;
+          const endEdges = graph.get(endConnector)?.length ?? 0;
+          pathfindingDebug += `, startEdges=${startEdges}, endEdges=${endEdges}`;
+
           const pathResult = findPath(graph, coords, startConnector, endConnector);
           if (pathResult) {
             travelSeconds = clamp(
@@ -1212,7 +1221,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         }
       } else {
         // No graph data, fallback to haversine
-        pathfindingDebug = source.h3_index ? `h3=${source.h3_index}, NO_GRAPH_DATA` : "NO_H3_INDEX";
+        pathfindingDebug = `region=${regionId}, NO_GRAPH_DATA`;
         const distanceMeters = haversineDistanceMeters(sourceCenter, hubCenter);
         travelSeconds = clamp(
           (distanceMeters * config.RESOURCE_DISTANCE_MULTIPLIER) / config.RESOURCE_TRAVEL_MPS,

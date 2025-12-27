@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { completeFinishedTasks, dispatchCrews, arriveCrews } from "./crews";
 
+// Mock the resources module to avoid pathfinding complexity in unit tests
+vi.mock("./resources", () => ({
+  loadGraphForRegion: vi.fn().mockResolvedValue(null)
+}));
+
 const multipliers = {
   rust_spread: 0.5,
   decay: 1,
@@ -21,9 +26,9 @@ describe("dispatchCrews", () => {
   it("assigns an affordable task and sets crew to traveling", async () => {
     const query = vi
       .fn()
-      .mockResolvedValueOnce({ rows: [{ crew_id: "crew-1", region_id: "region-1" }] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ pool_food: 100, pool_equipment: 100, pool_energy: 100, pool_materials: 100 }] })
+      .mockResolvedValueOnce({ rows: [{ crew_id: "crew-1", region_id: "region-1" }] }) // idle crews
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ pool_food: 100, pool_equipment: 100, pool_energy: 100, pool_materials: 100 }] }) // region pools
       .mockResolvedValueOnce({
         rows: [
           {
@@ -36,11 +41,14 @@ describe("dispatchCrews", () => {
             duration_s: 40
           }
         ]
-      })
-      .mockResolvedValueOnce({ rows: [] })
+      }) // task selection
+      .mockResolvedValueOnce({
+        rows: [{ hub_lon: -68.25, hub_lat: 44.38, road_lon: -68.26, road_lat: 44.39 }]
+      }) // coordinate query for travel time
+      .mockResolvedValueOnce({ rows: [] }) // region update
       .mockResolvedValueOnce({
         rows: [{ task_id: "task-1", status: "active", priority_score: 10 }]
-      })
+      }) // task update
       .mockResolvedValueOnce({ rows: [] }) // crew update to 'traveling'
       .mockResolvedValueOnce({ rows: [] }); // COMMIT
 
@@ -100,6 +108,9 @@ describe("dispatchCrews", () => {
           }
         ]
       })
+      .mockResolvedValueOnce({
+        rows: [{ hub_lon: -68.25, hub_lat: 44.38, road_lon: -68.26, road_lat: 44.39 }]
+      }) // coordinate query for travel time
       .mockResolvedValueOnce({ rows: [] }) // region update
       .mockResolvedValueOnce({
         rows: [{ task_id: "high-priority-task", status: "active", priority_score: 50 }]

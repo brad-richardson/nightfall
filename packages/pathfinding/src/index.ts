@@ -12,4 +12,5 @@ export {
   findPath,
   findNearestConnector,
   buildWaypoints,
+  haversineDistanceMeters,
 } from "./astar.js";

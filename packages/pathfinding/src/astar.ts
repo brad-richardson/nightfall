@@ -10,6 +10,22 @@ export function edgeWeight(lengthMeters: number, health: number): number {
 }
 
 /**
+ * Haversine distance between two points in meters.
+ */
+export function haversineDistanceMeters(a: Point, b: Point): number {
+  const R = 6371e3; // Earth radius in meters
+  const lat1 = (a[1] * Math.PI) / 180;
+  const lat2 = (b[1] * Math.PI) / 180;
+  const dLat = ((b[1] - a[1]) * Math.PI) / 180;
+  const dLon = ((b[0] - a[0]) * Math.PI) / 180;
+
+  const h =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+/**
  * Euclidean distance between two points (for heuristic).
  * Uses approximate meters based on lat/lng.
  */
@@ -158,7 +174,7 @@ export function buildWaypoints(
   pathResult: PathResult,
   connectorCoords: ConnectorCoords,
   departAtMs: number,
-  speedMps: number = 8
+  speedMps: number = 10
 ): { coord: Point; arrive_at: string }[] {
   let currentTimeMs = departAtMs;
   const waypoints: { coord: Point; arrive_at: string }[] = [];

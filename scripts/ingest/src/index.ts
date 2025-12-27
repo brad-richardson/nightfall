@@ -1060,36 +1060,40 @@ async function ingestRoadGraph(
 
       if (sortedConnectors.length < 2) continue;
 
-      const fromConnector = sortedConnectors[0].connector_id;
-      const toConnector = sortedConnectors[sortedConnectors.length - 1].connector_id;
+      // Create edges between CONSECUTIVE connectors (not just first-to-last)
+      // This ensures all intermediate intersections are connected
+      for (let i = 0; i < sortedConnectors.length - 1; i++) {
+        const fromConnector = sortedConnectors[i].connector_id;
+        const toConnector = sortedConnectors[i + 1].connector_id;
 
-      // Calculate length in meters using haversine
-      const fromCoord = connectorMap.get(fromConnector);
-      const toCoord = connectorMap.get(toConnector);
-      if (!fromCoord || !toCoord) continue;
+        // Calculate length in meters using haversine
+        const fromCoord = connectorMap.get(fromConnector);
+        const toCoord = connectorMap.get(toConnector);
+        if (!fromCoord || !toCoord) continue;
 
-      const lengthMeters = haversine(fromCoord.lat, fromCoord.lng, toCoord.lat, toCoord.lng);
-      const h3Index = latLngToCell(
-        (fromCoord.lat + toCoord.lat) / 2,
-        (fromCoord.lng + toCoord.lng) / 2,
-        H3_RESOLUTION
-      );
+        const lengthMeters = haversine(fromCoord.lat, fromCoord.lng, toCoord.lat, toCoord.lng);
+        const h3Index = latLngToCell(
+          (fromCoord.lat + toCoord.lat) / 2,
+          (fromCoord.lng + toCoord.lng) / 2,
+          H3_RESOLUTION
+        );
 
-      // Add both directions (bidirectional graph)
-      edgeBatch.push({
-        segmentId: segment.id,
-        fromConnector,
-        toConnector,
-        lengthMeters,
-        h3Index
-      });
-      edgeBatch.push({
-        segmentId: segment.id,
-        fromConnector: toConnector,
-        toConnector: fromConnector,
-        lengthMeters,
-        h3Index
-      });
+        // Add both directions (bidirectional graph)
+        edgeBatch.push({
+          segmentId: segment.id,
+          fromConnector,
+          toConnector,
+          lengthMeters,
+          h3Index
+        });
+        edgeBatch.push({
+          segmentId: segment.id,
+          fromConnector: toConnector,
+          toConnector: fromConnector,
+          lengthMeters,
+          h3Index
+        });
+      }
     }
 
     // Insert edges in batches

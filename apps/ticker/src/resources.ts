@@ -9,7 +9,6 @@ import {
   findNearestConnector,
   buildWaypoints,
 } from "@nightfall/pathfinding";
-import { gridDisk } from "h3-js";
 
 export type ResourceTransfer = {
   transfer_id: string;
@@ -27,7 +26,7 @@ type ArrivalResult = {
   regionIds: string[];
 };
 
-const RESOURCE_TRAVEL_MPS = Math.max(0.1, Number(process.env.RESOURCE_TRAVEL_MPS ?? 8) || 8);
+const RESOURCE_TRAVEL_MPS = Math.max(0.1, Number(process.env.RESOURCE_TRAVEL_MPS ?? 10) || 10);
 const RESOURCE_DISTANCE_MULTIPLIER = Math.max(0.1, Number(process.env.RESOURCE_DISTANCE_MULTIPLIER ?? 1.25) || 1.25);
 const RESOURCE_TRAVEL_MIN_S = Math.max(1, Number(process.env.RESOURCE_TRAVEL_MIN_S ?? 4) || 4);
 const RESOURCE_TRAVEL_MAX_S = Math.max(RESOURCE_TRAVEL_MIN_S, Number(process.env.RESOURCE_TRAVEL_MAX_S ?? 45) || 45);
@@ -83,17 +82,15 @@ export function resetResourceTransferCacheForTests() {
   loggedMissingResourceTransfers = false;
 }
 
-// Graph cache per hex (simple in-memory cache)
+// Graph cache per region (simple in-memory cache)
 const graphCache = new Map<string, { graph: Graph; coords: ConnectorCoords; timestamp: number }>();
 const GRAPH_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-async function loadGraphForHex(
+export async function loadGraphForRegion(
   pool: PoolLike,
-  h3Index: string
+  regionId: string
 ): Promise<{ graph: Graph; coords: ConnectorCoords } | null> {
-  // Expand to include the hex and its immediate neighbors (k=1 ring = 7 hexes)
-  const hexes = gridDisk(h3Index, 1);
-  const cacheKey = hexes.sort().join(",");
+  const cacheKey = `region:${regionId}`;
 
   // Check cache
   const cached = graphCache.get(cacheKey);
@@ -102,14 +99,14 @@ async function loadGraphForHex(
   }
 
   try {
-    // Load connectors for this hex and neighbors
+    // Load all connectors for this region
     const connectorsResult = await pool.query<{
       connector_id: string;
       lng: number;
       lat: number;
     }>(
-      `SELECT connector_id, lng, lat FROM road_connectors WHERE h3_index = ANY($1)`,
-      [hexes]
+      `SELECT connector_id, lng, lat FROM road_connectors WHERE region_id = $1`,
+      [regionId]
     );
 
     if (connectorsResult.rows.length === 0) {
@@ -121,7 +118,8 @@ async function loadGraphForHex(
       coords.set(row.connector_id, [row.lng, row.lat]);
     }
 
-    // Load edges with health
+    // Load all edges for connectors in this region
+    const connectorIds = Array.from(coords.keys());
     const edgesResult = await pool.query<{
       from_connector: string;
       to_connector: string;
@@ -137,8 +135,8 @@ async function loadGraphForHex(
         COALESCE(fs.health, 100) as health
       FROM road_edges e
       LEFT JOIN feature_state fs ON fs.gers_id = e.segment_gers_id
-      WHERE e.h3_index = ANY($1)`,
-      [hexes]
+      WHERE e.from_connector = ANY($1) OR e.to_connector = ANY($1)`,
+      [connectorIds]
     );
 
     // Build adjacency list
@@ -160,7 +158,7 @@ async function loadGraphForHex(
 
     return { graph, coords };
   } catch (error) {
-    logger.error({ err: error, h3Index }, "[ticker] failed to load road graph");
+    logger.error({ err: error, regionId }, "[ticker] failed to load road graph");
     return null;
   }
 }
@@ -172,7 +170,6 @@ export function invalidateGraphCache() {
 type BuildingOutput = {
   source_gers_id: string;
   region_id: string;
-  h3_index: string;
   hub_gers_id: string;
   source_lon: number;
   source_lat: number;
@@ -199,7 +196,7 @@ export async function enqueueResourceTransfers(
       SELECT
         wf.gers_id,
         wf.region_id,
-        wf.h3_index,
+        MIN(wfhc.h3_index) AS h3_index,
         wf.generates_food,
         wf.generates_equipment,
         wf.generates_energy,
@@ -209,7 +206,7 @@ export async function enqueueResourceTransfers(
       JOIN world_feature_hex_cells AS wfhc ON wfhc.gers_id = wf.gers_id
       JOIN hex_cells AS h ON h.h3_index = wfhc.h3_index
       WHERE wf.feature_type = 'building'
-      GROUP BY wf.gers_id, wf.region_id, wf.h3_index, wf.generates_food, wf.generates_equipment, wf.generates_energy, wf.generates_materials
+      GROUP BY wf.gers_id, wf.region_id, wf.generates_food, wf.generates_equipment, wf.generates_energy, wf.generates_materials
     ),
     building_outputs AS (
       SELECT
@@ -242,7 +239,6 @@ export async function enqueueResourceTransfers(
     SELECT
       bo.source_gers_id,
       bo.region_id,
-      bo.h3_index,
       hub_lookup.hub_building_gers_id AS hub_gers_id,
       (wf.bbox_xmin + wf.bbox_xmax) / 2 AS source_lon,
       (wf.bbox_ymin + wf.bbox_ymax) / 2 AS source_lat,
@@ -265,13 +261,13 @@ export async function enqueueResourceTransfers(
     return [];
   }
 
-  // Step 2: Group buildings by h3_index for graph loading
-  const buildingsByHex = new Map<string, BuildingOutput[]>();
+  // Step 2: Group buildings by region for graph loading
+  const buildingsByRegion = new Map<string, BuildingOutput[]>();
   for (const building of buildingsResult.rows) {
-    if (!buildingsByHex.has(building.h3_index)) {
-      buildingsByHex.set(building.h3_index, []);
+    if (!buildingsByRegion.has(building.region_id)) {
+      buildingsByRegion.set(building.region_id, []);
     }
-    buildingsByHex.get(building.h3_index)!.push(building);
+    buildingsByRegion.get(building.region_id)!.push(building);
   }
 
   // Step 3: Calculate paths and prepare transfers
@@ -287,9 +283,9 @@ export async function enqueueResourceTransfers(
 
   const departAt = Date.now();
 
-  for (const [h3Index, buildings] of buildingsByHex) {
-    // Load graph for this hex
-    const graphData = await loadGraphForHex(pool, h3Index);
+  for (const [regionId, buildings] of buildingsByRegion) {
+    // Load graph for this region
+    const graphData = await loadGraphForRegion(pool, regionId);
 
     for (const building of buildings) {
       let waypoints: { coord: Point; arrive_at: string }[] | null = null;

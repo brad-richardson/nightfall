@@ -10,7 +10,7 @@ import { syncCycleState } from "./cycle-store";
 import { getPhaseMultipliers, applyDemoMultiplier } from "./multipliers";
 import { applyRustSpread } from "./rust";
 import { applyRoadDecay } from "./decay";
-import { enqueueResourceTransfers, applyArrivedResourceTransfers, type ResourceTransfer } from "./resources";
+import { applyArrivedResourceTransfers } from "./resources";
 import { dispatchCrews, arriveCrews, completeFinishedTasks } from "./crews";
 import { spawnDegradedRoadTasks, updateTaskPriorities } from "./tasks";
 import type { FeatureDelta, TaskDelta } from "./deltas";
@@ -118,12 +118,6 @@ async function publishTaskDeltas(client: PoolLike, deltas: TaskDelta[]) {
   }
 }
 
-async function publishResourceTransfers(client: PoolLike, transfers: ResourceTransfer[]) {
-  for (const transfer of transfers) {
-    await notifyEvent(client, "resource_transfer", transfer);
-  }
-}
-
 async function publishFeedItems(
   client: PoolLike,
   items: { event_type: string; region_id: string | null; message: string; ts: string }[]
@@ -147,7 +141,6 @@ async function runTick(client: PoolLike) {
 
   const rustHexes = await applyRustSpread(client, multipliers);
   const decayFeatureDeltas = await applyRoadDecay(client, multipliers);
-  const resourceTransfers = await enqueueResourceTransfers(client, multipliers);
   const arrivalResult = await applyArrivedResourceTransfers(client);
   const spawnedTasks = await spawnDegradedRoadTasks(client);
   const priorityUpdates = await updateTaskPriorities(client);
@@ -187,7 +180,6 @@ async function runTick(client: PoolLike) {
     ...completionResult.taskDeltas
   ]);
 
-  await publishResourceTransfers(client, resourceTransfers);
   await publishFeedItems(client, completionResult.feedItems);
 
   if (
@@ -207,7 +199,6 @@ async function runTick(client: PoolLike) {
   logger.info({
     rust_spread_count: rustHexes.length,
     decay_updates: decayFeatureDeltas.length,
-    resource_transfers: resourceTransfers.length,
     resource_arrivals: arrivalResult.regionIds.length,
     tasks_spawned: spawnedTasks.length,
     tasks_updated: priorityUpdates.length,

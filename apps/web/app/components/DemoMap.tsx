@@ -677,6 +677,40 @@ export default function DemoMap({
     return () => animationManager.stop('crew-paths');
   }, [crewPaths, isLoaded, prefersReducedMotion, animationManager]);
 
+  // Fly to feature event handler
+  useEffect(() => {
+    const handleFlyToFeature = (e: Event) => {
+      const customEvent = e as CustomEvent<{ gers_id: string }>;
+      const gersId = customEvent.detail.gers_id;
+
+      if (!map.current || !isLoaded) return;
+
+      const feature = featuresRef.current.find((f) => f.gers_id === gersId);
+      if (!feature) return;
+
+      const center = getFeatureCenter(feature);
+      if (!center) return;
+
+      map.current.flyTo({
+        center,
+        zoom: 16,
+        pitch: 45,
+        duration: 1500
+      });
+
+      // Also select the feature
+      map.current.setFilter("game-feature-selection", ["==", ["get", "id"], gersId]);
+      map.current.setFilter("game-feature-selection-glow", ["==", ["get", "id"], gersId]);
+
+      window.dispatchEvent(new CustomEvent("nightfall:feature_selected", {
+        detail: { gers_id: gersId, type: "road" }
+      }));
+    };
+
+    window.addEventListener("nightfall:fly_to_feature", handleFlyToFeature);
+    return () => window.removeEventListener("nightfall:fly_to_feature", handleFlyToFeature);
+  }, [isLoaded]);
+
   // Task completion animation
   useEffect(() => {
     const handleTaskCompleted = (e: Event) => {

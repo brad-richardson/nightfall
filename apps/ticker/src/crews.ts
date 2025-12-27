@@ -1,9 +1,19 @@
 import type { FeatureDelta, FeedItem, TaskDelta } from "./deltas";
 import type { PoolLike } from "./ticker";
 import type { PhaseMultipliers } from "./multipliers";
+import { DEGRADED_HEALTH_THRESHOLD } from "@nightfall/config";
+import {
+  type Point,
+  findPath,
+  findNearestConnector,
+  haversineDistanceMeters,
+} from "@nightfall/pathfinding";
+import { loadGraphForRegion } from "./resources";
 
-const MIN_REPAIR_THRESHOLD = 30;
-const CREW_TRAVEL_TIME_S = 8; // Fixed travel time in seconds
+const MIN_REPAIR_THRESHOLD = DEGRADED_HEALTH_THRESHOLD;
+const CREW_TRAVEL_MPS = 10; // Crew travel speed in meters per second
+const CREW_TRAVEL_MIN_S = 4;
+const CREW_TRAVEL_MAX_S = 120;
 
 type CompletedTask = TaskDelta & { region_id: string };
 
@@ -105,6 +115,70 @@ export async function dispatchCrews(pool: PoolLike) {
         continue;
       }
 
+      // Query hub and road coordinates for pathfinding
+      const coordsResult = await pool.query<{
+        hub_lon: number;
+        hub_lat: number;
+        road_lon: number;
+        road_lat: number;
+      }>(
+        `
+        SELECT
+          (hub.bbox_xmin + hub.bbox_xmax) / 2 AS hub_lon,
+          (hub.bbox_ymin + hub.bbox_ymax) / 2 AS hub_lat,
+          (road.bbox_xmin + road.bbox_xmax) / 2 AS road_lon,
+          (road.bbox_ymin + road.bbox_ymax) / 2 AS road_lat
+        FROM hex_cells h
+        JOIN world_features hub ON hub.gers_id = h.hub_building_gers_id
+        JOIN world_features road ON road.gers_id = $1
+        JOIN world_feature_hex_cells wfhc ON wfhc.gers_id = $1
+        WHERE h.h3_index = wfhc.h3_index
+        LIMIT 1
+        `,
+        [task.target_gers_id]
+      );
+
+      // Calculate travel time using pathfinding or fallback to haversine
+      let travelTimeS = CREW_TRAVEL_MIN_S;
+      const coords = coordsResult.rows[0];
+
+      if (coords) {
+        const graphData = await loadGraphForRegion(pool, crew.region_id);
+        if (graphData) {
+          const hubPoint: Point = [coords.hub_lon, coords.hub_lat];
+          const roadPoint: Point = [coords.road_lon, coords.road_lat];
+
+          const startConnector = findNearestConnector(graphData.coords, hubPoint);
+          const endConnector = findNearestConnector(graphData.coords, roadPoint);
+
+          if (startConnector && endConnector) {
+            const pathResult = findPath(
+              graphData.graph,
+              graphData.coords,
+              startConnector,
+              endConnector
+            );
+            if (pathResult) {
+              travelTimeS = pathResult.totalDistance / CREW_TRAVEL_MPS;
+            } else {
+              // No path found, fallback to haversine
+              travelTimeS = haversineDistanceMeters(hubPoint, roadPoint) / CREW_TRAVEL_MPS;
+            }
+          } else {
+            // No connectors found, fallback to haversine
+            travelTimeS = haversineDistanceMeters(hubPoint, roadPoint) / CREW_TRAVEL_MPS;
+          }
+        } else {
+          // No graph data, fallback to haversine
+          const hubPoint: Point = [coords.hub_lon, coords.hub_lat];
+          const roadPoint: Point = [coords.road_lon, coords.road_lat];
+          travelTimeS = haversineDistanceMeters(hubPoint, roadPoint) / CREW_TRAVEL_MPS;
+        }
+      }
+
+      // Clamp travel time to min/max bounds
+      travelTimeS = Math.max(CREW_TRAVEL_MIN_S, Math.min(CREW_TRAVEL_MAX_S, travelTimeS));
+
       await pool.query(
         `UPDATE regions SET
           pool_food = pool_food - $2,
@@ -142,7 +216,7 @@ export async function dispatchCrews(pool: PoolLike) {
       // Set crew to 'traveling' - road status will be updated when crew arrives
       await pool.query(
         "UPDATE crews SET status = 'traveling', active_task_id = $2, busy_until = now() + ($3 * interval '1 second') WHERE crew_id = $1",
-        [crew.crew_id, task.task_id, CREW_TRAVEL_TIME_S]
+        [crew.crew_id, task.task_id, travelTimeS]
       );
 
       await pool.query("COMMIT");
@@ -291,11 +365,8 @@ export async function completeFinishedTasks(
     updated_features AS (
       UPDATE feature_state AS fs
       SET
-        health = LEAST(100, fs.health + due.repair_amount),
-        status = CASE
-          WHEN LEAST(100, fs.health + due.repair_amount) >= $2 THEN 'normal'
-          ELSE 'degraded'
-        END,
+        health = 100,  -- Always heal to full health
+        status = 'normal',  -- Always becomes normal since health = 100
         updated_at = now()
       FROM due
       WHERE fs.gers_id = due.target_gers_id
@@ -356,7 +427,7 @@ export async function completeFinishedTasks(
     FULL JOIN updated_features ON TRUE
     FULL JOIN updated_hex ON TRUE
     `,
-    [pushback, MIN_REPAIR_THRESHOLD]
+    [pushback]
   );
 
   const row = result.rows[0];

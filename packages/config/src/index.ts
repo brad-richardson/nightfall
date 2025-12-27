@@ -27,6 +27,9 @@ export const BAR_HARBOR_DEMO_BBOX: Bbox = {
 
 export const H3_RESOLUTION = 7;
 
+// Roads are considered "degraded" when health falls below this threshold
+export const DEGRADED_HEALTH_THRESHOLD = 70;
+
 export type ResourceType = "food" | "equipment" | "energy" | "materials";
 
 export const RESOURCE_TYPES: ResourceType[] = ["food", "equipment", "energy", "materials"];
@@ -45,70 +48,70 @@ export type RoadClassInfo = {
 export const ROAD_CLASSES: Record<string, RoadClassInfo> = {
   motorway: {
     decayRate: 0.5,
-    costFood: 40,
-    costEquipment: 80,
-    costEnergy: 60,
-    costMaterials: 100,
+    costFood: 30,
+    costEquipment: 60,
+    costEnergy: 45,
+    costMaterials: 75,
     durationS: 120,
     repairAmount: 30,
     priorityWeight: 10
   },
   trunk: {
     decayRate: 0.6,
-    costFood: 35,
-    costEquipment: 60,
-    costEnergy: 50,
-    costMaterials: 80,
+    costFood: 26,
+    costEquipment: 45,
+    costEnergy: 38,
+    costMaterials: 60,
     durationS: 100,
     repairAmount: 30,
     priorityWeight: 8
   },
   primary: {
     decayRate: 0.8,
-    costFood: 25,
-    costEquipment: 45,
-    costEnergy: 35,
-    costMaterials: 60,
+    costFood: 19,
+    costEquipment: 34,
+    costEnergy: 26,
+    costMaterials: 45,
     durationS: 80,
     repairAmount: 25,
     priorityWeight: 6
   },
   secondary: {
     decayRate: 1.0,
-    costFood: 20,
-    costEquipment: 30,
-    costEnergy: 25,
-    costMaterials: 40,
+    costFood: 15,
+    costEquipment: 23,
+    costEnergy: 19,
+    costMaterials: 30,
     durationS: 60,
     repairAmount: 25,
     priorityWeight: 4
   },
   tertiary: {
     decayRate: 1.2,
-    costFood: 15,
-    costEquipment: 25,
-    costEnergy: 20,
-    costMaterials: 30,
+    costFood: 11,
+    costEquipment: 19,
+    costEnergy: 15,
+    costMaterials: 23,
     durationS: 50,
     repairAmount: 20,
     priorityWeight: 3
   },
   residential: {
     decayRate: 1.5,
-    costFood: 10,
-    costEquipment: 15,
-    costEnergy: 12,
-    costMaterials: 20,
+    costFood: 8,
+    costEquipment: 11,
+    costEnergy: 9,
+    costMaterials: 15,
     durationS: 40,
     repairAmount: 20,
     priorityWeight: 2
   },
   service: {
     decayRate: 2.0,
-    costFood: 5,
-    costEquipment: 8,
-    costEnergy: 6,
-    costMaterials: 10,
+    costFood: 4,
+    costEquipment: 6,
+    costEnergy: 5,
+    costMaterials: 8,
     durationS: 30,
     repairAmount: 15,
     priorityWeight: 1

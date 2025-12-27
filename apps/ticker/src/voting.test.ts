@@ -10,6 +10,11 @@ import { describe, expect, it, vi } from "vitest";
 import { updateTaskPriorities } from "./tasks";
 import { dispatchCrews } from "./crews";
 
+// Mock the resources module to avoid pathfinding complexity in unit tests
+vi.mock("./resources", () => ({
+  loadGraphForRegion: vi.fn().mockResolvedValue(null)
+}));
+
 describe("voting integration", () => {
   it("votes increase priority_score causing earlier dispatch", async () => {
     // Scenario: Two tasks with same base health priority, but one has votes
@@ -50,6 +55,9 @@ describe("voting integration", () => {
           duration_s: 30
         }]
       })
+      .mockResolvedValueOnce({
+        rows: [{ hub_lon: -68.25, hub_lat: 44.38, road_lon: -68.26, road_lat: 44.39 }]
+      }) // coordinate query for travel time
       .mockResolvedValueOnce({ rows: [] }) // region update
       .mockResolvedValueOnce({
         rows: [{ task_id: "task-b", status: "active", priority_score: 55 }]

@@ -114,14 +114,14 @@ function MapPanel({
 }) {
   return (
     <div
-      className={`rounded-2xl border border-white/10 bg-[#0f1216]/60 p-4 text-white shadow-[0_12px_30px_rgba(0,0,0,0.45)] backdrop-blur-md${className ? ` ${className}` : ""}`}
+      className={`flex flex-col rounded-2xl border border-white/10 bg-[#0f1216]/60 p-4 text-white shadow-[0_12px_30px_rgba(0,0,0,0.45)] backdrop-blur-md${className ? ` ${className}` : ""}`}
     >
       {title ? (
-        <p className="text-[10px] uppercase tracking-[0.35em] text-white/50">
+        <p className="shrink-0 text-[10px] uppercase tracking-[0.35em] text-white/50">
           {title}
         </p>
       ) : null}
-      <div className={title ? "mt-3" : ""}>{children}</div>
+      <div className={`min-h-0 flex-1${title ? " mt-3" : ""}`}>{children}</div>
     </div>
   );
 }
@@ -636,7 +636,7 @@ export default function Dashboard({
       <ResourceTicker deltas={resourceFeed} />
 
       <div className="rounded-3xl border border-[var(--night-outline)] bg-[color:var(--night-ink)]/80 p-5 text-white shadow-[0_18px_40px_rgba(24,20,14,0.2)]">
-        <TaskList tasks={region.tasks} crews={region.crews} features={features} userVotes={userVotes} onVote={handleVote} />
+        <TaskList tasks={region.tasks} crews={region.crews} features={features} userVotes={userVotes} resourcePools={{ food: region.pool_food, equipment: region.pool_equipment, energy: region.pool_energy, materials: region.pool_materials }} onVote={handleVote} />
       </div>
 
       <div className="rounded-3xl border border-[var(--night-outline)] bg-white/60 p-5 shadow-[0_18px_40px_rgba(24,20,14,0.12)]">
@@ -793,7 +793,7 @@ export default function Dashboard({
 
           <MapOverlay position="bottom-left" className="!bottom-20 hidden w-[360px] max-h-[55vh] lg:block">
             <MapPanel title="Operations Queue" className="h-full overflow-hidden">
-              <TaskList tasks={region.tasks} crews={region.crews} features={features} userVotes={userVotes} onVote={handleVote} />
+              <TaskList tasks={region.tasks} crews={region.crews} features={features} userVotes={userVotes} resourcePools={{ food: region.pool_food, equipment: region.pool_equipment, energy: region.pool_energy, materials: region.pool_materials }} onVote={handleVote} />
             </MapPanel>
           </MapOverlay>
 
