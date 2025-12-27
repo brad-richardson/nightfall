@@ -156,7 +156,10 @@ describe("Dashboard live events", () => {
       });
     });
 
-    expect(useStore.getState().hexes).toEqual([{ h3_index: "abc", rust_level: 0.4 }]);
+    // Wait for batched updates to be applied (Dashboard uses 150ms batch interval)
+    await waitFor(() => {
+      expect(useStore.getState().hexes).toEqual([{ h3_index: "abc", rust_level: 0.4 }]);
+    });
     expect(useStore.getState().region.pool_labor).toBe(150);
     expect(useStore.getState().region.pool_materials).toBe(250);
     expect(useStore.getState().region.stats.rust_avg).toBe(0.2);
@@ -182,11 +185,14 @@ describe("Dashboard live events", () => {
       });
     });
 
-    const tasks = useStore.getState().region.tasks;
-    expect(tasks.find((t) => t.task_id === "task-new")).toMatchObject({
-      task_id: "task-new",
-      vote_score: 1,
-      target_gers_id: "road-123"
+    // Wait for batched task updates to be applied
+    await waitFor(() => {
+      const tasks = useStore.getState().region.tasks;
+      expect(tasks.find((t) => t.task_id === "task-new")).toMatchObject({
+        task_id: "task-new",
+        vote_score: 1,
+        target_gers_id: "road-123"
+      });
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -241,5 +247,25 @@ describe("Dashboard live events", () => {
     expect(document.body.textContent).toContain("Nightfall Ops Console");
     expect(document.body.textContent).toContain("Resource Pools");
     expect(document.body.textContent).toContain("Operations Queue");
+  });
+
+  it("handles rapid events without infinite loops", async () => {
+    renderDashboard();
+    const handler = eventHandlers.at(-1)!;
+
+    // Fire 20 rapid events in quick succession - this would cause infinite loop if setLastEvent
+    // was called on every event, since each state update triggers a re-render
+    await act(async () => {
+      for (let i = 0; i < 20; i++) {
+        handler({
+          event: "phase_change",
+          data: { phase: i % 2 === 0 ? "night" : "day", next_phase: "dawn", next_phase_in_seconds: 30, phase_progress: 0.5 }
+        });
+      }
+    });
+
+    // If we reach here without timing out or crashing, the infinite loop is fixed
+    // The last event should have set phase to "day" (i=19 is odd)
+    expect(useStore.getState().cycle.phase).toBe("day");
   });
 });

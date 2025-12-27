@@ -42,7 +42,7 @@ describe("api server", () => {
     await app.close();
   });
 
-  it("does not set CORS headers", async () => {
+  it("sets CORS headers allowing all origins", async () => {
     const app = buildServer();
     const response = await app.inject({
       method: "GET",
@@ -51,7 +51,7 @@ describe("api server", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.headers["access-control-allow-origin"]).toBeUndefined();
+    expect(response.headers["access-control-allow-origin"]).toBe("http://example.com");
 
     await app.close();
   });

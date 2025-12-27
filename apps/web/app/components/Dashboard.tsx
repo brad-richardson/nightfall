@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect, useRef, type ReactNode } from "react";
+import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import DemoMap from "./DemoMap";
@@ -154,29 +154,50 @@ export default function Dashboard({
 }: DashboardProps) {
   const router = useRouter();
   
-  // Store hooks
+  // Store hooks - only subscribe to state values, not actions
   const region = useStore((state) => state.region);
-  const setRegion = useStore((state) => state.setRegion);
   const features = useStore((state) => state.features);
-  const setFeatures = useStore((state) => state.setFeatures);
   const hexes = useStore((state) => state.hexes);
-  const setHexes = useStore((state) => state.setHexes);
   const cycle = useStore((state) => state.cycle);
-  const setCycle = useStore((state) => state.setCycle);
   const auth = useStore((state) => state.auth);
-  const setAuth = useStore((state) => state.setAuth);
+
+  // Get stable action references (actions never change)
+  const setRegion = useStore.getState().setRegion;
+  const setFeatures = useStore.getState().setFeatures;
+  const setHexes = useStore.getState().setHexes;
+  const setCycle = useStore.getState().setCycle;
+  const setAuth = useStore.getState().setAuth;
   
-  const [lastEvent, setLastEvent] = useState<string | null>(null);
+  // Use ref for lastEvent to avoid re-renders on every SSE event
+  const lastEventRef = useRef<string | null>(null);
+  const [lastEventDisplay, setLastEventDisplay] = useState<string | null>(null);
   const [resourceDeltas, setResourceDeltas] = useState<ResourceDelta[]>([]);
   const prevTasksRef = useRef<Map<string, string>>(new Map());
-  const eventProcessingRef = useRef(false);
+  const hasHydratedRef = useRef(false);
 
-  // Hydrate store on mount - use ref to track if initial hydration is done
-  const isHydratedRef = useRef(false);
+  // Batch event data to avoid rapid re-renders
+  const pendingUpdatesRef = useRef<{
+    cycle: Partial<CycleState> | null;
+    hexUpdates: Map<string, { h3_index: string; rust_level: number }>;
+    regionUpdate: { pool_labor: number; pool_materials: number; rust_avg?: number | null; health_avg?: number | null } | null;
+    featureUpdates: Map<string, { health: number; status: string }>;
+    taskUpdates: Map<string, { task_id: string; status: string; priority_score: number; vote_score?: number; cost_labor?: number; cost_materials?: number; duration_s?: number; repair_amount?: number; task_type?: string; target_gers_id?: string; region_id?: string }>;
+    resourceDeltas: ResourceDelta[];
+    dirty: boolean;
+  }>({
+    cycle: null,
+    hexUpdates: new Map(),
+    regionUpdate: null,
+    featureUpdates: new Map(),
+    taskUpdates: new Map(),
+    resourceDeltas: [],
+    dirty: false
+  });
 
-  // Synchronous initial hydration (runs before first render completes)
-  if (!isHydratedRef.current) {
-    isHydratedRef.current = true;
+  // Hydrate store exactly once (survives strict mode double-render)
+  useLayoutEffect(() => {
+    if (hasHydratedRef.current) return;
+    hasHydratedRef.current = true;
     useStore.setState({
       region: initialRegion,
       features: initialFeatures,
@@ -185,7 +206,8 @@ export default function Dashboard({
       availableRegions,
       isDemoMode
     });
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     initializeSession(apiBaseUrl).then((authData) => {
@@ -193,10 +215,104 @@ export default function Dashboard({
     });
   }, [apiBaseUrl, setAuth]);
 
-  const pushResourceDelta = useCallback((type: "labor" | "materials", delta: number, source: string) => {
-    if (delta === 0) return;
-    setResourceDeltas((prev) => [{ type, delta, source, ts: Date.now() }, ...prev].slice(0, 6));
-  }, []);
+  // Periodically apply batched updates to avoid rapid re-renders from SSE events
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const pending = pendingUpdatesRef.current;
+
+      // Sync lastEvent display
+      if (lastEventRef.current !== lastEventDisplay) {
+        setLastEventDisplay(lastEventRef.current);
+      }
+
+      // Skip if no pending updates
+      if (!pending.dirty) return;
+
+      // Apply all batched updates
+      if (pending.cycle) {
+        setCycle((prev) => ({
+          ...prev,
+          ...pending.cycle,
+          phase_progress: pending.cycle?.phase_progress ?? prev.phase_progress,
+          lastUpdated: Date.now()
+        }));
+        pending.cycle = null;
+      }
+
+      if (pending.hexUpdates.size > 0) {
+        setHexes((prev) => {
+          const map = new Map(prev.map((h) => [h.h3_index, h]));
+          for (const [, update] of pending.hexUpdates) {
+            map.set(update.h3_index, update);
+          }
+          return Array.from(map.values());
+        });
+        pending.hexUpdates.clear();
+      }
+
+      if (pending.regionUpdate) {
+        const update = pending.regionUpdate;
+        setRegion((prev) => ({
+          ...prev,
+          pool_labor: update.pool_labor,
+          pool_materials: update.pool_materials,
+          stats: {
+            ...prev.stats,
+            rust_avg: update.rust_avg ?? prev.stats.rust_avg,
+            health_avg: update.health_avg ?? prev.stats.health_avg
+          }
+        }));
+        pending.regionUpdate = null;
+      }
+
+      if (pending.featureUpdates.size > 0) {
+        setFeatures((prev) =>
+          prev.map((f) => {
+            const update = pending.featureUpdates.get(f.gers_id);
+            return update ? { ...f, health: update.health, status: update.status } : f;
+          })
+        );
+        pending.featureUpdates.clear();
+      }
+
+      if (pending.taskUpdates.size > 0) {
+        setRegion((prev) => {
+          let tasks = [...prev.tasks];
+          for (const [, delta] of pending.taskUpdates) {
+            const existingIdx = tasks.findIndex(t => t.task_id === delta.task_id);
+            if (existingIdx >= 0) {
+              tasks[existingIdx] = { ...tasks[existingIdx], ...delta };
+            } else if (delta.region_id && delta.target_gers_id) {
+              tasks.push({
+                task_id: delta.task_id,
+                status: delta.status,
+                priority_score: delta.priority_score,
+                vote_score: delta.vote_score ?? 0,
+                cost_labor: delta.cost_labor ?? 0,
+                cost_materials: delta.cost_materials ?? 0,
+                duration_s: delta.duration_s ?? 0,
+                repair_amount: delta.repair_amount ?? 0,
+                task_type: delta.task_type ?? "unknown",
+                target_gers_id: delta.target_gers_id,
+                region_id: delta.region_id
+              });
+            }
+          }
+          tasks = tasks.filter(t => t.status !== 'done' && t.status !== 'expired');
+          pending.taskUpdates.clear();
+          return { ...prev, tasks };
+        });
+      }
+
+      if (pending.resourceDeltas.length > 0) {
+        setResourceDeltas((prev) => [...pending.resourceDeltas, ...prev].slice(0, 6));
+        pending.resourceDeltas = [];
+      }
+
+      pending.dirty = false;
+    }, 150); // Apply batched updates every 150ms
+    return () => clearInterval(interval);
+  }, [lastEventDisplay, setCycle, setHexes, setRegion, setFeatures]);
 
   // Use ref to avoid stale closure issues in event handler
   const regionRef = useRef(region);
@@ -205,185 +321,116 @@ export default function Dashboard({
   }, [region]);
 
   const handleEvent = useCallback((payload: EventPayload) => {
-    // Prevent reentrant calls (guard against infinite loops)
-    if (eventProcessingRef.current) {
-      return;
+    // Update ref (doesn't trigger re-render - display syncs periodically)
+    lastEventRef.current = `${payload.event} @ ${new Date().toLocaleTimeString()}`;
+    const pending = pendingUpdatesRef.current;
+
+    switch (payload.event) {
+    case "phase_change":
+      pending.cycle = payload.data as Partial<CycleState>;
+      pending.dirty = true;
+      break;
+    case "world_delta": {
+      const data = payload.data as {
+        rust_changed?: string[];
+        hex_updates?: { h3_index: string; rust_level: number }[];
+        regions_changed?: string[];
+        region_updates?: {
+          region_id: string;
+          pool_labor: number;
+          pool_materials: number;
+          rust_avg?: number | null;
+          health_avg?: number | null;
+        }[];
+      };
+
+      if (data.hex_updates?.length) {
+        for (const update of data.hex_updates) {
+          pending.hexUpdates.set(update.h3_index, update);
+        }
+        pending.dirty = true;
+      }
+
+      if (data.region_updates?.length) {
+        const match = data.region_updates.find((r) => r.region_id === regionRef.current.region_id);
+        if (match) {
+          // Calculate resource deltas
+          const prevLabor = pending.regionUpdate?.pool_labor ?? regionRef.current.pool_labor;
+          const prevMaterials = pending.regionUpdate?.pool_materials ?? regionRef.current.pool_materials;
+          const laborDelta = match.pool_labor - prevLabor;
+          const materialDelta = match.pool_materials - prevMaterials;
+          if (laborDelta !== 0) {
+            pending.resourceDeltas.push({ type: "labor", delta: laborDelta, source: "Daily ops", ts: Date.now() });
+          }
+          if (materialDelta !== 0) {
+            pending.resourceDeltas.push({ type: "materials", delta: materialDelta, source: "Daily ops", ts: Date.now() });
+          }
+          pending.regionUpdate = match;
+          pending.dirty = true;
+        }
+      }
+
+      break;
     }
+    case "feed_item": {
+      const item = payload.data as FeedItem;
+      window.dispatchEvent(new CustomEvent("nightfall:feed_item", { detail: item }));
+      break;
+    }
+    case "resource_transfer": {
+      const transfer = payload.data as ResourceTransferPayload;
+      if (transfer.region_id !== regionRef.current.region_id) {
+        break;
+      }
+      window.dispatchEvent(new CustomEvent("nightfall:resource_transfer", { detail: transfer }));
+      break;
+    }
+    case "feature_delta": {
+      const delta = payload.data as { gers_id: string; health: number; status: string };
+      pending.featureUpdates.set(delta.gers_id, delta);
+      pending.dirty = true;
+      break;
+    }
+    case "task_delta": {
+      const delta = payload.data as {
+        task_id: string;
+        status: string;
+        priority_score: number;
+        vote_score?: number;
+        cost_labor?: number;
+        cost_materials?: number;
+        duration_s?: number;
+        repair_amount?: number;
+        task_type?: string;
+        target_gers_id?: string;
+        region_id?: string;
+      };
 
-    // Mark as processing
-    eventProcessingRef.current = true;
-
-    try {
-      setLastEvent(`${payload.event} @ ${new Date().toLocaleTimeString()}`);
-
-      switch (payload.event) {
-      case "phase_change":
-        setCycle((prev) => {
-          const incoming = payload.data as Partial<CycleState>;
-          return {
-            ...prev,
-            ...incoming,
-            phase_progress: incoming.phase_progress ?? prev.phase_progress,
-            lastUpdated: Date.now() // Always set timestamp to force re-render
-          };
+      // Check if this task just completed
+      const prevStatus = prevTasksRef.current.get(delta.task_id);
+      if (delta.status === 'done' && prevStatus && prevStatus !== 'done') {
+        // Task just completed - show toast and trigger animation
+        toast.success("Repair Complete!", {
+          description: `Road segment restored to full health`,
+          duration: 4000
         });
-        break;
-      case "world_delta": {
-        const data = payload.data as {
-          rust_changed?: string[];
-          hex_updates?: { h3_index: string; rust_level: number }[];
-          regions_changed?: string[];
-          region_updates?: {
-            region_id: string;
-            pool_labor: number;
-            pool_materials: number;
-            rust_avg?: number | null;
-            health_avg?: number | null;
-          }[];
-        };
 
-        if (data.hex_updates?.length) {
-          setHexes((prev) => {
-            const map = new Map(prev.map((h) => [h.h3_index, h]));
-            for (const update of data.hex_updates ?? []) {
-              map.set(update.h3_index, { h3_index: update.h3_index, rust_level: update.rust_level });
-            }
-            return Array.from(map.values());
-          });
+        // Emit event for map animation
+        if (delta.target_gers_id) {
+          window.dispatchEvent(new CustomEvent("nightfall:task_completed", {
+            detail: { gers_id: delta.target_gers_id }
+          }));
         }
-
-        if (data.region_updates?.length) {
-          const match = data.region_updates.find((r) => r.region_id === regionRef.current.region_id);
-          if (match) {
-            setRegion((prev) => {
-              const laborDelta = match.pool_labor - prev.pool_labor;
-              const materialDelta = match.pool_materials - prev.pool_materials;
-              if (laborDelta !== 0) pushResourceDelta("labor", laborDelta, "Daily ops");
-              if (materialDelta !== 0) pushResourceDelta("materials", materialDelta, "Daily ops");
-              return {
-                ...prev,
-                pool_labor: match.pool_labor,
-                pool_materials: match.pool_materials,
-                stats: {
-                  ...prev.stats,
-                  rust_avg: match.rust_avg ?? prev.stats.rust_avg,
-                  health_avg: match.health_avg ?? prev.stats.health_avg
-                }
-              };
-            });
-          }
-        }
-
-        break;
       }
-      case "feed_item": {
-        const item = payload.data as FeedItem;
-        window.dispatchEvent(new CustomEvent("nightfall:feed_item", { detail: item }));
-        break;
-      }
-      case "resource_transfer": {
-        const transfer = payload.data as ResourceTransferPayload;
-        if (transfer.region_id !== regionRef.current.region_id) {
-          console.debug("Skipping transfer for other region", { 
-            transferRegion: transfer.region_id, 
-            currentRegion: regionRef.current.region_id 
-          });
-          break;
-        }
-        window.dispatchEvent(new CustomEvent("nightfall:resource_transfer", { detail: transfer }));
-        break;
-      }
-      case "feature_delta": {
-        const delta = payload.data as { gers_id: string; health: number; status: string };
-        setFeatures((prev) =>
-          prev.map((f) =>
-            f.gers_id === delta.gers_id
-              ? { ...f, health: delta.health, status: delta.status }
-              : f
-          )
-        );
-        break;
-      }
-      case "task_delta": {
-        const delta = payload.data as {
-          task_id: string;
-          status: string;
-          priority_score: number;
-          vote_score?: number;
-          cost_labor?: number;
-          cost_materials?: number;
-          duration_s?: number;
-          repair_amount?: number;
-          task_type?: string;
-          target_gers_id?: string;
-          region_id?: string;
-        };
 
-        // Check if this task just completed
-        const prevStatus = prevTasksRef.current.get(delta.task_id);
-        if (delta.status === 'done' && prevStatus && prevStatus !== 'done') {
-          // Task just completed - show toast and trigger animation
-          toast.success("Repair Complete!", {
-            description: `Road segment restored to full health`,
-            duration: 4000
-          });
-
-          // Emit event for map animation
-          if (delta.target_gers_id) {
-            window.dispatchEvent(new CustomEvent("nightfall:task_completed", {
-              detail: { gers_id: delta.target_gers_id }
-            }));
-          }
-        }
-
-        // Track status for next comparison
-        prevTasksRef.current.set(delta.task_id, delta.status);
-
-        setRegion((prev) => {
-          const taskExists = prev.tasks.some(t => t.task_id === delta.task_id);
-          if (taskExists) {
-            return {
-              ...prev,
-              tasks: prev.tasks.map(t =>
-                t.task_id === delta.task_id
-                  ? { ...t, ...delta }
-                  : t
-              ).filter(t => t.status !== 'done' && t.status !== 'expired')
-            };
-          }
-          if (delta.region_id && delta.target_gers_id) {
-            // New task - track it
-            prevTasksRef.current.set(delta.task_id, delta.status);
-            return {
-              ...prev,
-              tasks: [
-                ...prev.tasks,
-                {
-                  task_id: delta.task_id,
-                  status: delta.status,
-                  priority_score: delta.priority_score,
-                  vote_score: delta.vote_score ?? 0,
-                  cost_labor: delta.cost_labor ?? 0,
-                  cost_materials: delta.cost_materials ?? 0,
-                  duration_s: delta.duration_s ?? 0,
-                  repair_amount: delta.repair_amount ?? 0,
-                  task_type: delta.task_type ?? "unknown",
-                  target_gers_id: delta.target_gers_id,
-                  region_id: delta.region_id
-                }
-              ]
-            };
-          }
-          return prev;
-        });
-        break;
-      }
+      // Track status for next comparison
+      prevTasksRef.current.set(delta.task_id, delta.status);
+      pending.taskUpdates.set(delta.task_id, delta);
+      pending.dirty = true;
+      break;
     }
-    } finally {
-      // Always clear the processing flag
-      eventProcessingRef.current = false;
     }
-  }, [setCycle, setFeatures, setHexes, setRegion, pushResourceDelta]);
+  }, []);
 
   useEventStream(apiBaseUrl, handleEvent);
 
@@ -585,7 +632,7 @@ export default function Dashboard({
             <div className="flex flex-wrap items-center gap-3">
               <PhaseIndicator />
               <div className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-[10px] uppercase tracking-[0.4em] text-[color:var(--night-teal)]">
-                {lastEvent ? `Live: ${lastEvent}` : "Connecting..."}
+                {lastEventDisplay ? `Live: ${lastEventDisplay}` : "Connecting..."}
               </div>
             </div>
           </div>
