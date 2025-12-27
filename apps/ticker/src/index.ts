@@ -98,15 +98,15 @@ async function publishWorldDelta(
 }
 
 async function publishFeatureDeltas(client: PoolLike, deltas: FeatureDelta[]) {
-  for (const delta of deltas) {
-    await notifyEvent(client, "feature_delta", delta);
-  }
+  if (deltas.length === 0) return;
+  // Batch all feature deltas into a single event
+  await notifyEvent(client, "feature_delta", { features: deltas });
 }
 
 async function publishTaskDeltas(client: PoolLike, deltas: TaskDelta[]) {
-  for (const delta of deltas) {
-    await notifyEvent(client, "task_delta", delta);
-  }
+  if (deltas.length === 0) return;
+  // Batch all task deltas into a single event
+  await notifyEvent(client, "task_delta", { tasks: deltas });
 }
 
 async function publishResourceTransfers(client: PoolLike, transfers: ResourceTransfer[]) {

@@ -14,7 +14,7 @@ import {
 
 export type ResourcePackage = {
   id: string;
-  type: "labor" | "materials";
+  type: "food" | "equipment" | "energy" | "materials";
   path: Point[];
   progress: number; // 0-1
   startTime: number;

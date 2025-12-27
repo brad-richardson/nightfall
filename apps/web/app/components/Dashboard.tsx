@@ -411,13 +411,24 @@ export default function Dashboard({
       break;
     }
     case "feature_delta": {
-      const delta = payload.data as { gers_id: string; health: number; status: string };
-      pending.featureUpdates.set(delta.gers_id, delta);
+      type FeatureDelta = { gers_id: string; health: number; status: string };
+      const data = payload.data as
+        | FeatureDelta
+        | { features: FeatureDelta[] };
+
+      // Handle batched format
+      if ('features' in data) {
+        for (const delta of data.features) {
+          pending.featureUpdates.set(delta.gers_id, delta);
+        }
+      } else {
+        pending.featureUpdates.set(data.gers_id, data);
+      }
       pending.dirty = true;
       break;
     }
     case "task_delta": {
-      const delta = payload.data as {
+      type TaskDelta = {
         task_id: string;
         status: string;
         priority_score: number;
@@ -433,26 +444,39 @@ export default function Dashboard({
         region_id?: string;
       };
 
-      // Check if this task just completed
-      const prevStatus = prevTasksRef.current.get(delta.task_id);
-      if (delta.status === 'done' && prevStatus && prevStatus !== 'done') {
-        // Task just completed - show toast and trigger animation
-        toast.success("Repair Complete!", {
-          description: `Road segment restored to full health`,
-          duration: 4000
-        });
+      const data = payload.data as TaskDelta | { tasks: TaskDelta[] };
 
-        // Emit event for map animation
-        if (delta.target_gers_id) {
-          window.dispatchEvent(new CustomEvent("nightfall:task_completed", {
-            detail: { gers_id: delta.target_gers_id }
-          }));
+      const processTaskDelta = (delta: TaskDelta) => {
+        // Check if this task just completed
+        const prevStatus = prevTasksRef.current.get(delta.task_id);
+        if (delta.status === 'done' && prevStatus && prevStatus !== 'done') {
+          // Task just completed - show toast and trigger animation
+          toast.success("Repair Complete!", {
+            description: `Road segment restored to full health`,
+            duration: 4000
+          });
+
+          // Emit event for map animation
+          if (delta.target_gers_id) {
+            window.dispatchEvent(new CustomEvent("nightfall:task_completed", {
+              detail: { gers_id: delta.target_gers_id }
+            }));
+          }
         }
-      }
 
-      // Track status for next comparison
-      prevTasksRef.current.set(delta.task_id, delta.status);
-      pending.taskUpdates.set(delta.task_id, delta);
+        // Track status for next comparison
+        prevTasksRef.current.set(delta.task_id, delta.status);
+        pending.taskUpdates.set(delta.task_id, delta);
+      };
+
+      // Handle batched format
+      if ('tasks' in data) {
+        for (const delta of data.tasks) {
+          processTaskDelta(delta);
+        }
+      } else {
+        processTaskDelta(data);
+      }
       pending.dirty = true;
       break;
     }

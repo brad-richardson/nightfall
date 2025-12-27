@@ -88,7 +88,7 @@ const MATERIALS_CATEGORY_PATTERNS = [
 // Fallback applies to 1 in N buildings without matched categories
 // Lower = more aggressive fallback (more balanced resource distribution)
 const FALLBACK_RESOURCE_MOD = 2;
-const MAX_BUILDINGS_PER_HEX_PER_TYPE = 20;
+const MAX_BUILDINGS_PER_HEX_PER_TYPE = 10;
 
 export function normalizeCategories(raw: unknown) {
   if (!raw) {
