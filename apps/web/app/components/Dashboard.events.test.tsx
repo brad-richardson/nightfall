@@ -209,6 +209,31 @@ describe("Dashboard live events", () => {
     });
   });
 
+  it("sets lastUpdated timestamp on phase_change to force re-renders", async () => {
+    renderDashboard();
+    const handler = eventHandlers.at(-1)!;
+
+    const initialCycle = useStore.getState().cycle;
+    const initialTimestamp = initialCycle.lastUpdated;
+
+    // Wait a bit to ensure different timestamp
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    await act(async () => {
+      handler({
+        event: "phase_change",
+        data: { phase: "dusk", next_phase: "night", next_phase_in_seconds: 60, phase_progress: 0.3 }
+      });
+    });
+
+    await waitFor(() => {
+      const cycle = useStore.getState().cycle;
+      expect(cycle.phase).toBe("dusk");
+      expect(cycle.lastUpdated).toBeDefined();
+      expect(cycle.lastUpdated).toBeGreaterThan(initialTimestamp ?? 0);
+    });
+  });
+
   it("renders map overlays inside the map container", () => {
     renderDashboard();
 

@@ -16,10 +16,13 @@ This document contains a prioritized list of issues found in the codebase, inclu
 
 **Fix Applied:**
 - ✅ Added reconnection logic in `createDbEventStream` when the PostgreSQL client disconnects or errors
-- ✅ Implemented 30-second heartbeat with `SELECT 1` to detect stale connections
+- ✅ Implemented 30-second heartbeat with `SELECT 1` to detect stale connections (skips if already reconnecting)
 - ✅ Added cleanup function that properly clears `listening` flag and releases resources
 - ✅ Added `end` event handler to trigger reconnection on connection loss
-- ✅ Exponential backoff for reconnection attempts (5 seconds)
+- ✅ Exponential backoff for reconnection attempts (2^n * 1000ms, capped at 30 seconds)
+- ✅ Reconnection guard to prevent concurrent reconnection attempts
+- ✅ Maximum retry limit of 10 attempts to prevent infinite reconnection loops
+- ✅ Resets retry counter on successful reconnection
 
 ### 1.2 Rust Spread Lost Updates (Race Condition) ✅ FIXED
 **Location:** `apps/ticker/src/rust.ts:145-159`
@@ -38,7 +41,8 @@ This document contains a prioritized list of issues found in the codebase, inclu
 **Fix Applied:**
 - ✅ Changed `JOIN feature_state` to `LEFT JOIN feature_state` to handle missing feature state rows
 - ✅ Added `COALESCE(fs.health, 100)` to handle null health values gracefully
-- ✅ Added fallback query to fetch task details if UPDATE doesn't return rows
+- ✅ Added fallback query to fetch task details if UPDATE doesn't return rows (within transaction boundary)
+- ✅ Moved fallback query before COMMIT to maintain transaction integrity
 - ✅ Ensured notification is always sent after successful vote recording
 
 ### 1.4 Cycle Visuals Get Stuck ✅ FIXED

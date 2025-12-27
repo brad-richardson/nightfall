@@ -1226,12 +1226,10 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         [taskId, voteScore]
       );
 
-      await pool.query("COMMIT");
-
-      // Always send notification after successful vote, even if task delta is empty
-      const taskDelta = updatedTask.rows[0];
+      // Ensure we have task data to send in notification
+      let taskDelta = updatedTask.rows[0];
       if (!taskDelta) {
-        // Fallback: fetch task details if UPDATE didn't return rows
+        // Fallback: fetch task details if UPDATE didn't return rows (before COMMIT to stay in transaction)
         const fallbackTask = await pool.query<{
           task_id: string;
           status: string;
@@ -1250,17 +1248,17 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
            FROM tasks WHERE task_id = $1`,
           [taskId]
         );
-        if (fallbackTask.rows[0]) {
-          await pool.query("SELECT pg_notify('task_delta', $1)", [
-            JSON.stringify(fallbackTask.rows[0])
-          ]);
-        }
-        return { ok: true, new_vote_score: voteScore, priority_score: fallbackTask.rows[0]?.priority_score ?? null };
+        taskDelta = fallbackTask.rows[0];
       }
 
-      await pool.query("SELECT pg_notify('task_delta', $1)", [
-        JSON.stringify(taskDelta)
-      ]);
+      await pool.query("COMMIT");
+
+      // Send notification after successful commit if we have task data
+      if (taskDelta) {
+        await pool.query("SELECT pg_notify('task_delta', $1)", [
+          JSON.stringify(taskDelta)
+        ]);
+      }
 
       return { ok: true, new_vote_score: voteScore, priority_score: taskDelta?.priority_score ?? null };
     } catch (error) {

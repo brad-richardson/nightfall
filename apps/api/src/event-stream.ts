@@ -37,6 +37,9 @@ export function createDbEventStream(
   let listening = false;
   let reconnectTimeout: NodeJS.Timeout | null = null;
   let heartbeatInterval: NodeJS.Timeout | null = null;
+  let isReconnecting = false;
+  let reconnectAttempts = 0;
+  const MAX_RECONNECT_ATTEMPTS = 10;
 
   async function cleanup() {
     if (heartbeatInterval) {
@@ -60,19 +63,37 @@ export function createDbEventStream(
   }
 
   async function reconnect() {
-    logger.error("attempting to reconnect event stream");
+    // Guard against concurrent reconnection attempts
+    if (isReconnecting) {
+      return;
+    }
+
+    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      logger.error("max reconnection attempts reached, giving up");
+      isReconnecting = false;
+      return;
+    }
+
+    isReconnecting = true;
+    logger.error({ attempt: reconnectAttempts + 1 }, "attempting to reconnect event stream");
     await cleanup();
 
-    // Use exponential backoff for reconnection
+    // Implement exponential backoff: 2^n * 1000ms, capped at 30 seconds
+    const delay = Math.min(Math.pow(2, reconnectAttempts) * 1000, 30000);
+    reconnectAttempts++;
+
     reconnectTimeout = setTimeout(async () => {
       try {
         await start();
+        reconnectAttempts = 0; // Reset on successful reconnection
+        isReconnecting = false;
       } catch (error) {
-        logger.error({ err: error }, "failed to reconnect event stream");
-        // Try again after delay
+        logger.error({ err: error, attempt: reconnectAttempts }, "failed to reconnect event stream");
+        isReconnecting = false;
+        // Try again with next exponential backoff
         reconnect();
       }
-    }, 5000);
+    }, delay);
   }
 
   async function start() {
@@ -117,7 +138,7 @@ export function createDbEventStream(
 
     // Set up heartbeat to detect stale connections
     heartbeatInterval = setInterval(async () => {
-      if (client) {
+      if (client && !isReconnecting) {
         try {
           await client.query("SELECT 1");
         } catch (error) {
