@@ -216,7 +216,9 @@ async function runTick(client: PoolLike) {
     tasks_completed: completionResult.taskDeltas.length,
     lamplighter_activities: lamplighterResult.regionActivities,
     lamplighter_contributions: lamplighterResult.contributions,
-    lamplighter_votes: lamplighterResult.votes
+    lamplighter_votes: lamplighterResult.votes,
+    lamplighter_warnings: lamplighterResult.warnings,
+    lamplighter_observations: lamplighterResult.observations
   }, "tick stats");
 }
 

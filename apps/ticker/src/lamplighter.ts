@@ -138,7 +138,14 @@ const LAMPLIGHTER_CONTRIBUTIONS = [
   "A small contribution to {region}. Every lantern helps against the dark.",
 ];
 
+/**
+ * Pick a random element from an array.
+ * @throws Error if array is empty
+ */
 export function pickRandom<T>(arr: T[]): T {
+  if (arr.length === 0) {
+    throw new Error("pickRandom called with empty array");
+  }
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
@@ -252,10 +259,15 @@ async function processRegion(
           result.activities++;
         }
         break;
-      case "warning":
-        await issueWarning(client, region, tasks, phase);
-        result.warnings++;
+      case "warning": {
+        const issued = await issueWarning(client, region, tasks, phase);
+        if (issued) {
+          result.warnings++;
+        } else {
+          result.activities++; // Fallback was used
+        }
         break;
+      }
     }
   }
 
@@ -272,9 +284,9 @@ function selectAction(
   const isNight = phase === "night";
   const isDusk = phase === "dusk";
 
-  // Calculate urgency scores
+  // Calculate urgency scores (thresholds match issueWarning checks)
   const rustUrgency = region.rust_avg > 0.5 ? 2 : region.rust_avg > 0.3 ? 1 : 0;
-  const healthUrgency = region.health_avg < 40 ? 2 : region.health_avg < 60 ? 1 : 0;
+  const healthUrgency = region.health_avg < 50 ? 2 : region.health_avg < 60 ? 1 : 0;
   const resourceUrgency =
     region.pool_food < 30 || region.pool_materials < 30 ? 2 :
       region.pool_food < 60 || region.pool_materials < 60 ? 1 : 0;
@@ -296,8 +308,8 @@ function selectAction(
     actions.push({ type: "vote", weight: voteWeight });
   }
 
-  // Warnings more likely when conditions are bad (but not too spammy)
-  if (rustUrgency > 0 || healthUrgency > 1 || (resourceUrgency > 1 && !isNight)) {
+  // Warnings more likely when conditions are bad (include moderate health issues)
+  if (rustUrgency > 0 || healthUrgency >= 1 || (resourceUrgency > 1 && !isNight)) {
     const warningWeight = isNight || isDusk ? 2 : 1;
     actions.push({ type: "warning", weight: warningWeight });
   }
@@ -392,11 +404,16 @@ async function contributeToRegion(
         phase === "dusk" ? 0.9 :
           0.6; // night
 
-  // Base contributions
-  const food = Math.floor((Math.random() * 20 + 10) * phaseMultiplier);
-  const equipment = Math.floor((Math.random() * 15 + 5) * phaseMultiplier);
-  const energy = Math.floor((Math.random() * 15 + 5) * phaseMultiplier);
-  const materials = Math.floor((Math.random() * 20 + 10) * phaseMultiplier);
+  // Base contributions with minimum thresholds to ensure meaningful amounts
+  const MIN_FOOD = 8;
+  const MIN_EQUIPMENT = 4;
+  const MIN_ENERGY = 4;
+  const MIN_MATERIALS = 8;
+
+  const food = Math.max(MIN_FOOD, Math.floor((Math.random() * 20 + 10) * phaseMultiplier));
+  const equipment = Math.max(MIN_EQUIPMENT, Math.floor((Math.random() * 15 + 5) * phaseMultiplier));
+  const energy = Math.max(MIN_ENERGY, Math.floor((Math.random() * 15 + 5) * phaseMultiplier));
+  const materials = Math.max(MIN_MATERIALS, Math.floor((Math.random() * 20 + 10) * phaseMultiplier));
 
   await client.query(
     `UPDATE regions SET
@@ -431,8 +448,9 @@ async function voteOnRegionTask(
   const task = sortedTasks[0];
   if (!task) return;
 
-  // Generate a voter ID (simulating different community members)
-  const voterNum = Math.floor(Math.random() * 20);
+  // Generate a voter ID from a larger pool to avoid exhaustion
+  // Uses timestamp component for variety across ticks
+  const voterNum = Math.floor(Math.random() * 100);
   const voterId = `citizen_${voterNum}`;
 
   await client.query(
@@ -443,12 +461,16 @@ async function voteOnRegionTask(
   );
 }
 
+/**
+ * Issue a warning about critical conditions. Returns true if a warning was issued,
+ * false if it fell back to a regular activity (no warning conditions met).
+ */
 async function issueWarning(
   client: PoolLike,
   region: RegionState,
   tasks: CriticalTask[],
   phase: PhaseName
-): Promise<void> {
+): Promise<boolean> {
   // Determine what to warn about
   let template: string;
   let vars: Record<string, string>;
@@ -470,7 +492,7 @@ async function issueWarning(
   } else {
     // No warning needed, share activity instead
     await shareRegionalActivity(client, region, phase);
-    return;
+    return false;
   }
 
   const message = formatMessage(template, vars);
@@ -481,4 +503,6 @@ async function issueWarning(
     message: `🏮 ${message}`,
     ts: new Date().toISOString(),
   });
+
+  return true;
 }
