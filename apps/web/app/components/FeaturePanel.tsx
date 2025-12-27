@@ -50,19 +50,28 @@ export default function FeaturePanel({ onContribute, onVote, activeTasks, canCon
     return () => window.removeEventListener("nightfall:feature_selected", handleSelection);
   }, []);
 
-  useLayoutEffect(() => {
+  // Calculate panel position based on click and viewport
+  const calculatePosition = React.useCallback(() => {
     if (!selected?.position || !panelRef.current) return;
 
     const { x: clickX, y: clickY } = selected.position;
     const panelHeight = panelRef.current.offsetHeight || 300;
-    
+
+    // Get current viewport dimensions
+    const vWidth = window.innerWidth;
+    const vHeight = window.innerHeight;
+
+    // On mobile (< 768px), center the panel horizontally near the bottom
+    if (vWidth < 768) {
+      const x = Math.max(PADDING, (vWidth - PANEL_WIDTH) / 2);
+      const y = Math.min(vHeight - panelHeight - 100, vHeight * 0.4); // Upper portion of screen
+      setPanelPos({ x, y });
+      return;
+    }
+
     // Default placement: to the right and centered vertically relative to click
     let x = clickX + 24;
     let y = clickY - panelHeight / 2;
-
-    // Viewport clamping
-    const vWidth = window.innerWidth;
-    const vHeight = window.innerHeight;
 
     // If too far right, place to the left of click
     if (x + PANEL_WIDTH + PADDING > vWidth) {
@@ -71,12 +80,34 @@ export default function FeaturePanel({ onContribute, onVote, activeTasks, canCon
 
     // Horizontal bounds
     x = Math.max(PADDING, Math.min(x, vWidth - PANEL_WIDTH - PADDING));
-    
-    // Vertical bounds
-    y = Math.max(PADDING + 80, Math.min(y, vHeight - panelHeight - PADDING - 40));
+
+    // Vertical bounds (account for header and footer areas)
+    y = Math.max(PADDING + 80, Math.min(y, vHeight - panelHeight - PADDING - 60));
 
     setPanelPos({ x, y });
   }, [selected]);
+
+  // Initial position calculation
+  useLayoutEffect(() => {
+    calculatePosition();
+  }, [calculatePosition]);
+
+  // Reposition on resize/orientation change
+  useEffect(() => {
+    if (!selected) return;
+
+    const handleResize = () => {
+      calculatePosition();
+    };
+
+    window.addEventListener("resize", handleResize);
+    window.addEventListener("orientationchange", handleResize);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      window.removeEventListener("orientationchange", handleResize);
+    };
+  }, [selected, calculatePosition]);
 
   const selectedDetails = useMemo(() => {
     if (!selected) return null;

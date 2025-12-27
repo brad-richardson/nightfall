@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyServerOptions } from "fastify";
 import Fastify from "fastify";
 import { createHmac, timingSafeEqual } from "crypto";
+import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import { getConfig } from "./config";
@@ -287,7 +288,17 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   const config = getConfig();
   let sseClients = 0;
 
-  app.register(helmet);
+  // TODO: Configure proper CORS origins for production (front-end domain)
+  // TODO: Configure proper cache-control headers for production
+  app.register(cors, {
+    origin: true, // Allow all origins for now
+    credentials: true,
+  });
+  app.register(helmet, {
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    crossOriginOpenerPolicy: { policy: "unsafe-none" },
+    contentSecurityPolicy: false, // Disable CSP for API
+  });
   app.register(rateLimit, {
     global: true,
     max: config.RATE_LIMIT_MAX,

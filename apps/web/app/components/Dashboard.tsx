@@ -13,9 +13,11 @@ import RegionalHealthRing from "./RegionalHealthRing";
 import { MapOverlay } from "./MapOverlay";
 import { useEventStream, type EventPayload } from "../hooks/useEventStream";
 import { useStore, type Region, type Feature, type Hex, type CycleState } from "../store";
-import { BAR_HARBOR_DEMO_BBOX, type Bbox } from "@nightfall/config";
+import { BAR_HARBOR_DEMO_BBOX } from "@nightfall/config";
 import { fetchWithRetry } from "../lib/retry";
 import { formatNumber, formatPercent } from "../lib/formatters";
+import { ResourcePoolsPanel } from "./sidebar/ResourcePoolsPanel";
+import { RegionHealthPanel } from "./sidebar/RegionHealthPanel";
 
 type ResourceDelta = {
   type: "labor" | "materials";
@@ -115,25 +117,6 @@ function MapPanel({
   );
 }
 
-function getBoundaryBbox(boundary: Region["boundary"] | null): Bbox | null {
-  if (!boundary) return null;
-  const coords = boundary.type === "Polygon" ? boundary.coordinates.flat() : boundary.coordinates.flat(2);
-  if (coords.length === 0) return null;
-
-  let xmin = Number.POSITIVE_INFINITY;
-  let ymin = Number.POSITIVE_INFINITY;
-  let xmax = Number.NEGATIVE_INFINITY;
-  let ymax = Number.NEGATIVE_INFINITY;
-
-  for (const [lon, lat] of coords) {
-    xmin = Math.min(xmin, lon);
-    ymin = Math.min(ymin, lat);
-    xmax = Math.max(xmax, lon);
-    ymax = Math.max(ymax, lat);
-  }
-  return { xmin, ymin, xmax, ymax };
-}
-
 async function initializeSession(apiBaseUrl: string): Promise<{ clientId: string; token: string }> {
   let clientId = typeof window !== 'undefined' ? localStorage.getItem("nightfall_client_id") : null;
   if (!clientId) {
@@ -188,9 +171,13 @@ export default function Dashboard({
   const prevTasksRef = useRef<Map<string, string>>(new Map());
   const eventProcessingRef = useRef(false);
 
-  // Hydrate store
-  useEffect(() => {
-    useStore.setState({ 
+  // Hydrate store on mount - use ref to track if initial hydration is done
+  const isHydratedRef = useRef(false);
+
+  // Synchronous initial hydration (runs before first render completes)
+  if (!isHydratedRef.current) {
+    isHydratedRef.current = true;
+    useStore.setState({
       region: initialRegion,
       features: initialFeatures,
       hexes: initialHexes,
@@ -198,75 +185,13 @@ export default function Dashboard({
       availableRegions,
       isDemoMode
     });
-  }, [initialRegion, initialFeatures, initialHexes, initialCycle, availableRegions, isDemoMode]);
+  }
 
   useEffect(() => {
     initializeSession(apiBaseUrl).then((authData) => {
       setAuth(authData);
     });
   }, [apiBaseUrl, setAuth]);
-
-  const fetchRegionData = useCallback(async (regionId: string): Promise<Region | null> => {
-    try {
-      const res = await fetchWithRetry(
-        `${apiBaseUrl}/api/region/${regionId}`,
-        { cache: "no-store" },
-        FETCH_RETRY_OPTIONS
-      );
-      if (!res.ok) return null;
-      return (await res.json()) as Region;
-    } catch {
-      return null;
-    }
-  }, [apiBaseUrl]);
-
-  const fetchFeaturesInBbox = useCallback(async (bbox: Bbox): Promise<Feature[]> => {
-    try {
-      const bboxParam = `${bbox.xmin},${bbox.ymin},${bbox.xmax},${bbox.ymax}`;
-      const res = await fetchWithRetry(
-        `${apiBaseUrl}/api/features?bbox=${bboxParam}&types=road,building`,
-        { cache: "no-store" },
-        FETCH_RETRY_OPTIONS
-      );
-      if (!res.ok) return [];
-      const data = await res.json();
-      return data.features ?? [];
-    } catch {
-      return [];
-    }
-  }, [apiBaseUrl]);
-
-  const fetchHexesInBbox = useCallback(async (bbox: Bbox): Promise<Hex[]> => {
-    try {
-      const bboxParam = `${bbox.xmin},${bbox.ymin},${bbox.xmax},${bbox.ymax}`;
-      const res = await fetchWithRetry(
-        `${apiBaseUrl}/api/hexes?bbox=${bboxParam}`,
-        { cache: "no-store" },
-        FETCH_RETRY_OPTIONS
-      );
-      if (!res.ok) return [];
-      const data = await res.json();
-      return data.hexes ?? [];
-    } catch {
-      return [];
-    }
-  }, [apiBaseUrl]);
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const refreshRegionData = useCallback(async (regionId: string) => {
-    const regionData = await fetchRegionData(regionId);
-    if (!regionData) return;
-
-    const bbox = getBoundaryBbox(regionData.boundary) ?? BAR_HARBOR_DEMO_BBOX;
-    const [featureData, hexData] = await Promise.all([
-      fetchFeaturesInBbox(bbox),
-      fetchHexesInBbox(bbox)
-    ]);
-
-    setRegion(regionData);
-    setFeatures(featureData);
-    setHexes(hexData);
-  }, [fetchFeaturesInBbox, fetchHexesInBbox, fetchRegionData, setFeatures, setHexes, setRegion]);
 
   const pushResourceDelta = useCallback((type: "labor" | "materials", delta: number, source: string) => {
     if (delta === 0) return;
@@ -550,30 +475,14 @@ export default function Dashboard({
         <p className="text-xs uppercase tracking-[0.4em] text-[color:var(--night-ash)]">
           Resource Pools
         </p>
-        <div className="mt-4 space-y-4 text-sm text-[color:var(--night-ash)]">
-          <div className="space-y-1">
-            <div className="flex justify-between">
-              <span>Labor</span>
-              <span className="font-bold">{formatNumber(region.pool_labor)}</span>
-            </div>
-            <div className="h-1.5 w-full rounded-full bg-black/10 overflow-hidden">
-              <div className="h-full bg-[color:var(--night-teal)] shadow-[0_0_8px_var(--night-teal)] transition-all duration-500" style={{ width: `${Math.min(100, (region.pool_labor / 1000) * 100)}%` }} />
-            </div>
-          </div>
-          <div className="space-y-1">
-            <div className="flex justify-between">
-              <span>Materials</span>
-              <span className="font-bold">{formatNumber(region.pool_materials)}</span>
-            </div>
-            <div className="h-1.5 w-full rounded-full bg-black/10 overflow-hidden">
-              <div className="h-full bg-[color:var(--night-glow)] shadow-[0_0_8px_var(--night-glow)] transition-all duration-500" style={{ width: `${Math.min(100, (region.pool_materials / 1000) * 100)}%` }} />
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-4 text-[11px] text-[color:var(--night-ash)]">
-          <p className="font-semibold text-[color:var(--night-ink)]">Contributing buildings</p>
-          <p>Labor: {formatNumber(counts.laborBuildings)} • Materials: {formatNumber(counts.materialBuildings)}</p>
+        <div className="mt-4">
+          <ResourcePoolsPanel
+            poolLabor={region.pool_labor}
+            poolMaterials={region.pool_materials}
+            laborBuildings={counts.laborBuildings}
+            materialBuildings={counts.materialBuildings}
+            variant="light"
+          />
         </div>
       </div>
 
@@ -587,19 +496,12 @@ export default function Dashboard({
         <p className="text-xs uppercase tracking-[0.4em] text-[color:var(--night-ash)]">
           Region Health
         </p>
-        <div className="mt-4 space-y-3">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-[color:var(--night-ash)]">Avg Health</span>
-            <span className="font-semibold text-[color:var(--night-ink)]">
-              {formatPercent(region.stats.health_avg / 100)}
-            </span>
-          </div>
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-[color:var(--night-ash)]">Rust Level</span>
-            <span className="font-semibold text-[color:var(--night-ink)]">
-              {formatPercent(region.stats.rust_avg)}
-            </span>
-          </div>
+        <div className="mt-4">
+          <RegionHealthPanel
+            healthAvg={region.stats.health_avg}
+            rustAvg={region.stats.rust_avg}
+            variant="light"
+          />
         </div>
       </div>
     </>
@@ -690,35 +592,13 @@ export default function Dashboard({
 
           <MapOverlay position="top-right" className="!top-24 hidden w-72 flex-col gap-4 lg:flex">
             <MapPanel title="Resource Pools">
-              <div className="space-y-3 text-xs text-white/70">
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span>Labor</span>
-                    <span className="font-semibold text-white">{formatNumber(region.pool_labor)}</span>
-                  </div>
-                  <div className="h-1.5 w-full rounded-full bg-white/10">
-                    <div
-                      className="h-full rounded-full bg-[color:var(--night-teal)] shadow-[0_0_8px_var(--night-teal)] transition-all duration-500"
-                      style={{ width: `${Math.min(100, (region.pool_labor / 1000) * 100)}%` }}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span>Materials</span>
-                    <span className="font-semibold text-white">{formatNumber(region.pool_materials)}</span>
-                  </div>
-                  <div className="h-1.5 w-full rounded-full bg-white/10">
-                    <div
-                      className="h-full rounded-full bg-[color:var(--night-glow)] shadow-[0_0_8px_var(--night-glow)] transition-all duration-500"
-                      style={{ width: `${Math.min(100, (region.pool_materials / 1000) * 100)}%` }}
-                    />
-                  </div>
-                </div>
-              </div>
-              <div className="mt-3 text-[10px] text-white/50">
-                Buildings: {formatNumber(counts.laborBuildings)} Labor • {formatNumber(counts.materialBuildings)} Materials
-              </div>
+              <ResourcePoolsPanel
+                poolLabor={region.pool_labor}
+                poolMaterials={region.pool_materials}
+                laborBuildings={counts.laborBuildings}
+                materialBuildings={counts.materialBuildings}
+                variant="dark"
+              />
             </MapPanel>
 
             <MapPanel title="Region Health" className="flex flex-col items-center">
