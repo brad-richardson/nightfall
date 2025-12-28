@@ -448,6 +448,11 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   const config = getConfig();
   let sseClients = 0;
 
+  // Warn if admin secret is not configured (admin endpoints will return 401)
+  if (!config.ADMIN_SECRET) {
+    app.log.warn('ADMIN_SECRET not configured - all admin endpoints will return 401 Unauthorized');
+  }
+
   // CORS: Use allowlist in production, allow all in development
   const corsOrigin = parseAllowedOrigins(config.ALLOWED_ORIGINS);
   app.register(cors, {
