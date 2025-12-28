@@ -226,58 +226,57 @@ jobs:
             echo "Ensure the app is running and DATABASE_URL secret is set" >&2
             exit 1
           fi
-          # Extract the Postgres app name from the hostname (e.g., appname.flycast or appname.internal)
+
+          # Check if this is a Fly-internal hostname (.flycast or .internal)
           POSTGRES_HOST=$(echo "$FLY_DATABASE_URL" | sed -n 's|.*@\([^/:]*\):[0-9]*.*|\1|p')
           echo "Extracted Postgres hostname: $POSTGRES_HOST"
-          FLY_POSTGRES_APP=$(echo "$POSTGRES_HOST" | sed -e 's/\.flycast$//' -e 's/\.internal$//')
-          if [ -z "$FLY_POSTGRES_APP" ]; then
-            echo "::error::Failed to extract Postgres app name from DATABASE_URL"
-            exit 1
+
+          if echo "$POSTGRES_HOST" | grep -qE '\.(flycast|internal)$'; then
+            # Fly-internal address - need WireGuard to access
+            echo "Detected Fly internal hostname: $POSTGRES_HOST"
+            echo "USE_WIREGUARD=true" >> $GITHUB_ENV
+          else
+            # External database (Neon, Supabase, etc.) - connect directly
+            echo "Detected external database host: $POSTGRES_HOST"
+            echo "USE_WIREGUARD=false" >> $GITHUB_ENV
           fi
-          # Validate app name follows Fly naming conventions (lowercase alphanumeric with hyphens)
-          if ! echo "$FLY_POSTGRES_APP" | grep -qE '^[a-z][a-z0-9-]*$'; then
-            echo "::error::Extracted app name '$FLY_POSTGRES_APP' does not match Fly naming conventions"
-            exit 1
-          fi
-          echo "Detected Fly Postgres app: $FLY_POSTGRES_APP"
-          echo "FLY_POSTGRES_APP=$FLY_POSTGRES_APP" >> $GITHUB_ENV
-          # Modify to use localhost since we're connecting through flyctl proxy (force local port 5432)
-          DATABASE_URL=$(echo "$FLY_DATABASE_URL" | sed 's/@[^/:]*:[0-9][0-9]*/@localhost:5432/')
-          echo "::add-mask::$DATABASE_URL"
-          echo "DATABASE_URL=$DATABASE_URL" >> $GITHUB_ENV
+
+          echo "DATABASE_URL=$FLY_DATABASE_URL" >> $GITHUB_ENV
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
-      - name: Re-ingest demo region via Fly proxy
+      - name: Setup WireGuard tunnel to Fly network
+        if: env.USE_WIREGUARD == 'true'
         run: |
-          # Start proxy in background using the detected Postgres app
-          flyctl proxy 5432 -a "$FLY_POSTGRES_APP" &
-          PROXY_PID=$!
+          # Install WireGuard
+          sudo apt-get update && sudo apt-get install -y wireguard
 
-          # Wait for proxy to be ready (up to 30 seconds)
-          echo "Waiting for Fly Postgres proxy to be ready..."
-          for i in {1..30}; do
-            if nc -z localhost 5432 2>/dev/null; then
-              echo "Proxy is ready on port 5432"
-              break
-            fi
-            if ! kill -0 $PROXY_PID 2>/dev/null; then
-              echo "::error::Fly proxy process died unexpectedly"
-              exit 1
-            fi
-            echo "Waiting for proxy... ($i/30)"
-            sleep 1
-          done
+          # Create WireGuard config from Fly
+          sudo mkdir -p /etc/wireguard
+          flyctl wireguard create personal github-actions-${{ github.run_id }} --region ewr 2>/dev/null | sudo tee /etc/wireguard/fly.conf > /dev/null || {
+            # Peer might already exist, try to reset and recreate
+            flyctl wireguard reset personal 2>/dev/null || true
+            flyctl wireguard create personal github-actions-${{ github.run_id }} --region ewr | sudo tee /etc/wireguard/fly.conf
+          }
 
-          if ! nc -z localhost 5432 2>/dev/null; then
-            echo "::error::Proxy failed to become ready after 30 seconds"
-            exit 1
-          fi
+          # Start WireGuard tunnel
+          sudo wg-quick up fly
 
-          # Run ingest with proxy still active
-          pnpm run ingest:demo
+          # Verify tunnel is working
+          echo "WireGuard tunnel established"
+          sudo wg show fly
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
-          # Cleanup
-          kill $PROXY_PID 2>/dev/null || true
+      - name: Re-ingest demo region
+        run: pnpm run ingest:demo
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Cleanup WireGuard tunnel
+        if: env.USE_WIREGUARD == 'true' && always()
+        run: |
+          sudo wg-quick down fly 2>/dev/null || true
+          flyctl wireguard remove personal github-actions-${{ github.run_id }} 2>/dev/null || true
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
