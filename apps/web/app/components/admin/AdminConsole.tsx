@@ -55,10 +55,7 @@ export function AdminConsole() {
     try {
       const response = await fetch("/api/admin/set-resources", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET || "dev-admin-secret-do-not-use-in-prod"}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           region_id: region.region_id,
           ...updates,
@@ -90,10 +87,7 @@ export function AdminConsole() {
     try {
       const response = await fetch("/api/admin/set-resources", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET || "dev-admin-secret-do-not-use-in-prod"}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           region_id: region.region_id,
           food: amount,
@@ -128,10 +122,7 @@ export function AdminConsole() {
     try {
       const response = await fetch("/api/admin/demo-mode", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET || "dev-admin-secret-do-not-use-in-prod"}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           enabled: newEnabled,
           tick_multiplier: parseFloat(tickMultiplier) || 1,
@@ -160,10 +151,7 @@ export function AdminConsole() {
     try {
       const response = await fetch("/api/admin/reset", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET || "dev-admin-secret-do-not-use-in-prod"}`,
-        },
+        headers: { "Content-Type": "application/json" },
       });
 
       const data = await response.json();
@@ -182,10 +170,7 @@ export function AdminConsole() {
     try {
       const response = await fetch("/api/admin/set-phase", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET || "dev-admin-secret-do-not-use-in-prod"}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phase }),
       });
 
@@ -206,10 +191,7 @@ export function AdminConsole() {
     try {
       const response = await fetch("/api/admin/set-road-health", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET || "dev-admin-secret-do-not-use-in-prod"}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           region_id: region.region_id,
           health: healthValue,
@@ -232,10 +214,7 @@ export function AdminConsole() {
     try {
       const response = await fetch("/api/admin/set-rust", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET || "dev-admin-secret-do-not-use-in-prod"}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           region_id: region.region_id,
           rust_level: level,
