@@ -131,8 +131,8 @@ export default function RegionalHealthRing({
         >
           {statusLabel}
         </text>
-        {/* Trend indicator */}
-        {scoreTrend && scoreTrend !== "stable" && (
+        {/* Trend indicator - only show when there's a meaningful change */}
+        {scoreTrend && scoreTrend !== "stable" && scoreChange != null && Math.abs(scoreChange) >= 1 && (
           <text
             x="70"
             y="92"
@@ -141,7 +141,7 @@ export default function RegionalHealthRing({
             fontSize="10"
             fill={trendColor}
           >
-            {trendIcon} {scoreChange != null && Math.abs(scoreChange) >= 1 ? (scoreChange > 0 ? "+" : "") + Math.round(scoreChange) : ""}
+            {trendIcon} {(scoreChange > 0 ? "+" : "") + Math.round(scoreChange)}
           </text>
         )}
       </svg>
@@ -162,7 +162,7 @@ export default function RegionalHealthRing({
           className="mt-1 text-center text-[10px] font-semibold"
           style={{ color: streakType === "improving" ? "#22c55e" : "#ef4444" }}
         >
-          {streakType === "improving" ? "\u{1F525}" : "\u26A0\uFE0F"} {streak} tick {streakType} streak
+          {streakType === "improving" ? "\u{1F525}" : "\u26A0\uFE0F"} {streak} {streak === 1 ? "tick" : "ticks"} {streakType} streak
         </div>
       )}
     </div>

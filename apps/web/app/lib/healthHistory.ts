@@ -41,10 +41,10 @@ export function recordHealthValues(health: number, rust: number, score: number):
 }
 
 /**
- * Get health history
+ * Get health history (returns a copy to prevent external mutations)
  */
 export function getHealthHistory(): HealthPoint[] {
-  return history;
+  return [...history];
 }
 
 /**
@@ -85,12 +85,14 @@ export function getHealthTrend(): {
   const healthChange = current.health - comparePoint.health;
   const rustChange = current.rust - comparePoint.rust;
 
-  // Determine trends (threshold of 1 for score, 0.5 for health/rust)
-  const scoreTrend = scoreChange > 1 ? "up" : scoreChange < -1 ? "down" : "stable";
+  // Determine trends - use consistent threshold of 1 for score changes
+  const SCORE_THRESHOLD = 1;
+  const scoreTrend = scoreChange > SCORE_THRESHOLD ? "up" : scoreChange < -SCORE_THRESHOLD ? "down" : "stable";
   const healthTrend = healthChange > 0.5 ? "up" : healthChange < -0.5 ? "down" : "stable";
   const rustTrend = rustChange > 0.01 ? "up" : rustChange < -0.01 ? "down" : "stable";
 
   // Calculate streak (consecutive ticks in same direction)
+  // Uses same threshold as scoreTrend for consistency
   let streak = 0;
   let streakType: "improving" | "declining" | "stable" = "stable";
 
@@ -98,11 +100,11 @@ export function getHealthTrend(): {
     // Check recent history for consistent improvement or decline
     for (let i = history.length - 1; i > 0; i--) {
       const diff = history[i].score - history[i - 1].score;
-      if (diff > 0.5) {
+      if (diff > SCORE_THRESHOLD) {
         if (streakType === "stable") streakType = "improving";
         if (streakType === "improving") streak++;
         else break;
-      } else if (diff < -0.5) {
+      } else if (diff < -SCORE_THRESHOLD) {
         if (streakType === "stable") streakType = "declining";
         if (streakType === "declining") streak++;
         else break;
@@ -111,6 +113,8 @@ export function getHealthTrend(): {
         break;
       }
     }
+    // Convert transition count to point count (3 points = 2 transitions = "3 tick streak")
+    if (streak > 0) streak++;
   }
 
   return {
