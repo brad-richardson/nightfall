@@ -158,3 +158,48 @@ export function calculateCityScore(healthAvg: number | null, rustAvg: number | n
   const rust = Math.max(0, Math.min(1, rustAvg ?? 0));
   return Math.round(health * (1 - rust));
 }
+
+/**
+ * City status thresholds and labels based on resilience score.
+ * Each status has a minimum score threshold and associated styling.
+ */
+export type CityStatus = "thriving" | "stable" | "struggling" | "critical" | "collapse";
+
+export type CityStatusConfig = {
+  label: string;
+  minScore: number;
+  color: string;
+};
+
+export const CITY_STATUS_THRESHOLDS: Record<CityStatus, CityStatusConfig> = {
+  thriving: { label: "Thriving", minScore: 80, color: "#22c55e" },   // green-500
+  stable: { label: "Stable", minScore: 60, color: "#84cc16" },       // lime-500
+  struggling: { label: "Struggling", minScore: 40, color: "#eab308" }, // yellow-500
+  critical: { label: "Critical", minScore: 20, color: "#f97316" },   // orange-500
+  collapse: { label: "Collapse", minScore: 0, color: "#ef4444" }     // red-500
+};
+
+/**
+ * Get city status based on resilience score
+ */
+export function getCityStatus(score: number): CityStatus {
+  if (score >= 80) return "thriving";
+  if (score >= 60) return "stable";
+  if (score >= 40) return "struggling";
+  if (score >= 20) return "critical";
+  return "collapse";
+}
+
+/**
+ * Get status label for a given score
+ */
+export function getCityStatusLabel(score: number): string {
+  return CITY_STATUS_THRESHOLDS[getCityStatus(score)].label;
+}
+
+/**
+ * Get status color for a given score
+ */
+export function getCityStatusColor(score: number): string {
+  return CITY_STATUS_THRESHOLDS[getCityStatus(score)].color;
+}

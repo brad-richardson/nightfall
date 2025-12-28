@@ -2,6 +2,7 @@
 
 import React from "react";
 import { getHealthColor, getRustColor } from "../lib/metricColors";
+import { getCityStatusLabel, getCityStatusColor } from "@nightfall/config";
 
 type TrendDirection = "up" | "down" | "stable";
 
@@ -18,29 +19,6 @@ type RegionalHealthRingProps = {
 };
 
 const clamp = (value: number) => Math.max(0, Math.min(100, value));
-
-/**
- * Get color for city resilience score.
- * Higher score = healthier city (green), lower = critical (red)
- */
-function getScoreColor(score: number): string {
-  if (score >= 80) return "#22c55e"; // green-500 - Thriving
-  if (score >= 60) return "#84cc16"; // lime-500 - Stable
-  if (score >= 40) return "#eab308"; // yellow-500 - Struggling
-  if (score >= 20) return "#f97316"; // orange-500 - Critical
-  return "#ef4444"; // red-500 - Collapse
-}
-
-/**
- * Get status label for score
- */
-function getStatusLabel(score: number): string {
-  if (score >= 80) return "Thriving";
-  if (score >= 60) return "Stable";
-  if (score >= 40) return "Struggling";
-  if (score >= 20) return "Critical";
-  return "Collapse";
-}
 
 export default function RegionalHealthRing({
   healthPercent,
@@ -69,8 +47,8 @@ export default function RegionalHealthRing({
 
   const healthColor = getHealthColor(safeHealth);
   const rustColor = getRustColor(safeRust);
-  const scoreColor = getScoreColor(safeScore);
-  const statusLabel = getStatusLabel(safeScore);
+  const scoreColor = getCityStatusColor(safeScore);
+  const statusLabel = getCityStatusLabel(safeScore);
 
   // Trend indicator styling
   const trendIcon = scoreTrend === "up" ? "\u2191" : scoreTrend === "down" ? "\u2193" : "";
