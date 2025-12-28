@@ -469,28 +469,28 @@ export function getHexLayers(): { fill: maplibregl.LayerSpecification; outline: 
 
 export function getCrewLayers(): maplibregl.LayerSpecification[] {
   return [
-    // Working glow effect
+    // Working glow effect - larger and more prominent
     {
       id: "game-crews-glow",
       type: "circle",
       source: "game-crews",
       filter: ["==", ["get", "status"], "working"],
       paint: {
-        "circle-radius": 20,
+        "circle-radius": 40,
         "circle-color": CREW_COLORS.working,
         "circle-blur": 1,
-        "circle-opacity": 0.5
+        "circle-opacity": 0.6
       }
     },
-    // Status ring (under icon)
+    // Status ring (under icon) - larger and thicker
     {
       id: "game-crews-ring",
       type: "circle",
       source: "game-crews",
       paint: {
-        "circle-radius": 14,
+        "circle-radius": 28,
         "circle-color": "transparent",
-        "circle-stroke-width": 3,
+        "circle-stroke-width": 4,
         "circle-stroke-color": [
           "match",
           ["get", "status"],
@@ -500,17 +500,17 @@ export function getCrewLayers(): maplibregl.LayerSpecification[] {
           "returning", CREW_COLORS.returning,
           "#ffffff"
         ],
-        "circle-stroke-opacity": 0.9
+        "circle-stroke-opacity": 0.95
       }
     },
-    // Construction vehicle icon
+    // Construction crew icon (vehicle with workers)
     {
       id: "game-crews-icon",
       type: "symbol",
       source: "game-crews",
       layout: {
         "icon-image": "construction-vehicle",
-        "icon-size": 0.75,
+        "icon-size": 1.0,
         "icon-allow-overlap": true,
         "icon-ignore-placement": true,
         // Rotate icon based on bearing when traveling
@@ -554,39 +554,39 @@ export function getCentralHubLayers(): maplibregl.LayerSpecification[] {
 
 export function getCrewPathLayers(): maplibregl.LayerSpecification[] {
   return [
-    // Path line (dashed trail)
+    // Path line (dashed trail) - slightly thicker for visibility
     {
       id: "game-crew-path-line",
       type: "line",
       source: "game-crew-paths",
       paint: {
         "line-color": "#f0ddc2",
-        "line-width": 2,
+        "line-width": 3,
         "line-dasharray": [2, 2],
-        "line-opacity": 0.5
+        "line-opacity": 0.6
       }
     },
-    // Moving crew ring
+    // Moving crew ring - larger to match stationary crew
     {
       id: "game-crew-path-ring",
       type: "circle",
       source: "game-crew-markers",
       paint: {
-        "circle-radius": 14,
+        "circle-radius": 28,
         "circle-color": "transparent",
-        "circle-stroke-width": 3,
+        "circle-stroke-width": 4,
         "circle-stroke-color": CREW_COLORS.traveling,
-        "circle-stroke-opacity": 0.9
+        "circle-stroke-opacity": 0.95
       }
     },
-    // Moving crew icon
+    // Moving crew icon - larger
     {
       id: "game-crew-path-icon",
       type: "symbol",
       source: "game-crew-markers",
       layout: {
         "icon-image": "construction-vehicle",
-        "icon-size": 0.75,
+        "icon-size": 1.0,
         "icon-allow-overlap": true,
         "icon-ignore-placement": true,
         "icon-rotate": ["coalesce", ["get", "bearing"], 0],
