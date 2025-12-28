@@ -411,15 +411,21 @@ async function contributeToRegion(
   region: RegionState,
   phase: PhaseName
 ): Promise<boolean> {
-  // How many buildings to activate scales with phase (more during day)
+  // Building activation counts are tuned for game balance:
+  // - Day (3): Peak productivity, workers most active, most buildings running
+  // - Dawn/Dusk (2): Transition periods with moderate activity
+  // - Night (1): Minimal activity, only essential operations continue
+  // These values create a natural rhythm matching the day/night cycle theme.
   const buildingsToActivate =
     phase === "day" ? 3 :
       phase === "dawn" ? 2 :
         phase === "dusk" ? 2 :
           1; // night
 
-  // Find random buildings in this region that generate resources and aren't already activated
-  // Prioritize buildings that haven't been activated recently
+  // Find random buildings in this region that generate resources and aren't already activated.
+  // Note: ORDER BY random() is acceptable here because the result set is already small
+  // after filtering by region, feature_type, and activation timestamp. Typical regions
+  // have ~10-50 resource-generating buildings, and we only select a handful.
   const buildingResult = await client.query<{
     gers_id: string;
     name: string | null;
@@ -464,7 +470,9 @@ async function contributeToRegion(
     [buildingIds]
   );
 
-  // Determine the message based on what resources will be generated
+  // Collect resource types for the activity message. Note: this shows what types
+  // of resources the buildings CAN generate, not exact amounts. Actual generation
+  // depends on rust levels and is handled by enqueueResourceTransfers in the ticker.
   const resourceTypes: string[] = [];
   for (const building of buildingResult.rows) {
     if (building.generates_food) resourceTypes.push("food");
