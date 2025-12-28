@@ -8,10 +8,11 @@ import PowerUp from "./PowerUp";
 import FreshCheck from "./FreshCheck";
 import GearUp from "./GearUp";
 import PatchJob from "./PatchJob";
+import SalvageRun from "./SalvageRun";
 import MinigameResults from "./MinigameResults";
 
 // Minigame types that have been implemented
-const IMPLEMENTED_MINIGAMES = ["kitchen_rush", "power_up", "fresh_check", "gear_up", "patch_job"] as const;
+const IMPLEMENTED_MINIGAMES = ["kitchen_rush", "power_up", "fresh_check", "gear_up", "patch_job", "salvage_run"] as const;
 
 type MinigameOverlayProps = {
   onClose: () => void;
@@ -261,6 +262,13 @@ export default function MinigameOverlay({ onClose }: MinigameOverlayProps) {
               )}
               {activeMinigame.minigame_type === "patch_job" && (
                 <PatchJob
+                  config={activeMinigame.config}
+                  difficulty={activeMinigame.difficulty}
+                  onComplete={handleGameComplete}
+                />
+              )}
+              {activeMinigame.minigame_type === "salvage_run" && (
+                <SalvageRun
                   config={activeMinigame.config}
                   difficulty={activeMinigame.difficulty}
                   onComplete={handleGameComplete}
