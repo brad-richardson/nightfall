@@ -822,42 +822,121 @@ async function updateLandRatios(
   }
 }
 
-async function pruneNonLandRoads(pgPool: Pool, regionId: string) {
+async function pruneNonLandFeatures(pgPool: Pool, regionId: string) {
   const client = await pgPool.connect();
   try {
     await client.query("BEGIN");
 
-    // Remove road-hex associations where hex has no land (land_ratio = 0)
+    // Remove feature-hex associations where hex has no land (land_ratio = 0)
     const removedAssociations = await client.query(
       `
       DELETE FROM world_feature_hex_cells wfhc
-      USING hex_cells h, world_features wf
+      USING hex_cells h
       WHERE wfhc.h3_index = h.h3_index
-        AND wfhc.gers_id = wf.gers_id
-        AND wf.feature_type = 'road'
         AND h.region_id = $1
         AND h.land_ratio = 0
       RETURNING wfhc.gers_id
       `,
       [regionId]
     );
-    console.log(`Removed ${removedAssociations.rowCount} road-hex associations for non-land hexes`);
+    console.log(`Removed ${removedAssociations.rowCount} feature-hex associations for non-land hexes`);
 
-    // Remove roads that no longer have any hex associations
-    const orphanedRoads = await client.query(
+    // Clear hub_building references for orphaned buildings
+    await client.query(
       `
-      DELETE FROM world_features wf
-      WHERE wf.region_id = $1
-        AND wf.feature_type = 'road'
+      UPDATE hex_cells h
+      SET hub_building_gers_id = NULL
+      WHERE h.region_id = $1
+        AND h.hub_building_gers_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM world_feature_hex_cells wfhc
+          WHERE wfhc.gers_id = h.hub_building_gers_id
+        )
+      `
+      , [regionId]
+    );
+
+    // Clear crew home_hub references for orphaned buildings
+    await client.query(
+      `
+      UPDATE crews c
+      SET home_hub_gers_id = NULL
+      FROM world_features wf
+      WHERE c.home_hub_gers_id = wf.gers_id
+        AND wf.region_id = $1
         AND NOT EXISTS (
           SELECT 1 FROM world_feature_hex_cells wfhc
           WHERE wfhc.gers_id = wf.gers_id
         )
-      RETURNING wf.gers_id
       `,
       [regionId]
     );
-    console.log(`Removed ${orphanedRoads.rowCount} roads with no land hex associations`);
+
+    // Delete resource_transfers referencing orphaned buildings
+    await client.query(
+      `
+      DELETE FROM resource_transfers rt
+      USING world_features wf
+      WHERE (rt.source_gers_id = wf.gers_id OR rt.hub_gers_id = wf.gers_id)
+        AND wf.region_id = $1
+        AND NOT EXISTS (
+          SELECT 1 FROM world_feature_hex_cells wfhc
+          WHERE wfhc.gers_id = wf.gers_id
+        )
+      `,
+      [regionId]
+    );
+
+    // Remove feature_state entries for features that no longer have any hex associations
+    const removedFeatureStates = await client.query(
+      `
+      DELETE FROM feature_state fs
+      USING world_features wf
+      WHERE fs.gers_id = wf.gers_id
+        AND wf.region_id = $1
+        AND NOT EXISTS (
+          SELECT 1 FROM world_feature_hex_cells wfhc
+          WHERE wfhc.gers_id = wf.gers_id
+        )
+      RETURNING fs.gers_id
+      `,
+      [regionId]
+    );
+    console.log(`Removed ${removedFeatureStates.rowCount} feature_state entries for orphaned features`);
+
+    // Remove tasks targeting features that no longer have any hex associations
+    const removedTasks = await client.query(
+      `
+      DELETE FROM tasks t
+      USING world_features wf
+      WHERE t.target_gers_id = wf.gers_id
+        AND wf.region_id = $1
+        AND NOT EXISTS (
+          SELECT 1 FROM world_feature_hex_cells wfhc
+          WHERE wfhc.gers_id = wf.gers_id
+        )
+      RETURNING t.task_id
+      `,
+      [regionId]
+    );
+    console.log(`Removed ${removedTasks.rowCount} tasks targeting orphaned features`);
+
+    // Remove features that no longer have any hex associations
+    const orphanedFeatures = await client.query(
+      `
+      DELETE FROM world_features wf
+      WHERE wf.region_id = $1
+        AND NOT EXISTS (
+          SELECT 1 FROM world_feature_hex_cells wfhc
+          WHERE wfhc.gers_id = wf.gers_id
+        )
+      RETURNING wf.gers_id, wf.feature_type
+      `,
+      [regionId]
+    );
+    const roadCount = orphanedFeatures.rows.filter(r => r.feature_type === 'road').length;
+    const buildingCount = orphanedFeatures.rows.filter(r => r.feature_type === 'building').length;
+    console.log(`Removed ${roadCount} roads and ${buildingCount} buildings with no land hex associations`);
 
     await client.query("COMMIT");
   } catch (error) {
@@ -1751,8 +1830,8 @@ async function main() {
     console.log("--- Land Ratio Update ---");
     await updateLandRatios(pgPool, region, dataDir, regionHexes);
 
-    console.log("--- Pruning Non-Land Roads ---");
-    await pruneNonLandRoads(pgPool, region.regionId);
+    console.log("--- Pruning Non-Land Features ---");
+    await pruneNonLandFeatures(pgPool, region.regionId);
 
     // Assign hub buildings per hex
     await assignHubBuildings(pgPool, region);
