@@ -18,7 +18,7 @@ CREATE TABLE score_events (
   event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   client_id TEXT NOT NULL REFERENCES players(client_id) ON DELETE CASCADE,
   event_type TEXT NOT NULL, -- 'contribution', 'vote', 'minigame', 'task_completion'
-  amount INT NOT NULL,
+  amount BIGINT NOT NULL,
   region_id TEXT REFERENCES regions(region_id),
   related_id TEXT, -- task_id, minigame_session_id, etc.
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()

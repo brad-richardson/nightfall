@@ -761,6 +761,11 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       return { ok: false, error: "client_id_required" };
     }
 
+    if (clientId.length > MAX_CLIENT_ID_LENGTH) {
+      reply.status(400);
+      return { ok: false, error: "client_id_too_long" };
+    }
+
     if (!authHeader || !verifyToken(clientId, authHeader)) {
       reply.status(401);
       return { ok: false, error: "unauthorized" };
@@ -801,9 +806,12 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
 
     const tierProgress = getTierProgress(scoreData.total_score);
 
-    // Get player's leaderboard position
+    // Get player's leaderboard position using same COALESCE logic as leaderboard endpoint
     const rankResult = await pool.query<{ rank: number }>(
-      `SELECT COUNT(*) + 1 AS rank FROM player_scores WHERE total_score > $1`,
+      `SELECT COUNT(*) + 1 AS rank
+       FROM players p
+       LEFT JOIN player_scores ps ON ps.client_id = p.client_id
+       WHERE COALESCE(ps.total_score, p.lifetime_contrib, 0) > $1`,
       [scoreData.total_score]
     );
     const rank = Number(rankResult.rows[0]?.rank ?? 1);
@@ -1710,7 +1718,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         remaining_energy: Math.max(0, remainingEnergy - allowedEnergy),
         remaining_materials: Math.max(0, remainingMaterials - allowedMaterials),
         transfers: transferResult.rows,
-        score_awarded: scoreResult?.newScore ? scoreAmount : 0,
+        score_awarded: scoreResult ? scoreAmount : 0,
         new_total_score: scoreResult?.newScore ?? null,
         new_tier: scoreResult?.tier ?? null
       };
@@ -2733,6 +2741,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       contribution_score: number;
       vote_score: number;
       minigame_score: number;
+      task_completion_bonus: number;
       home_region_id: string | null;
       last_seen: string;
     }>(
@@ -2743,6 +2752,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         COALESCE(ps.contribution_score, 0) AS contribution_score,
         COALESCE(ps.vote_score, 0) AS vote_score,
         COALESCE(ps.minigame_score, 0) AS minigame_score,
+        COALESCE(ps.task_completion_bonus, 0) AS task_completion_bonus,
         p.home_region_id,
         p.last_seen::text
       FROM players p
@@ -2773,7 +2783,8 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
           breakdown: {
             contribution: Number(row.contribution_score),
             vote: Number(row.vote_score),
-            minigame: Number(row.minigame_score)
+            minigame: Number(row.minigame_score),
+            taskCompletion: Number(row.task_completion_bonus)
           },
           homeRegionId: row.home_region_id,
           lastSeen: row.last_seen
