@@ -466,7 +466,12 @@ export default function Dashboard({
     regionRef.current = region;
   }, [region]);
 
-  // Refresh region state after reconnection or visibility change
+  // Track last SSE event time to detect stale connections
+  const lastSseEventRef = useRef<number>(Date.now());
+  const STALE_THRESHOLD_MS = 30000; // Consider stale if no events for 30 seconds
+  const POLL_INTERVAL_MS = 15000; // Check every 15 seconds
+
+  // Refresh region state - used as fallback when SSE is stale
   const refreshRegionState = useCallback(async () => {
     try {
       const res = await fetchWithRetry(
@@ -523,14 +528,32 @@ export default function Dashboard({
         }
       }
 
-      console.debug("[Dashboard] Region state refreshed after reconnection");
+      console.debug("[Dashboard] Region state refreshed via polling fallback");
     } catch (err) {
       console.error("[Dashboard] Error refreshing region state:", err);
     }
   }, [apiBaseUrl, setRegion, setFeatures, setHexes]);
 
+  // Periodic fallback: poll for state if SSE appears stale
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const timeSinceLastEvent = Date.now() - lastSseEventRef.current;
+      if (timeSinceLastEvent > STALE_THRESHOLD_MS) {
+        console.debug("[Dashboard] SSE stale, polling for state");
+        refreshRegionState();
+      }
+    }, POLL_INTERVAL_MS);
+
+    return () => clearInterval(interval);
+  }, [refreshRegionState]);
+
   const handleEvent = useCallback((payload: EventPayload) => {
     const pending = pendingUpdatesRef.current;
+
+    // Track SSE activity for stale detection (skip synthetic events)
+    if (payload.event !== "connected" && payload.event !== "reconnected") {
+      lastSseEventRef.current = Date.now();
+    }
 
     switch (payload.event) {
     case "reconnected":
