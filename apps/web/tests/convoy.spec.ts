@@ -17,7 +17,8 @@ test.describe("Resource Convoy Animation", () => {
     // Small delay for React to re-render with updated isLoaded state
     await page.waitForTimeout(100);
 
-    // Dispatch a resource transfer event with future timestamps
+    // Dispatch a resource transfer event with timestamps starting in the past
+    // to ensure the animation is already in progress
     const result = await page.evaluate(() => {
       const now = Date.now();
       const transfer = {
@@ -27,20 +28,20 @@ test.describe("Resource Convoy Animation", () => {
         hub_gers_id: null,
         resource_type: "materials",
         amount: 100,
-        depart_at: new Date(now).toISOString(),
-        arrive_at: new Date(now + 5000).toISOString(),
+        depart_at: new Date(now - 1000).toISOString(),
+        arrive_at: new Date(now + 10000).toISOString(),
         path_waypoints: [
-          { coord: [-68.21, 44.39], arrive_at: new Date(now).toISOString() },
-          { coord: [-68.22, 44.38], arrive_at: new Date(now + 2500).toISOString() },
-          { coord: [-68.23, 44.37], arrive_at: new Date(now + 5000).toISOString() }
+          { coord: [-68.21, 44.39], arrive_at: new Date(now - 1000).toISOString() },
+          { coord: [-68.22, 44.38], arrive_at: new Date(now + 5000).toISOString() },
+          { coord: [-68.23, 44.37], arrive_at: new Date(now + 10000).toISOString() }
         ]
       };
       window.dispatchEvent(new CustomEvent("nightfall:resource_transfer", { detail: transfer }));
       return { transferId: transfer.transfer_id };
     });
 
-    // Wait for animation frame to process
-    await page.waitForTimeout(500);
+    // Wait for animation loop to process and update GeoJSON source
+    await page.waitForTimeout(1000);
 
     // Check if the GeoJSON source has convoy features
     const featureCount = await page.evaluate(() => {
