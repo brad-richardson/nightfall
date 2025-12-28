@@ -49,6 +49,13 @@
   box-sizing: border-box;
 }
 
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 body {
   background-color: var(--night-sand);
   color: var(--night-ink);
