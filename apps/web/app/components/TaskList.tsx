@@ -213,13 +213,13 @@ export default function TaskList({ tasks, crews, features, userVotes, resourcePo
               ) : null}
             </div>
 
-            <div className="flex flex-wrap gap-1.5">
+            <div className="grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap">
               {filterOptions.map((filter) => (
                 <button
                   key={filter}
                   type="button"
                   onClick={() => setActiveFilter(filter)}
-                  className={`flex items-center gap-1.5 rounded-full border px-2 py-1 text-[9px] uppercase tracking-wider transition-colors ${
+                  className={`flex items-center justify-center gap-1 rounded-full border px-2 py-1.5 text-[9px] uppercase tracking-wider transition-colors sm:justify-start sm:gap-1.5 sm:py-1 ${
                     activeFilter === filter
                       ? "border-[color:var(--night-teal)] bg-[color:var(--night-teal)]/20 text-[color:var(--night-teal)]"
                       : "border-white/10 bg-black/20 text-white/50 hover:border-white/20 hover:text-white/70"
@@ -257,7 +257,7 @@ export default function TaskList({ tasks, crews, features, userVotes, resourcePo
         )}
       </div>
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-2 custom-scrollbar">
+      <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto pr-1 custom-scrollbar sm:space-y-3 sm:pr-2">
         {filteredTasks.length > 0 ? (
           filteredTasks.map((task) => {
             const assignedCrew = crewMap.get(task.task_id);
@@ -268,28 +268,28 @@ export default function TaskList({ tasks, crews, features, userVotes, resourcePo
             return (
               <div
                 key={task.task_id}
-                className={`group relative rounded-2xl border bg-white/5 p-4 transition-all hover:bg-white/[0.08] ${
+                className={`group relative rounded-xl border bg-white/5 p-3 transition-all hover:bg-white/[0.08] sm:rounded-2xl sm:p-4 ${
                   isAssigned
                     ? "border-[color:var(--night-teal)]/30"
                     : "border-white/5 hover:border-white/10"
                 }`}
               >
                 {isAssigned && (
-                  <div className="absolute -right-px -top-px overflow-hidden rounded-bl-xl rounded-tr-2xl bg-[color:var(--night-teal)]/20 px-3 py-1 text-[9px] font-bold uppercase tracking-wider text-[color:var(--night-teal)] backdrop-blur-sm">
-                    <span className="flex items-center gap-1.5">
-                      <Users className="h-3 w-3" />
-                      Crew Active
+                  <div className="absolute -right-px -top-px overflow-hidden rounded-bl-lg rounded-tr-xl bg-[color:var(--night-teal)]/20 px-2 py-0.5 text-[8px] font-bold uppercase tracking-wider text-[color:var(--night-teal)] backdrop-blur-sm sm:rounded-bl-xl sm:rounded-tr-2xl sm:px-3 sm:py-1 sm:text-[9px]">
+                    <span className="flex items-center gap-1">
+                      <Users className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                      <span className="hidden xs:inline">Crew</span> Active
                     </span>
                   </div>
                 )}
 
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
+                <div className="flex items-start justify-between gap-2 sm:gap-4">
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                       <p className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--night-teal)]">
                         {getTaskTitle(task)}
                       </p>
-                      <span className={`rounded-full border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${statusColor}`}>
+                      <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${statusColor}`}>
                         {formatLabel(task.status)}
                       </span>
                       <button
@@ -299,27 +299,27 @@ export default function TaskList({ tasks, crews, features, userVotes, resourcePo
                             detail: { gers_id: task.target_gers_id }
                           }));
                         }}
-                        className="rounded-full p-1 text-white/40 transition-colors hover:bg-white/10 hover:text-[color:var(--night-teal)]"
+                        className="shrink-0 rounded-full p-1 text-white/40 transition-colors hover:bg-white/10 hover:text-[color:var(--night-teal)]"
                         title="Fly to location"
                         aria-label="Fly to location on map"
                       >
                         <Navigation className="h-3 w-3" />
                       </button>
                     </div>
-                    <p className="text-xs font-medium text-white/60 line-clamp-1 font-mono">
+                    <p className="truncate text-xs font-medium text-white/60 font-mono">
                       ID: {task.target_gers_id.slice(0, 8)}
                     </p>
                   </div>
-                  <div className="text-right">
-                    <p className="text-[10px] uppercase tracking-tighter text-white/40">Priority</p>
+                  <div className="shrink-0 text-right">
+                    <p className="text-[9px] uppercase tracking-tighter text-white/40 sm:text-[10px]">Priority</p>
                     <p className="text-sm font-bold tabular-nums text-[color:var(--night-glow)]">
                       {Math.round(task.priority_score)}
                     </p>
                   </div>
                 </div>
 
-                <div className="mt-4 space-y-2">
-                  <div className="grid grid-cols-4 gap-1.5">
+                <div className="mt-3 space-y-1.5 sm:mt-4 sm:space-y-2">
+                  <div className="grid grid-cols-2 gap-1 sm:grid-cols-4 sm:gap-1.5">
                     <div className={`flex flex-col items-center rounded-lg py-1.5 ${insufficientResources.includes("food") ? "bg-red-500/10" : "bg-black/20"}`}>
                       <p className="text-[8px] uppercase" style={{ color: RESOURCE_COLORS.food.label }}>Food</p>
                       <p className="text-[10px] font-bold" style={{ color: insufficientResources.includes("food") ? RESOURCE_COLORS.food.insufficient : RESOURCE_COLORS.food.value }}>{task.cost_food}</p>
@@ -337,21 +337,21 @@ export default function TaskList({ tasks, crews, features, userVotes, resourcePo
                       <p className="text-[10px] font-bold" style={{ color: insufficientResources.includes("materials") ? RESOURCE_COLORS.materials.insufficient : RESOURCE_COLORS.materials.value }}>{task.cost_materials}</p>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <div className="flex items-center justify-center gap-2 rounded-lg bg-black/20 py-1.5">
+                  <div className="grid grid-cols-2 gap-1 sm:gap-1.5">
+                    <div className="flex items-center justify-center gap-1.5 rounded-lg bg-black/20 py-1.5 sm:gap-2">
                       <Clock className="h-3 w-3 text-white/30" />
                       <p className="text-[9px] uppercase text-white/40">Time</p>
                       <p className="text-[10px] font-bold text-white/70">{task.duration_s}s</p>
                     </div>
-                    <div className="flex items-center justify-center gap-2 rounded-lg bg-black/20 py-1.5">
+                    <div className="flex items-center justify-center gap-1.5 rounded-lg bg-black/20 py-1.5 sm:gap-2">
                       <AlertTriangle className="h-3 w-3 text-white/30" />
-                      <p className="text-[9px] uppercase text-white/40">Heals to</p>
-                      <p className="text-[10px] font-bold text-[color:var(--night-teal)]">100%</p>
+                      <p className="text-[9px] uppercase text-white/40">Repair</p>
+                      <p className="text-[10px] font-bold text-[color:var(--night-teal)]">+{task.repair_amount}</p>
                     </div>
                   </div>
                 </div>
 
-                <div className="mt-4 flex items-center justify-between border-t border-white/5 pt-3">
+                <div className="mt-3 flex items-center justify-between border-t border-white/5 pt-2.5 sm:mt-4 sm:pt-3">
                   {task.status !== "active" ? (
                     <VoteButton
                       taskId={task.task_id}
