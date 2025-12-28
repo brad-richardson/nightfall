@@ -154,6 +154,8 @@ export default function DemoMap({
     return map;
   }, [features]);
 
+  // Note: The database enforces one active/queued task per target_gers_id via
+  // unique constraint, so this Map won't lose data in practice
   const tasksByGersId = useMemo(() => {
     const map = new Map<string, typeof tasks[0]>();
     for (const t of tasks) {

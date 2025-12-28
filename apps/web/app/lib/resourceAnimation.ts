@@ -134,16 +134,22 @@ export type CachedPath = {
   totalLength: number;
 };
 
-// WeakMap-style cache using path array reference as key
+// LRU cache for path segment data - uses Map insertion order for LRU tracking
 const pathCache = new Map<Point[], CachedPath>();
 const MAX_PATH_CACHE_SIZE = 100;
 
 /**
  * Get or compute cached path data (segment lengths and total length)
+ * Uses LRU eviction: accessed entries are moved to end, oldest entries evicted first
  */
 function getCachedPathData(path: Point[]): CachedPath {
   const cached = pathCache.get(path);
-  if (cached) return cached;
+  if (cached) {
+    // Move to end for LRU tracking (delete + re-insert)
+    pathCache.delete(path);
+    pathCache.set(path, cached);
+    return cached;
+  }
 
   // Compute segment lengths
   let totalLength = 0;
@@ -156,7 +162,7 @@ function getCachedPathData(path: Point[]): CachedPath {
 
   const data: CachedPath = { path, segmentLengths, totalLength };
 
-  // Limit cache size to prevent memory leaks
+  // LRU eviction: remove oldest (first) entry when at capacity
   if (pathCache.size >= MAX_PATH_CACHE_SIZE) {
     const firstKey = pathCache.keys().next().value;
     if (firstKey) pathCache.delete(firstKey);
