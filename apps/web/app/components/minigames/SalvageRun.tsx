@@ -13,71 +13,118 @@ type SalvageRunProps = {
   onComplete: (score: number) => void;
 };
 
-type GamePhase = "ready" | "scanning" | "result" | "complete";
+type GamePhase = "ready" | "playing" | "feedback" | "complete";
 
-// Zone accuracy thresholds (distance from center of clean zone as % of zone width)
-const PERFECT_THRESHOLD = 0.2; // Within 20% of center = perfect
-const GREAT_THRESHOLD = 0.5; // Within 50% = great
-const GOOD_THRESHOLD = 0.8; // Within 80% = good
+type SalvageItem = {
+  id: number;
+  name: string;
+  emoji: string;
+  isValuable: boolean;
+  description: string;
+};
+
+// Pool of salvage items - valuable ones to keep, junk to discard
+const VALUABLE_ITEMS: Omit<SalvageItem, "id" | "isValuable">[] = [
+  { name: "Copper Pipes", emoji: "🔧", description: "Clean, reusable pipes" },
+  { name: "Steel Beams", emoji: "🏗️", description: "Solid structural steel" },
+  { name: "Circuit Board", emoji: "💾", description: "Working electronics" },
+  { name: "Solar Panel", emoji: "☀️", description: "Functional power source" },
+  { name: "Clean Water Tank", emoji: "💧", description: "Intact storage" },
+  { name: "Generator Parts", emoji: "⚡", description: "Usable components" },
+  { name: "Tool Set", emoji: "🧰", description: "Quality hand tools" },
+  { name: "Metal Sheets", emoji: "🛡️", description: "Unbent metal" },
+  { name: "Wire Spools", emoji: "🔌", description: "Copper wiring" },
+  { name: "Gears", emoji: "⚙️", description: "Precision parts" },
+];
+
+const JUNK_ITEMS: Omit<SalvageItem, "id" | "isValuable">[] = [
+  { name: "Rusted Pipes", emoji: "🪠", description: "Corroded beyond use" },
+  { name: "Cracked Glass", emoji: "🪟", description: "Shattered fragments" },
+  { name: "Burnt Wires", emoji: "💥", description: "Fire damaged" },
+  { name: "Moldy Wood", emoji: "🪵", description: "Rotting timber" },
+  { name: "Leaky Container", emoji: "🛢️", description: "Holes everywhere" },
+  { name: "Broken Screen", emoji: "📺", description: "Smashed display" },
+  { name: "Contaminated Soil", emoji: "🧪", description: "Toxic waste" },
+  { name: "Bent Rebar", emoji: "🦴", description: "Unusable shape" },
+  { name: "Dead Battery", emoji: "🔋", description: "No charge left" },
+  { name: "Rust Chunks", emoji: "🧱", description: "Pure corrosion" },
+];
+
+// Swipe threshold in pixels
+const SWIPE_THRESHOLD = 80;
+// Card exit animation distance in pixels
+const CARD_EXIT_DISTANCE = 300;
+// Card rotation multiplier (degrees per pixel of offset)
+const CARD_ROTATION_FACTOR = 0.05;
+// Card opacity fade distance
+const CARD_OPACITY_FADE_DISTANCE = 400;
+// Timer update interval in milliseconds
+const TIMER_INTERVAL_MS = 200;
+// Maximum speed bonus multiplier (50% bonus for instant answers)
+const MAX_SPEED_BONUS = 0.5;
+// Maximum streak bonus multiplier (50% bonus at 5+ streak)
+const MAX_STREAK_BONUS = 0.5;
+// Streak bonus increment per correct answer
+const STREAK_BONUS_INCREMENT = 0.1;
 
 export default function SalvageRun({ config, difficulty, onComplete }: SalvageRunProps) {
   const [phase, setPhase] = useState<GamePhase>("ready");
   const [countdown, setCountdown] = useState(3);
-  const [markerPosition, setMarkerPosition] = useState(0); // 0 to 100
-  const [roundsCompleted, setRoundsCompleted] = useState(0);
+  const [currentItem, setCurrentItem] = useState<SalvageItem | null>(null);
+  const [itemsCompleted, setItemsCompleted] = useState(0);
   const [score, setScore] = useState(0);
-  const [lastResult, setLastResult] = useState<{ zone: string; points: number; color: string } | null>(null);
-  const [cleanZone, setCleanZone] = useState({ start: 40, width: 20 }); // Clean zone position and width
+  const [streak, setStreak] = useState(0);
+  const [feedback, setFeedback] = useState<{ correct: boolean; points: number; direction: "left" | "right" } | null>(null);
+  const [cardOffset, setCardOffset] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(0);
 
-  const animationRef = useRef<number>();
-  const lastTimeRef = useRef<number>(0);
-  const markerDirectionRef = useRef(1); // Use ref to avoid stale closure and effect re-runs
-  const resultTimeoutRef = useRef<ReturnType<typeof setTimeout>>(); // For cleanup
-  const mountedRef = useRef(true); // Track mounted state
+  const dragStartRef = useRef(0);
+  const mountedRef = useRef(true);
   const scoreRef = useRef(score);
+  const itemQueueRef = useRef<SalvageItem[]>([]);
+  const timerRef = useRef<ReturnType<typeof setInterval>>();
+  const currentItemRef = useRef(currentItem);
+  const handleChoiceRef = useRef<(direction: "left" | "right", timedOut?: boolean) => void>(() => {});
+
   scoreRef.current = score;
+  currentItemRef.current = currentItem;
 
-  // Speed increases with difficulty
-  const baseSpeed = 100; // % per second at speed_mult = 1
-  const speed = baseSpeed * difficulty.speed_mult;
+  // Total items to sort
+  const totalItems = config.base_rounds + difficulty.extra_rounds;
 
-  // Total rounds needed
-  const roundsNeeded = config.base_rounds + difficulty.extra_rounds;
+  // Time per item decreases with difficulty (in seconds)
+  const baseTimePerItem = 3;
+  const timePerItem = Math.max(1.5, baseTimePerItem / difficulty.speed_mult);
 
-  // Clean zone width shrinks with difficulty
-  const baseZoneWidth = 25;
-  const zoneWidth = Math.max(12, baseZoneWidth - difficulty.rust_level * 10);
+  // Generate queue of items to sort
+  const generateItemQueue = useCallback(() => {
+    const items: SalvageItem[] = [];
+    const valuableCount = Math.floor(totalItems * 0.5); // 50% valuable
+    const junkCount = totalItems - valuableCount;
 
-  // Generate new clean zone position
-  const generateCleanZone = useCallback(() => {
-    // Random position, keeping zone fully within bounds
-    const minStart = 5;
-    const maxStart = 95 - zoneWidth;
-    const start = minStart + Math.random() * (maxStart - minStart);
-    setCleanZone({ start, width: zoneWidth });
-  }, [zoneWidth]);
-
-  // Calculate points based on marker position relative to clean zone
-  const getZonePoints = useCallback((position: number) => {
-    const zoneCenter = cleanZone.start + cleanZone.width / 2;
-    const distanceFromCenter = Math.abs(position - zoneCenter);
-    const normalizedDistance = distanceFromCenter / (cleanZone.width / 2);
-    const roundPoints = Math.round(config.max_score / roundsNeeded);
-
-    if (normalizedDistance <= PERFECT_THRESHOLD) {
-      return { zone: "PERFECT!", points: roundPoints, color: "#a78bfa" };
-    } else if (normalizedDistance <= GREAT_THRESHOLD) {
-      return { zone: "GREAT!", points: Math.round(roundPoints * 0.75), color: "#4ade80" };
-    } else if (normalizedDistance <= GOOD_THRESHOLD) {
-      return { zone: "GOOD", points: Math.round(roundPoints * 0.5), color: "#60a5fa" };
-    } else if (position >= cleanZone.start && position <= cleanZone.start + cleanZone.width) {
-      return { zone: "OK", points: Math.round(roundPoints * 0.25), color: "#94a3b8" };
-    } else {
-      return { zone: "MISS", points: 0, color: "#ef4444" };
+    // Add valuable items
+    for (let i = 0; i < valuableCount; i++) {
+      const template = VALUABLE_ITEMS[Math.floor(Math.random() * VALUABLE_ITEMS.length)];
+      items.push({ ...template, id: i, isValuable: true });
     }
-  }, [cleanZone, config.max_score, roundsNeeded]);
 
-  // Track mounted state for cleanup
+    // Add junk items
+    for (let i = 0; i < junkCount; i++) {
+      const template = JUNK_ITEMS[Math.floor(Math.random() * JUNK_ITEMS.length)];
+      items.push({ ...template, id: valuableCount + i, isValuable: false });
+    }
+
+    // Shuffle
+    for (let i = items.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [items[i], items[j]] = [items[j], items[i]];
+    }
+
+    return items;
+  }, [totalItems]);
+
+  // Track mounted state
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -85,52 +132,14 @@ export default function SalvageRun({ config, difficulty, onComplete }: SalvageRu
     };
   }, []);
 
-  // Animation loop for marker movement
+  // Cleanup timer on unmount
   useEffect(() => {
-    if (phase !== "scanning") {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-      return;
-    }
-
-    const animate = (time: number) => {
-      if (lastTimeRef.current === 0) {
-        lastTimeRef.current = time;
-      }
-
-      const delta = (time - lastTimeRef.current) / 1000;
-      lastTimeRef.current = time;
-
-      setMarkerPosition((prev) => {
-        let next = prev + markerDirectionRef.current * speed * delta;
-
-        // Bounce at edges with loop to handle multiple reflections for large deltas
-        while (next > 100 || next < 0) {
-          if (next > 100) {
-            next = 200 - next; // Reflect: 100 - (next - 100) = 200 - next
-            markerDirectionRef.current = -1;
-          } else if (next < 0) {
-            next = -next;
-            markerDirectionRef.current = 1;
-          }
-        }
-
-        return next;
-      });
-
-      animationRef.current = requestAnimationFrame(animate);
-    };
-
-    lastTimeRef.current = 0;
-    animationRef.current = requestAnimationFrame(animate);
-
     return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
       }
     };
-  }, [phase, speed]);
+  }, []);
 
   // Countdown before game starts
   useEffect(() => {
@@ -141,73 +150,182 @@ export default function SalvageRun({ config, difficulty, onComplete }: SalvageRu
       return () => clearTimeout(timer);
     } else {
       // Start the game
-      generateCleanZone();
-      setPhase("scanning");
-      setMarkerPosition(0);
-      markerDirectionRef.current = 1;
+      itemQueueRef.current = generateItemQueue();
+      setCurrentItem(itemQueueRef.current[0]);
+      setTimeLeft(timePerItem);
+      setPhase("playing");
     }
-  }, [countdown, phase, generateCleanZone]);
+  }, [countdown, phase, generateItemQueue, timePerItem]);
 
-  const handleGrab = useCallback(() => {
-    if (phase !== "scanning") return;
+  // Handle player choice
+  const handleChoice = useCallback((direction: "left" | "right", timedOut = false) => {
+    if (phase !== "playing" || !currentItem) return;
 
-    const result = getZonePoints(markerPosition);
-    setLastResult(result);
-    setScore((s) => s + result.points);
-    setRoundsCompleted((c) => c + 1);
-    setPhase("result");
+    // Left = Keep (valuable), Right = Discard (junk)
+    const playerKeeps = direction === "left";
+    const correct = playerKeeps === currentItem.isValuable;
 
-    // Clear any existing timeout
-    if (resultTimeoutRef.current) {
-      clearTimeout(resultTimeoutRef.current);
+    // Calculate points
+    const basePoints = Math.round(config.max_score / totalItems);
+    let points = 0;
+
+    if (correct && !timedOut) {
+      // Bonus for speed (more time left = more points)
+      const speedBonus = 1 + (timeLeft / timePerItem) * MAX_SPEED_BONUS;
+      // Streak bonus
+      const streakBonus = 1 + Math.min(streak * STREAK_BONUS_INCREMENT, MAX_STREAK_BONUS);
+      points = Math.round(basePoints * speedBonus * streakBonus);
+      setStreak((s) => s + 1);
+    } else {
+      setStreak(0);
     }
 
-    // After showing result, either continue or complete
-    resultTimeoutRef.current = setTimeout(() => {
-      if (!mountedRef.current) return; // Don't update state if unmounted
+    setScore((s) => s + points);
+    setFeedback({ correct, points, direction });
+    setCardOffset(direction === "left" ? -CARD_EXIT_DISTANCE : CARD_EXIT_DISTANCE);
+    setPhase("feedback");
 
-      if (roundsCompleted + 1 >= roundsNeeded) {
+    // Move to next item
+    setTimeout(() => {
+      if (!mountedRef.current) return;
+
+      const nextIndex = itemsCompleted + 1;
+      setItemsCompleted(nextIndex);
+
+      if (nextIndex >= totalItems) {
         setPhase("complete");
-        onComplete(scoreRef.current + result.points);
+        onComplete(scoreRef.current + points);
       } else {
-        // Generate new clean zone for next round
-        generateCleanZone();
-        // Reset marker
-        setMarkerPosition(Math.random() * 100);
-        markerDirectionRef.current = Math.random() > 0.5 ? 1 : -1;
-        setLastResult(null);
-        setPhase("scanning");
+        setCurrentItem(itemQueueRef.current[nextIndex]);
+        setCardOffset(0);
+        setTimeLeft(timePerItem);
+        setFeedback(null);
+        setPhase("playing");
       }
-    }, 500);
-  }, [phase, markerPosition, roundsCompleted, roundsNeeded, getZonePoints, generateCleanZone, onComplete]);
+    }, 400);
+  }, [phase, currentItem, itemsCompleted, totalItems, config.max_score, timeLeft, timePerItem, streak, onComplete]);
 
-  // Cleanup timeout on unmount
+  // Keep ref updated for use in timer
+  handleChoiceRef.current = handleChoice;
+
+  // Timer countdown during play
   useEffect(() => {
+    if (phase !== "playing") {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+      return;
+    }
+
+    timerRef.current = setInterval(() => {
+      setTimeLeft((prev) => {
+        const decrement = TIMER_INTERVAL_MS / 1000;
+        if (prev <= decrement) {
+          // Time's up - count as wrong answer
+          const item = currentItemRef.current;
+          handleChoiceRef.current(item?.isValuable ? "right" : "left", true);
+          return 0;
+        }
+        return prev - decrement;
+      });
+    }, TIMER_INTERVAL_MS);
+
     return () => {
-      if (resultTimeoutRef.current) {
-        clearTimeout(resultTimeoutRef.current);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
       }
     };
-  }, []);
+  }, [phase]);
 
-  // Handle keyboard/touch
+  // Mouse/touch handlers for swiping
+  const handleDragStart = useCallback((clientX: number) => {
+    if (phase !== "playing") return;
+    setIsDragging(true);
+    dragStartRef.current = clientX;
+  }, [phase]);
+
+  const handleDragMove = useCallback((clientX: number) => {
+    if (!isDragging || phase !== "playing") return;
+    const delta = clientX - dragStartRef.current;
+    setCardOffset(delta);
+  }, [isDragging, phase]);
+
+  const handleDragEnd = useCallback(() => {
+    if (!isDragging || phase !== "playing") return;
+    setIsDragging(false);
+
+    if (cardOffset < -SWIPE_THRESHOLD) {
+      handleChoice("left");
+    } else if (cardOffset > SWIPE_THRESHOLD) {
+      handleChoice("right");
+    } else {
+      setCardOffset(0);
+    }
+  }, [isDragging, phase, cardOffset, handleChoice]);
+
+  // Mouse events
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    handleDragStart(e.clientX);
+  }, [handleDragStart]);
+
+  const onMouseMove = useCallback((e: React.MouseEvent) => {
+    handleDragMove(e.clientX);
+  }, [handleDragMove]);
+
+  const onMouseUp = useCallback(() => {
+    handleDragEnd();
+  }, [handleDragEnd]);
+
+  const onMouseLeave = useCallback(() => {
+    if (isDragging) {
+      handleDragEnd();
+    }
+  }, [isDragging, handleDragEnd]);
+
+  // Touch events
+  const onTouchStart = useCallback((e: React.TouchEvent) => {
+    handleDragStart(e.touches[0].clientX);
+  }, [handleDragStart]);
+
+  const onTouchMove = useCallback((e: React.TouchEvent) => {
+    e.preventDefault(); // Prevent page scrolling while swiping
+    handleDragMove(e.touches[0].clientX);
+  }, [handleDragMove]);
+
+  const onTouchEnd = useCallback(() => {
+    handleDragEnd();
+  }, [handleDragEnd]);
+
+  // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === "Space" || e.key === " ") {
+      if (phase !== "playing") return;
+
+      if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") {
         e.preventDefault();
-        handleGrab();
+        handleChoice("left");
+      } else if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") {
+        e.preventDefault();
+        handleChoice("right");
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleGrab]);
+  }, [phase, handleChoice]);
+
+  // Calculate card rotation based on offset
+  const cardRotation = cardOffset * CARD_ROTATION_FACTOR;
+  const cardOpacity = 1 - Math.abs(cardOffset) / CARD_OPACITY_FADE_DISTANCE;
 
   // Render countdown
   if (phase === "ready") {
     return (
       <div className="flex flex-col items-center justify-center">
-        <p className="mb-4 text-lg text-white/60">Grab salvage in the clean zone!</p>
+        <p className="mb-4 text-center text-lg text-white/60">
+          Swipe left to <span className="text-green-400">KEEP</span> valuable salvage<br />
+          Swipe right to <span className="text-red-400">DISCARD</span> junk
+        </p>
         <div className="flex h-24 w-24 items-center justify-center rounded-full bg-[#a78bfa]/20 text-5xl font-bold text-[#a78bfa]">
           {countdown}
         </div>
@@ -219,136 +337,186 @@ export default function SalvageRun({ config, difficulty, onComplete }: SalvageRu
   return (
     <div className="flex w-full max-w-md flex-col items-center">
       {/* Status bar */}
-      <div className="mb-6 flex w-full items-center justify-between text-sm">
+      <div className="mb-4 flex w-full items-center justify-between text-sm">
         <div className="text-white/60">
-          Salvage <span className="font-bold text-white">{roundsCompleted + 1}</span> / {roundsNeeded}
+          Item <span className="font-bold text-white">{itemsCompleted + 1}</span> / {totalItems}
         </div>
-        <div className="text-white/60">
-          Score: <span className="font-bold text-[#a78bfa]">{score}</span>
+        <div className="flex items-center gap-4">
+          {streak > 1 && (
+            <div className="text-orange-400">
+              🔥 x{streak}
+            </div>
+          )}
+          <div className="text-white/60">
+            Score: <span className="font-bold text-[#a78bfa]">{score}</span>
+          </div>
         </div>
       </div>
 
       {/* Progress bar */}
-      <div className="mb-8 h-2 w-full overflow-hidden rounded-full bg-white/10">
+      <div className="mb-4 h-2 w-full overflow-hidden rounded-full bg-white/10">
         <div
           className="h-full bg-gradient-to-r from-[#a78bfa] to-[#818cf8] transition-all duration-300"
-          style={{ width: `${(roundsCompleted / roundsNeeded) * 100}%` }}
+          style={{ width: `${(itemsCompleted / totalItems) * 100}%` }}
         />
       </div>
 
-      {/* Salvage scanner visualization */}
-      <div className="relative mb-8 w-full">
-        {/* Salvage icon */}
-        <div className="mb-4 flex justify-center">
-          <span className="text-6xl">📦</span>
+      {/* Timer bar */}
+      <div className="mb-6 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+        <div
+          className={`h-full transition-all duration-100 ${
+            timeLeft < 1 ? "bg-red-500" : timeLeft < 2 ? "bg-yellow-500" : "bg-green-500"
+          }`}
+          style={{ width: `${(timeLeft / timePerItem) * 100}%` }}
+        />
+      </div>
+
+      {/* Direction hints */}
+      <div className="mb-4 flex w-full justify-between px-4 text-sm">
+        <div className={`flex items-center gap-2 transition-opacity ${cardOffset < -20 ? "opacity-100" : "opacity-40"}`}>
+          <span className="text-2xl">✓</span>
+          <span className="text-green-400 font-semibold">KEEP</span>
         </div>
+        <div className={`flex items-center gap-2 transition-opacity ${cardOffset > 20 ? "opacity-100" : "opacity-40"}`}>
+          <span className="text-red-400 font-semibold">DISCARD</span>
+          <span className="text-2xl">✗</span>
+        </div>
+      </div>
 
-        {/* Scanner track */}
-        <div className="relative h-16 w-full overflow-hidden rounded-2xl bg-gradient-to-r from-[#ef4444]/30 via-[#64748b]/30 to-[#ef4444]/30">
-          {/* Contaminated zone overlay (everywhere except clean zone) */}
-          <div className="absolute inset-0 bg-[#ef4444]/20" />
-
-          {/* Clean zone */}
+      {/* Swipeable card area */}
+      <div
+        className="relative mb-6 h-64 w-full cursor-grab active:cursor-grabbing"
+        onMouseDown={onMouseDown}
+        onMouseMove={onMouseMove}
+        onMouseUp={onMouseUp}
+        onMouseLeave={onMouseLeave}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+      >
+        {currentItem && (
           <div
-            className="absolute top-0 h-full bg-gradient-to-b from-[#4ade80]/40 to-[#4ade80]/20 transition-all duration-300"
+            className={`absolute left-1/2 top-0 h-full w-56 -translate-x-1/2 select-none rounded-2xl border-2 border-white/20 bg-gradient-to-b from-slate-800/80 to-slate-900/80 p-6 shadow-xl transition-shadow ${
+              isDragging ? "shadow-2xl" : ""
+            }`}
             style={{
-              left: `${cleanZone.start}%`,
-              width: `${cleanZone.width}%`,
+              transform: `translateX(calc(-50% + ${cardOffset}px)) rotate(${cardRotation}deg)`,
+              opacity: cardOpacity,
+              transition: isDragging ? "none" : "transform 0.3s, opacity 0.3s",
             }}
           >
-            {/* Perfect zone (center) */}
-            <div
-              className="absolute top-0 h-full bg-[#a78bfa]/40"
-              style={{
-                left: `${50 - (PERFECT_THRESHOLD * 100) / 2}%`,
-                width: `${PERFECT_THRESHOLD * 100}%`,
-              }}
-            />
-          </div>
-
-          {/* Zone labels */}
-          <div
-            className="absolute top-1 text-[10px] font-bold uppercase tracking-wide text-[#4ade80]"
-            style={{
-              left: `${cleanZone.start + cleanZone.width / 2}%`,
-              transform: "translateX(-50%)",
-            }}
-          >
-            CLEAN
-          </div>
-
-          {/* Moving scanner/grabber indicator */}
-          <div
-            className="absolute top-1 h-14 w-4 -translate-x-1/2 transition-none"
-            style={{ left: `${markerPosition}%` }}
-          >
-            {/* Grabber arm */}
-            <div className="mx-auto h-full w-1 rounded-full bg-white shadow-[0_0_15px_rgba(255,255,255,0.8)]" />
-            {/* Grabber claw */}
-            <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 text-lg">
-              🦾
+            {/* Item visual */}
+            <div className="flex h-full flex-col items-center justify-center text-center">
+              <span className="text-6xl mb-4">{currentItem.emoji}</span>
+              <h3 className="text-lg font-bold text-white mb-2">{currentItem.name}</h3>
+              <p className="text-sm text-white/70">
+                {currentItem.description}
+              </p>
             </div>
-          </div>
-        </div>
 
-        {/* Track labels */}
-        <div className="mt-2 flex justify-between text-xs text-white/40">
-          <span className="text-red-400">CONTAMINATED</span>
-          <span className="text-green-400">SALVAGEABLE</span>
-          <span className="text-red-400">CONTAMINATED</span>
-        </div>
+            {/* Swipe indicator overlays */}
+            {cardOffset < -20 && (
+              <div
+                className="absolute inset-0 flex items-center justify-center rounded-2xl bg-green-500/20 text-4xl font-bold text-green-400"
+                style={{ opacity: Math.min(1, Math.abs(cardOffset) / SWIPE_THRESHOLD) }}
+              >
+                KEEP ✓
+              </div>
+            )}
+            {cardOffset > 20 && (
+              <div
+                className="absolute inset-0 flex items-center justify-center rounded-2xl bg-red-500/20 text-4xl font-bold text-red-400"
+                style={{ opacity: Math.min(1, Math.abs(cardOffset) / SWIPE_THRESHOLD) }}
+              >
+                DISCARD ✗
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Feedback flash */}
+        {feedback && (
+          <div className={`absolute inset-0 flex items-center justify-center text-4xl font-bold ${
+            feedback.correct ? "text-green-400" : "text-red-400"
+          }`}>
+            {feedback.correct ? (
+              <div className="flex flex-col items-center animate-bounce">
+                <span>✓ Correct!</span>
+                <span className="text-lg mt-2">+{feedback.points}</span>
+              </div>
+            ) : (
+              <span className="animate-shake">✗ Wrong!</span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Phase indicator */}
-      <div className="mb-6 h-12 text-center">
-        {phase === "scanning" && (
-          <p className="animate-pulse text-lg font-medium text-[#a78bfa]">
-            Tap to grab salvage!
+      <div className="mb-4 h-8 text-center">
+        {phase === "playing" && (
+          <p className="text-sm text-white/60">
+            ← Swipe or use arrow keys →
           </p>
-        )}
-        {phase === "result" && lastResult && (
-          <div className="flex flex-col items-center">
-            <p
-              className="text-2xl font-bold"
-              style={{ color: lastResult.color }}
-            >
-              {lastResult.zone}
-            </p>
-            <p className="text-sm text-white/60">+{lastResult.points} points</p>
-          </div>
         )}
         {phase === "complete" && (
           <p className="text-xl font-bold text-[#4ade80]">
-            Salvage Complete!
+            Sorting Complete!
           </p>
         )}
       </div>
 
-      {/* Tap area button */}
-      <button
-        onClick={handleGrab}
-        disabled={phase !== "scanning"}
-        className={`flex h-24 w-24 items-center justify-center rounded-full border-4 text-4xl transition-all ${
-          phase === "scanning"
-            ? "border-[#a78bfa] bg-[#a78bfa]/20 hover:bg-[#a78bfa]/30 active:scale-95"
-            : "border-white/20 bg-white/5"
-        }`}
-      >
-        📦
-      </button>
+      {/* Button controls for non-swipe users */}
+      <div className="flex gap-4">
+        <button
+          onClick={() => handleChoice("left")}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              handleChoice("left");
+            }
+          }}
+          disabled={phase !== "playing"}
+          className={`flex h-16 w-16 items-center justify-center rounded-full border-2 text-2xl transition-all ${
+            phase === "playing"
+              ? "border-green-500 bg-green-500/20 hover:bg-green-500/30 active:scale-95"
+              : "border-white/20 bg-white/5"
+          }`}
+          aria-label="Keep item"
+        >
+          ✓
+        </button>
+        <button
+          onClick={() => handleChoice("right")}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              handleChoice("right");
+            }
+          }}
+          disabled={phase !== "playing"}
+          className={`flex h-16 w-16 items-center justify-center rounded-full border-2 text-2xl transition-all ${
+            phase === "playing"
+              ? "border-red-500 bg-red-500/20 hover:bg-red-500/30 active:scale-95"
+              : "border-white/20 bg-white/5"
+          }`}
+          aria-label="Discard item"
+        >
+          ✗
+        </button>
+      </div>
 
       {/* Difficulty indicators */}
       <div className="mt-6 flex flex-wrap items-center justify-center gap-2 text-xs text-white/40">
         {difficulty.phase === "night" && (
           <div className="flex items-center gap-1">
             <span className="text-purple-400">🌙</span>
-            <span>Night mode: Faster scanner</span>
+            <span>Night mode: Less time</span>
           </div>
         )}
         {difficulty.rust_level > 0.5 && (
           <div className="flex items-center gap-1">
             <span className="text-orange-400">🔥</span>
-            <span>High rust: Smaller clean zones</span>
+            <span>High rust: Faster decisions</span>
           </div>
         )}
       </div>
