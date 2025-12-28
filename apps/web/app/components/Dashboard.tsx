@@ -121,7 +121,7 @@ function MapPanel({
 }) {
   return (
     <div
-      className={`flex flex-col rounded-2xl border border-white/10 bg-[#0f1216]/60 p-4 text-white shadow-[0_12px_30px_rgba(0,0,0,0.45)] backdrop-blur-md${className ? ` ${className}` : ""}`}
+      className={`flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0f1216]/60 p-4 text-white shadow-[0_12px_30px_rgba(0,0,0,0.45)] backdrop-blur-md${className ? ` ${className}` : ""}`}
     >
       {title ? (
         <p className="shrink-0 text-[10px] uppercase tracking-[0.35em] text-white/50">

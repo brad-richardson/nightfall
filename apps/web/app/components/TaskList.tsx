@@ -154,7 +154,7 @@ export default function TaskList({ tasks, crews, features, userVotes, resourcePo
   };
 
   return (
-    <div className="flex h-full flex-col space-y-3">
+    <div className="flex min-h-0 flex-1 flex-col space-y-3">
       <div className="flex shrink-0 items-center justify-between border-b border-white/5 pb-2">
         <h3 className="text-xs font-bold uppercase tracking-[0.3em] text-[color:var(--night-ash)]">
           Active Tasks
