@@ -9,7 +9,7 @@ import { closePool, getPool } from "./db";
 import { loadCycleState, loadCycleSummary } from "./cycle";
 import { createDbEventStream } from "./event-stream";
 import type { EventStream } from "./event-stream";
-import { ROAD_CLASSES, DEGRADED_HEALTH_THRESHOLD } from "@nightfall/config";
+import { ROAD_CLASSES, DEGRADED_HEALTH_THRESHOLD, calculateCityScore } from "@nightfall/config";
 import {
   type Graph,
   type ConnectorCoords,
@@ -27,17 +27,6 @@ const MAX_DISPLAY_NAME_LENGTH = 32;
 const MAX_REGION_ID_LENGTH = 64;
 
 const FEATURE_TYPES = new Set(["road", "building", "park", "water", "intersection"]);
-
-/**
- * Calculate city resilience score from health and rust levels.
- * Score = health × (1 - rust), so high rust directly reduces score.
- * Range: 0-100
- */
-function calculateCityScore(healthAvg: number, rustAvg: number): number {
-  const health = Math.max(0, Math.min(100, healthAvg));
-  const rust = Math.max(0, Math.min(1, rustAvg));
-  return Math.round(health * (1 - rust));
-}
 
 // Resource generation categories by building type
 const FOOD_CATEGORIES = [

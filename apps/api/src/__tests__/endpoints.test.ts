@@ -82,6 +82,9 @@ describe("api endpoints", () => {
     expect(payload.demo_mode).toBe(true);
     expect(payload.regions).toHaveLength(1);
     expect(payload.cycle.phase).toBeDefined();
+    // City score = health × (1 - rust) = 90 × 0.9 = 81
+    expect(payload.city_score).toBe(81);
+    expect(payload.regions[0].score).toBe(81);
 
     await app.close();
   });

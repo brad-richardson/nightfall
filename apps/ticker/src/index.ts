@@ -21,6 +21,7 @@ import { runLamplighter } from "./lamplighter";
 import { checkAndPerformReset } from "./reset";
 import { cleanupOldData } from "./cleanup";
 import { attachPoolErrorHandler } from "./pool";
+import { calculateCityScore } from "@nightfall/config";
 
 const intervalMs = Number(process.env.TICK_INTERVAL_MS ?? 10_000);
 const lockId = Number(process.env.TICK_LOCK_ID ?? 424242);
@@ -44,16 +45,6 @@ type RegionSnapshot = {
   health_avg: number | null;
   score: number;
 };
-
-/**
- * Calculate city resilience score from health and rust levels.
- * Score = health × (1 - rust), so high rust directly reduces score.
- */
-function calculateCityScore(healthAvg: number | null, rustAvg: number | null): number {
-  const health = Math.max(0, Math.min(100, healthAvg ?? 0));
-  const rust = Math.max(0, Math.min(1, rustAvg ?? 0));
-  return Math.round(health * (1 - rust));
-}
 
 async function fetchRegionSnapshots(client: PoolLike, regionIds: string[]): Promise<RegionSnapshot[]> {
   if (regionIds.length === 0) return [];
