@@ -26,7 +26,10 @@ export default function MobileSidebar({ children }: MobileSidebarProps) {
           </Drawer.Description>
           <div className="flex-1 overflow-y-auto rounded-t-[32px] bg-[color:var(--night-sand)] p-4">
             <div className="mx-auto mb-8 h-1.5 w-12 shrink-0 rounded-full bg-black/10" />
-            <div className="mx-auto max-w-md space-y-6 pb-8">
+            <div
+              className="mx-auto max-w-md space-y-6"
+              style={{ paddingBottom: "calc(2rem + env(safe-area-inset-bottom))" }}
+            >
               {children}
             </div>
           </div>
