@@ -2459,6 +2459,52 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     return { ok: true, hexes_updated: updateResult.rowCount };
   });
 
+  // ========================================================================
+  // LEADERBOARD ENDPOINT
+  // ========================================================================
+
+  app.get<{ Querystring: { limit?: string } }>("/api/leaderboard", async (request, reply) => {
+    reply.header("Cache-Control", "no-store");
+
+    const limit = Math.min(100, Math.max(1, parseInt(request.query.limit ?? "50", 10) || 50));
+    const pool = getPool();
+
+    // Query players ordered by lifetime contribution (as proxy for score until server-side scoring is implemented)
+    // Note: For now we use lifetime_contrib as the score. A full implementation would track
+    // scores server-side. See TODO.md for next steps.
+    const result = await pool.query<{
+      client_id: string;
+      display_name: string | null;
+      lifetime_contrib: number;
+      home_region_id: string | null;
+      last_seen: string;
+    }>(
+      `SELECT
+        client_id,
+        display_name,
+        COALESCE(lifetime_contrib, 0) AS lifetime_contrib,
+        home_region_id,
+        last_seen::text
+      FROM players
+      WHERE lifetime_contrib > 0
+      ORDER BY lifetime_contrib DESC
+      LIMIT $1`,
+      [limit]
+    );
+
+    return {
+      ok: true,
+      leaderboard: result.rows.map((row, index) => ({
+        rank: index + 1,
+        clientId: row.client_id,
+        displayName: row.display_name || `Player ${row.client_id.slice(-6)}`,
+        score: Number(row.lifetime_contrib),
+        homeRegionId: row.home_region_id,
+        lastSeen: row.last_seen
+      }))
+    };
+  });
+
   app.addHook("onClose", async () => {
     await closePool();
   });

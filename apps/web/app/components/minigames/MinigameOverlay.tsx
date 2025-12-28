@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { X } from "lucide-react";
 import { useStore } from "../../store";
+import { SCORE_ACTIONS } from "@nightfall/config";
 import KitchenRush from "./KitchenRush";
 import PowerUp from "./PowerUp";
 import FreshCheck from "./FreshCheck";
@@ -20,6 +21,7 @@ export default function MinigameOverlay({ onClose }: MinigameOverlayProps) {
   const abandonMinigame = useStore((s) => s.abandonMinigame);
   const setMinigameResult = useStore((s) => s.setMinigameResult);
   const addBuildingBoost = useStore((s) => s.addBuildingBoost);
+  const addMinigameScore = useStore((s) => s.addMinigameScore);
   const auth = useStore((s) => s.auth);
 
   const [exiting, setExiting] = useState(false);
@@ -109,6 +111,10 @@ export default function MinigameOverlay({ onClose }: MinigameOverlayProps) {
           duration_ms: data.reward.duration_ms,
           expires_at: data.reward.expires_at,
         });
+        // Award score for minigame completion
+        const baseScore = SCORE_ACTIONS.minigameCompleted;
+        const perfectBonus = data.performance >= 1.0 ? SCORE_ACTIONS.minigamePerfect : 0;
+        addMinigameScore(baseScore + perfectBonus);
       } else {
         console.error("Minigame complete failed:", data.error);
         abandonMinigame();
@@ -119,7 +125,7 @@ export default function MinigameOverlay({ onClose }: MinigameOverlayProps) {
       abandonMinigame();
       handleExit();
     }
-  }, [activeMinigame, auth, completeMinigame, abandonMinigame, addBuildingBoost, handleExit]);
+  }, [activeMinigame, auth, completeMinigame, abandonMinigame, addBuildingBoost, addMinigameScore, handleExit]);
 
   const handleResultsDismiss = useCallback(() => {
     setMinigameResult(null);

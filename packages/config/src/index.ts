@@ -203,3 +203,141 @@ export function getCityStatusLabel(score: number): string {
 export function getCityStatusColor(score: number): string {
   return CITY_STATUS_THRESHOLDS[getCityStatus(score)].color;
 }
+
+// =============================================================================
+// Player Scoring & Tier System
+// =============================================================================
+
+/**
+ * Player tier definitions with thresholds and rewards.
+ * Score is accumulated from player actions (resource contributions, voting, etc.)
+ */
+export type PlayerTier = "newcomer" | "contributor" | "builder" | "engineer" | "architect" | "legend";
+
+export type TierConfig = {
+  label: string;
+  minScore: number;
+  color: string;
+  badgeIcon: string; // Emoji for display
+  resourceBonus: number; // Multiplier for resource contributions (e.g., 1.05 = 5% bonus)
+  transferSpeedBonus: number; // Multiplier for transfer speed (e.g., 1.1 = 10% faster)
+  emergencyRepairCharges: number; // Number of emergency repair deploys available per day
+};
+
+export const PLAYER_TIERS: Record<PlayerTier, TierConfig> = {
+  newcomer: {
+    label: "Newcomer",
+    minScore: 0,
+    color: "#9ca3af", // gray-400
+    badgeIcon: "🔰",
+    resourceBonus: 1.0,
+    transferSpeedBonus: 1.0,
+    emergencyRepairCharges: 0
+  },
+  contributor: {
+    label: "Contributor",
+    minScore: 100,
+    color: "#22c55e", // green-500
+    badgeIcon: "⚡",
+    resourceBonus: 1.05, // 5% bonus
+    transferSpeedBonus: 1.0,
+    emergencyRepairCharges: 0
+  },
+  builder: {
+    label: "Builder",
+    minScore: 500,
+    color: "#3b82f6", // blue-500
+    badgeIcon: "🔧",
+    resourceBonus: 1.10, // 10% bonus
+    transferSpeedBonus: 1.05, // 5% faster
+    emergencyRepairCharges: 1
+  },
+  engineer: {
+    label: "Engineer",
+    minScore: 2000,
+    color: "#8b5cf6", // violet-500
+    badgeIcon: "⚙️",
+    resourceBonus: 1.15, // 15% bonus
+    transferSpeedBonus: 1.10, // 10% faster
+    emergencyRepairCharges: 2
+  },
+  architect: {
+    label: "Architect",
+    minScore: 10000,
+    color: "#f59e0b", // amber-500
+    badgeIcon: "🏗️",
+    resourceBonus: 1.20, // 20% bonus
+    transferSpeedBonus: 1.15, // 15% faster
+    emergencyRepairCharges: 3
+  },
+  legend: {
+    label: "Legend",
+    minScore: 50000,
+    color: "#ef4444", // red-500
+    badgeIcon: "🌟",
+    resourceBonus: 1.25, // 25% bonus
+    transferSpeedBonus: 1.20, // 20% faster
+    emergencyRepairCharges: 5
+  }
+};
+
+// Ordered list for tier progression
+export const TIER_ORDER: PlayerTier[] = ["newcomer", "contributor", "builder", "engineer", "architect", "legend"];
+
+/**
+ * Get player tier based on score
+ */
+export function getPlayerTier(score: number): PlayerTier {
+  // Iterate in reverse to find the highest tier the player qualifies for
+  for (let i = TIER_ORDER.length - 1; i >= 0; i--) {
+    const tier = TIER_ORDER[i];
+    if (score >= PLAYER_TIERS[tier].minScore) {
+      return tier;
+    }
+  }
+  return "newcomer";
+}
+
+/**
+ * Get tier config for a given score
+ */
+export function getPlayerTierConfig(score: number): TierConfig {
+  return PLAYER_TIERS[getPlayerTier(score)];
+}
+
+/**
+ * Calculate progress to next tier (0-1)
+ */
+export function getTierProgress(score: number): { currentTier: PlayerTier; nextTier: PlayerTier | null; progress: number; scoreToNext: number } {
+  const currentTier = getPlayerTier(score);
+  const currentIndex = TIER_ORDER.indexOf(currentTier);
+
+  if (currentIndex === TIER_ORDER.length - 1) {
+    // Already at max tier
+    return { currentTier, nextTier: null, progress: 1, scoreToNext: 0 };
+  }
+
+  const nextTier = TIER_ORDER[currentIndex + 1];
+  const currentThreshold = PLAYER_TIERS[currentTier].minScore;
+  const nextThreshold = PLAYER_TIERS[nextTier].minScore;
+  const range = nextThreshold - currentThreshold;
+  const progressInRange = score - currentThreshold;
+
+  return {
+    currentTier,
+    nextTier,
+    progress: Math.min(1, progressInRange / range),
+    scoreToNext: nextThreshold - score
+  };
+}
+
+/**
+ * Score values for different player actions
+ */
+export const SCORE_ACTIONS = {
+  resourceContribution: 1, // Per unit of resource contributed
+  voteSubmitted: 5, // Per vote on a task
+  minigameCompleted: 10, // Base score for completing a minigame
+  minigamePerfect: 25, // Bonus for perfect minigame performance
+  taskCompleted: 50 // When a task the player voted on is completed
+} as const;
