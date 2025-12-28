@@ -785,7 +785,7 @@ export default function Dashboard({
   const stableBoundary = useMemo(() => region.boundary, [region.boundary]);
 
   return (
-    <div className={`relative min-h-screen transition-all duration-[2500ms] ease-in-out ${phaseGlow[cycle.phase]}`}>
+    <div className={`relative h-screen overflow-hidden transition-all duration-[2500ms] ease-in-out ${phaseGlow[cycle.phase]}`}>
       <DemoMap
         boundary={stableBoundary}
         features={features}
