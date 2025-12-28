@@ -345,10 +345,14 @@ describe("api endpoints", () => {
 
   it("accepts task votes", async () => {
     queryMock.mockImplementation((text: string) => {
+      // Check for existing vote (returns existing = vote change, not new)
+      if (text.includes("FROM task_votes WHERE task_id") && text.includes("AND client_id")) {
+        return Promise.resolve({ rows: [{ weight: 1 }], rowCount: 1 });
+      }
       if (text.includes("INSERT INTO task_votes")) {
         return Promise.resolve({ rows: [] });
       }
-      if (text.includes("FROM task_votes")) {
+      if (text.includes("SUM(weight * EXP")) {
         return Promise.resolve({ rows: [{ vote_score: 2 }] });
       }
       if (text.includes("UPDATE tasks")) {
@@ -382,7 +386,14 @@ describe("api endpoints", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ ok: true, new_vote_score: 2, priority_score: 5 });
+    const payload = response.json();
+    expect(payload.ok).toBe(true);
+    expect(payload.new_vote_score).toBe(2);
+    expect(payload.priority_score).toBe(5);
+    // Score tracking fields (vote change, not new vote, so no score awarded)
+    expect(payload.score_awarded).toBe(0);
+    expect(payload.new_total_score).toBe(null);
+    expect(payload.new_tier).toBe(null);
 
     await app.close();
   });
@@ -475,20 +486,26 @@ describe("api endpoints", () => {
   describe("/api/leaderboard", () => {
     it("returns leaderboard with players ordered by score", async () => {
       queryMock.mockImplementation((text: string) => {
-        if (text.includes("FROM players")) {
+        if (text.includes("FROM players p")) {
           return Promise.resolve({
             rows: [
               {
                 client_id: "client-abc123",
                 display_name: "TopPlayer",
-                lifetime_contrib: 5000,
+                total_score: 5000,
+                contribution_score: 4000,
+                vote_score: 500,
+                minigame_score: 500,
                 home_region_id: "region-1",
                 last_seen: "2025-01-01T12:00:00Z"
               },
               {
                 client_id: "client-def456",
                 display_name: null,
-                lifetime_contrib: 1000,
+                total_score: 1000,
+                contribution_score: 800,
+                vote_score: 100,
+                minigame_score: 100,
                 home_region_id: "region-2",
                 last_seen: "2025-01-01T11:00:00Z"
               }
@@ -509,10 +526,13 @@ describe("api endpoints", () => {
       expect(payload.leaderboard[0].rank).toBe(1);
       expect(payload.leaderboard[0].displayName).toBe("TopPlayer");
       expect(payload.leaderboard[0].score).toBe(5000);
+      expect(payload.leaderboard[0].tier).toBe("engineer"); // 2000-9999 is engineer tier
+      expect(payload.leaderboard[0].breakdown.contribution).toBe(4000);
       // Privacy: only truncated playerId is exposed (last 8 chars), not full clientId
       expect(payload.leaderboard[0].playerId).toBe("t-abc123");
       expect(payload.leaderboard[0].clientId).toBeUndefined();
       expect(payload.leaderboard[1].rank).toBe(2);
+      expect(payload.leaderboard[1].tier).toBe("builder"); // 500-1999 is builder tier
       // Fallback display name uses last 6 chars of client_id
       expect(payload.leaderboard[1].displayName).toBe("Player def456");
 
@@ -521,7 +541,7 @@ describe("api endpoints", () => {
 
     it("respects limit parameter", async () => {
       queryMock.mockImplementation((text: string, params: unknown[]) => {
-        if (text.includes("FROM players")) {
+        if (text.includes("FROM players p")) {
           // Verify limit is passed correctly
           expect(params[0]).toBe(10);
           return Promise.resolve({
@@ -529,7 +549,10 @@ describe("api endpoints", () => {
               {
                 client_id: "client-1",
                 display_name: "Player1",
-                lifetime_contrib: 100,
+                total_score: 100,
+                contribution_score: 100,
+                vote_score: 0,
+                minigame_score: 0,
                 home_region_id: "region-1",
                 last_seen: "2025-01-01T12:00:00Z"
               }
