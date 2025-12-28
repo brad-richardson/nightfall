@@ -18,6 +18,7 @@ import { fetchWithRetry } from "../lib/retry";
 import { formatNumber } from "../lib/formatters";
 import { ResourcePoolsPanel } from "./sidebar/ResourcePoolsPanel";
 import { RegionHealthPanel } from "./sidebar/RegionHealthPanel";
+import { OnboardingOverlay } from "./OnboardingOverlay";
 import { recordResourceValues, clearResourceHistory } from "../lib/resourceHistory";
 
 type ResourceType = "food" | "equipment" | "energy" | "materials";
@@ -843,6 +844,7 @@ export default function Dashboard({
           </div>
         </div>
       </DemoMap>
+      <OnboardingOverlay />
     </div>
   );
 }

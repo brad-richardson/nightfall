@@ -1,14 +1,14 @@
 # Nightfall Build Plan
 
 ## Immediate Bug Fixes & Refinement
-- [ ] Fix Event Streaming: Investigate why live/streaming updates stop after the initial connection.
-- [ ] Fix Voting System: Ensure votes are correctly tallied and reflected in real-time.
-- [ ] Fix Cycle Visuals: Resolve issue where the night/day transition visual gets stuck.
-- [ ] Fix Region Health UI: Restore functionality to the region health display.
-- [ ] Refactor Health Stats: Fold Network Health into Region Health and remove the redundant feature count.
-- [ ] Prevent rust spread lost updates (transaction or update-in-DB strategy).
-- [ ] Guard task spawn with locking to avoid duplicate degraded-road tasks.
-- [ ] Clean up SSE listeners and add reconnect handling/backpressure strategy.
+- [x] Fix Event Streaming: Investigate why live/streaming updates stop after the initial connection.
+- [x] Fix Voting System: Ensure votes are correctly tallied and reflected in real-time.
+- [x] Fix Cycle Visuals: Resolve issue where the night/day transition visual gets stuck.
+- [x] Fix Region Health UI: Restore functionality to the region health display.
+- [x] Refactor Health Stats: Fold Network Health into Region Health and remove the redundant feature count.
+- [x] Prevent rust spread lost updates (transaction or update-in-DB strategy).
+- [x] Guard task spawn with locking to avoid duplicate degraded-road tasks.
+- [x] Clean up SSE listeners and add reconnect handling/backpressure strategy.
 
 ## UI/UX Polish
 - [x] Map Visibility: Reduce UI component sizes or increase translucency to minimize map obscuration.
@@ -17,7 +17,7 @@
 
 ## Mechanics & Balancing
 - [ ] Contribution Minigame: Implement a quick interactive element when contributing resources.
-- [ ] Contribution Limits: Add a daily/hourly limit on the number of times a user can contribute resources.
+- [x] Contribution Limits: Add a daily/hourly limit on the number of times a user can contribute resources.
 - [ ] Region Resizing: Reduce the default size of the active region area for tighter gameplay.
 - [ ] Expanded Resources: Consider adding more resource types (e.g., Food, Equipment) beyond Labor and Materials.
 
@@ -29,4 +29,4 @@
 - [ ] Map Performance: Implement clustering or advanced MapLibre styling for high feature density.
 - [ ] Soundscape: Add dynamic ambient audio that shifts with the day/night cycle.
 - [ ] Real-time Feedback: Implement optimistic UI and animations (e.g., framer-motion) for user actions.
-- [ ] Onboarding: Create a "How to Play" overlay for first-time users explaining mechanics.
+- [x] Onboarding: Create a "How to Play" overlay for first-time users explaining mechanics.
