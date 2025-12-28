@@ -122,7 +122,7 @@ function MapPanel({
 }) {
   return (
     <div
-      className={`flex flex-col rounded-2xl border border-white/10 bg-[#0f1216]/60 p-4 text-white shadow-[0_12px_30px_rgba(0,0,0,0.45)] backdrop-blur-md${className ? ` ${className}` : ""}`}
+      className={`flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0f1216]/60 p-4 text-white shadow-[0_12px_30px_rgba(0,0,0,0.45)] backdrop-blur-md${className ? ` ${className}` : ""}`}
     >
       {title ? (
         <p className="shrink-0 text-[10px] uppercase tracking-[0.35em] text-white/50">
@@ -884,8 +884,8 @@ export default function Dashboard({
             <ResourceTicker deltas={resourceDeltas} />
           </MapOverlay>
 
-          <MapOverlay position="bottom-left" className="!bottom-20 hidden w-[360px] max-h-[55vh] lg:flex flex-col">
-            <MapPanel title="Operations Queue" className="h-full min-h-0">
+          <MapOverlay position="bottom-left" className="!bottom-20 hidden w-[360px] h-[55vh] lg:flex flex-col">
+            <MapPanel title="Operations Queue" className="flex-1 min-h-0">
               <TaskList tasks={region.tasks} crews={region.crews} features={features} userVotes={userVotes} resourcePools={{ food: region.pool_food, equipment: region.pool_equipment, energy: region.pool_energy, materials: region.pool_materials }} onVote={handleVote} />
             </MapPanel>
           </MapOverlay>
