@@ -30,7 +30,7 @@ export default function PhaseIndicator() {
   const isNight = cycle.phase === "night" || cycle.phase === "dusk";
 
   return (
-    <div className="flex items-center gap-4 rounded-full border border-[var(--night-outline)] bg-white/80 px-4 py-2 shadow-sm backdrop-blur-sm">
+    <div className="flex w-fit items-center gap-4 rounded-full border border-[var(--night-outline)] bg-white/80 px-4 py-2 shadow-sm backdrop-blur-sm">
       <div className="relative h-8 w-8">
         {/* Progress Ring */}
         <svg className="h-full w-full -rotate-90">
