@@ -268,7 +268,7 @@ describe("completeFinishedTasks", () => {
       .mockResolvedValueOnce({ rows: [] })
       // Sixth query: get hub center for return
       .mockResolvedValueOnce({
-        rows: [{ hub_lng: -68.25, hub_lat: 44.38 }]
+        rows: [{ hub_lon: -68.25, hub_lat: 44.38 }]
       })
       // Seventh query: update crew to returning
       .mockResolvedValueOnce({ rows: [] });
