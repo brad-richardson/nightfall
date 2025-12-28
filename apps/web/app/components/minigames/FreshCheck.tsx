@@ -13,7 +13,7 @@ type FreshCheckProps = {
   onComplete: (score: number) => void;
 };
 
-type GamePhase = "ready" | "playing" | "result" | "complete" | "fail";
+type GamePhase = "ready" | "playing" | "result" | "complete";
 
 type Ingredient = {
   id: number;
@@ -54,15 +54,34 @@ export default function FreshCheck({ config, difficulty, onComplete }: FreshChec
   const animationRef = useRef<number>();
   const lastTimeRef = useRef<number>(0);
   const itemIdRef = useRef(0);
+  // Refs to avoid stale closures in timeouts
   const scoreRef = useRef(score);
-  scoreRef.current = score;
+  const itemsProcessedRef = useRef(itemsProcessed);
+  // Timeout refs for cleanup
+  const resultTimeoutRef = useRef<NodeJS.Timeout>();
+  const missTimeoutRef = useRef<NodeJS.Timeout>();
+  const missResultTimeoutRef = useRef<NodeJS.Timeout>();
 
-  // Items needed scales with difficulty
-  const itemsNeeded = config.base_rounds + difficulty.extra_rounds;
+  // Keep refs in sync with state
+  scoreRef.current = score;
+  itemsProcessedRef.current = itemsProcessed;
+
+  // Items needed scales with difficulty (guard against 0)
+  const itemsNeeded = Math.max(1, config.base_rounds + difficulty.extra_rounds);
 
   // Speed scales with difficulty
   const baseSpeed = 25; // units per second at speed_mult = 1
   const speed = baseSpeed * difficulty.speed_mult;
+
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+      if (resultTimeoutRef.current) clearTimeout(resultTimeoutRef.current);
+      if (missTimeoutRef.current) clearTimeout(missTimeoutRef.current);
+      if (missResultTimeoutRef.current) clearTimeout(missResultTimeoutRef.current);
+    };
+  }, []);
 
   // Spawn a new ingredient
   const spawnIngredient = useCallback(() => {
@@ -92,11 +111,19 @@ export default function FreshCheck({ config, difficulty, onComplete }: FreshChec
     const pointsPerItem = Math.round(config.max_score / itemsNeeded);
     const points = isCorrect ? pointsPerItem : 0;
 
-    setScore((s) => s + points);
+    // Update score ref immediately for accurate final score
+    const newScore = scoreRef.current + points;
+    scoreRef.current = newScore;
+    setScore(newScore);
+
     if (isCorrect) {
       setCorrectSorts((c) => c + 1);
     }
-    setItemsProcessed((p) => p + 1);
+
+    // Update items processed ref immediately
+    const newItemsProcessed = itemsProcessedRef.current + 1;
+    itemsProcessedRef.current = newItemsProcessed;
+    setItemsProcessed(newItemsProcessed);
 
     setLastResult({
       correct: isCorrect,
@@ -112,19 +139,19 @@ export default function FreshCheck({ config, difficulty, onComplete }: FreshChec
     setPhase("result");
 
     // After brief result display, continue or complete
-    setTimeout(() => {
+    resultTimeoutRef.current = setTimeout(() => {
       setSwipeDirection(null);
       setLastResult(null);
 
-      if (itemsProcessed + 1 >= itemsNeeded) {
+      if (newItemsProcessed >= itemsNeeded) {
         setPhase("complete");
-        onComplete(scoreRef.current + points);
+        onComplete(newScore);
       } else {
         spawnIngredient();
         setPhase("playing");
       }
     }, 500);
-  }, [phase, currentItem, itemsProcessed, itemsNeeded, config.max_score, onComplete, spawnIngredient]);
+  }, [phase, currentItem, itemsNeeded, config.max_score, onComplete, spawnIngredient]);
 
   // Animation loop for item falling
   useEffect(() => {
@@ -149,18 +176,28 @@ export default function FreshCheck({ config, difficulty, onComplete }: FreshChec
 
         // If item reaches drop zone without sorting, it's a miss
         if (newY >= DROP_ZONE_Y) {
+          // Cancel animation immediately
+          if (animationRef.current) {
+            cancelAnimationFrame(animationRef.current);
+            animationRef.current = undefined;
+          }
+
           // Auto-fail this item
-          setTimeout(() => {
-            setItemsProcessed((p) => p + 1);
+          missTimeoutRef.current = setTimeout(() => {
+            // Use refs for current values to avoid stale closure
+            const newItemsProcessed = itemsProcessedRef.current + 1;
+            itemsProcessedRef.current = newItemsProcessed;
+            setItemsProcessed(newItemsProcessed);
+
             setLastResult({
               correct: false,
               message: "Too slow!",
             });
             setPhase("result");
 
-            setTimeout(() => {
+            missResultTimeoutRef.current = setTimeout(() => {
               setLastResult(null);
-              if (itemsProcessed + 1 >= itemsNeeded) {
+              if (newItemsProcessed >= itemsNeeded) {
                 setPhase("complete");
                 onComplete(scoreRef.current);
               } else {
@@ -186,7 +223,7 @@ export default function FreshCheck({ config, difficulty, onComplete }: FreshChec
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [phase, currentItem?.id, speed, itemsProcessed, itemsNeeded, onComplete, spawnIngredient]);
+  }, [phase, currentItem?.id, speed, itemsNeeded, onComplete, spawnIngredient]);
 
   // Countdown before game starts
   useEffect(() => {
@@ -255,6 +292,8 @@ export default function FreshCheck({ config, difficulty, onComplete }: FreshChec
   }
 
   const accuracy = itemsProcessed > 0 ? Math.round((correctSorts / itemsProcessed) * 100) : 100;
+  // Guard against division by zero in progress bar
+  const progressPercent = itemsNeeded > 0 ? (itemsProcessed / itemsNeeded) * 100 : 0;
 
   return (
     <div
@@ -265,7 +304,7 @@ export default function FreshCheck({ config, difficulty, onComplete }: FreshChec
       {/* Status bar */}
       <div className="mb-4 flex w-full items-center justify-between text-sm">
         <div className="text-white/60">
-          Item <span className="font-bold text-white">{itemsProcessed + 1}</span> / {itemsNeeded}
+          Item <span className="font-bold text-white">{Math.min(itemsProcessed + 1, itemsNeeded)}</span> / {itemsNeeded}
         </div>
         <div className="text-white/60">
           Score: <span className="font-bold text-[#4ade80]">{score}</span>
@@ -276,7 +315,7 @@ export default function FreshCheck({ config, difficulty, onComplete }: FreshChec
       <div className="mb-6 h-2 w-full overflow-hidden rounded-full bg-white/10">
         <div
           className="h-full bg-gradient-to-r from-[#4ade80] to-[#22c55e] transition-all duration-300"
-          style={{ width: `${(itemsProcessed / itemsNeeded) * 100}%` }}
+          style={{ width: `${progressPercent}%` }}
         />
       </div>
 
@@ -308,7 +347,7 @@ export default function FreshCheck({ config, difficulty, onComplete }: FreshChec
           </div>
         </div>
 
-        {/* Current ingredient */}
+        {/* Current ingredient - neutral styling to avoid revealing answer */}
         {currentItem && (phase === "playing" || phase === "result") && (
           <div
             className={`absolute left-1/2 flex -translate-x-1/2 flex-col items-center transition-all ${
@@ -323,13 +362,7 @@ export default function FreshCheck({ config, difficulty, onComplete }: FreshChec
               transitionDuration: swipeDirection ? "300ms" : "0ms",
             }}
           >
-            <div
-              className={`flex h-20 w-20 items-center justify-center rounded-2xl border-2 shadow-lg ${
-                currentItem.isFresh
-                  ? "border-[#4ade80]/30 bg-[#4ade80]/10"
-                  : "border-[#ef4444]/30 bg-[#ef4444]/10"
-              }`}
-            >
+            <div className="flex h-20 w-20 items-center justify-center rounded-2xl border-2 border-white/20 bg-white/5 shadow-lg">
               <span className="text-5xl">
                 {currentItem.isFresh ? currentItem.type.fresh.icon : currentItem.type.spoiled.icon}
               </span>
@@ -377,14 +410,15 @@ export default function FreshCheck({ config, difficulty, onComplete }: FreshChec
         )}
       </div>
 
-      {/* Control buttons */}
+      {/* Control buttons with accessibility improvements */}
       <div className="flex w-full gap-4">
         <button
           onClick={() => handleSort("left")}
           disabled={phase !== "playing"}
+          aria-label="Discard as spoiled"
           className={`flex flex-1 flex-col items-center justify-center rounded-xl border-2 py-4 transition-all ${
             phase === "playing"
-              ? "border-[#ef4444]/50 bg-[#ef4444]/10 hover:bg-[#ef4444]/20 active:scale-95"
+              ? "border-[#ef4444]/50 bg-[#ef4444]/10 hover:bg-[#ef4444]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ef4444] focus-visible:ring-offset-2 focus-visible:ring-offset-[#1a1d21] active:scale-95"
               : "border-white/10 bg-white/5 opacity-50"
           }`}
         >
@@ -394,9 +428,10 @@ export default function FreshCheck({ config, difficulty, onComplete }: FreshChec
         <button
           onClick={() => handleSort("right")}
           disabled={phase !== "playing"}
+          aria-label="Keep as fresh"
           className={`flex flex-1 flex-col items-center justify-center rounded-xl border-2 py-4 transition-all ${
             phase === "playing"
-              ? "border-[#4ade80]/50 bg-[#4ade80]/10 hover:bg-[#4ade80]/20 active:scale-95"
+              ? "border-[#4ade80]/50 bg-[#4ade80]/10 hover:bg-[#4ade80]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4ade80] focus-visible:ring-offset-2 focus-visible:ring-offset-[#1a1d21] active:scale-95"
               : "border-white/10 bg-white/5 opacity-50"
           }`}
         >
