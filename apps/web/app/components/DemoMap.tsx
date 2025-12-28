@@ -81,6 +81,7 @@ export default function DemoMap({
   const fadeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const featuresRef = useRef(features);
   const tasksRef = useRef(tasks);
+  const resourcePackagesRef = useRef(resourcePackages);
   // Initialize with empty Maps - will be updated via useEffect after memos are computed
   const featuresByGersIdRef = useRef<Map<string, typeof features[0]>>(new Map());
   const tasksByGersIdRef = useRef<Map<string, typeof tasks[0]>>(new Map());
@@ -227,6 +228,7 @@ export default function DemoMap({
   // Keep refs updated for use in event handlers
   useEffect(() => { featuresRef.current = features; }, [features]);
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
+  useEffect(() => { resourcePackagesRef.current = resourcePackages; }, [resourcePackages]);
   useEffect(() => { featuresByGersIdRef.current = featuresByGersId; }, [featuresByGersId]);
   useEffect(() => { tasksByGersIdRef.current = tasksByGersId; }, [tasksByGersId]);
 
@@ -898,6 +900,44 @@ export default function DemoMap({
 
     window.addEventListener("nightfall:fly_to_feature", handleFlyToFeature);
     return () => window.removeEventListener("nightfall:fly_to_feature", handleFlyToFeature);
+  }, [isLoaded]);
+
+  // Fly to convoy event handler
+  useEffect(() => {
+    const handleFlyToConvoy = (e: Event) => {
+      const customEvent = e as CustomEvent<{ transfer_id: string }>;
+      const transferId = customEvent.detail.transfer_id;
+
+      if (!map.current || !isLoaded) return;
+
+      // Find the convoy in resourcePackages
+      const pkg = resourcePackagesRef.current.find(p => p.id === transferId);
+      if (!pkg) return;
+
+      // Get current position based on waypoints or path
+      let position: [number, number] | null = null;
+      const now = Date.now();
+
+      if (pkg.waypoints && pkg.waypoints.length > 0) {
+        position = interpolateWaypoints(pkg.waypoints, now);
+      } else if (pkg.path && pkg.path.length > 0) {
+        // Fallback: use the last position in the path
+        const lastPoint = pkg.path[pkg.path.length - 1];
+        position = [lastPoint[0], lastPoint[1]];
+      }
+
+      if (!position) return;
+
+      map.current.flyTo({
+        center: position,
+        zoom: 17,
+        pitch: 45,
+        duration: 1200
+      });
+    };
+
+    window.addEventListener("nightfall:fly_to_convoy", handleFlyToConvoy);
+    return () => window.removeEventListener("nightfall:fly_to_convoy", handleFlyToConvoy);
   }, [isLoaded]);
 
   // Task completion animation
