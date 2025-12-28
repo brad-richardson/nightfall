@@ -16,6 +16,21 @@ const CREW_TRAVEL_MAX_S = 120;
 
 export type CrewWaypoint = { coord: Point; arrive_at: string };
 
+/**
+ * Build simple two-point waypoints for straight-line travel when pathfinding fails.
+ */
+function buildStraightLineWaypoints(
+  start: Point,
+  end: Point,
+  departAtMs: number,
+  travelTimeS: number
+): CrewWaypoint[] {
+  return [
+    { coord: start, arrive_at: new Date(departAtMs).toISOString() },
+    { coord: end, arrive_at: new Date(departAtMs + travelTimeS * 1000).toISOString() }
+  ];
+}
+
 export type CrewEvent = {
   crew_id: string;
   region_id: string;
@@ -197,13 +212,19 @@ export async function dispatchCrews(pool: PoolLike): Promise<DispatchResult> {
                 travelTimeS = (Date.parse(lastWaypoint.arrive_at) - departAt) / 1000;
               }
             } else {
+              // Pathfinding failed - use straight-line fallback
               travelTimeS = haversineDistanceMeters(startPoint, roadPoint) / CREW_TRAVEL_MPS;
+              waypoints = buildStraightLineWaypoints(startPoint, roadPoint, departAt, travelTimeS);
             }
           } else {
+            // No connectors found - use straight-line fallback
             travelTimeS = haversineDistanceMeters(startPoint, roadPoint) / CREW_TRAVEL_MPS;
+            waypoints = buildStraightLineWaypoints(startPoint, roadPoint, departAt, travelTimeS);
           }
         } else {
+          // No graph data - use straight-line fallback
           travelTimeS = haversineDistanceMeters(startPoint, roadPoint) / CREW_TRAVEL_MPS;
+          waypoints = buildStraightLineWaypoints(startPoint, roadPoint, departAt, travelTimeS);
         }
       }
 
@@ -448,6 +469,23 @@ export async function arriveCrewsAtHub(pool: PoolLike): Promise<CrewEvent[]> {
       const lastWaypoint = crew.waypoints[crew.waypoints.length - 1];
       finalLng = lastWaypoint.coord[0];
       finalLat = lastWaypoint.coord[1];
+    }
+
+    // Fallback: if no waypoints, lookup hub position directly
+    if (finalLng == null || finalLat == null) {
+      const hubResult = await pool.query<{ hub_lon: number; hub_lat: number }>(
+        `SELECT (hub.bbox_xmin + hub.bbox_xmax) / 2 AS hub_lon,
+                (hub.bbox_ymin + hub.bbox_ymax) / 2 AS hub_lat
+         FROM hex_cells h
+         JOIN world_features hub ON hub.gers_id = h.hub_building_gers_id
+         WHERE h.region_id = $1 AND h.hub_building_gers_id IS NOT NULL
+         LIMIT 1`,
+        [crew.region_id]
+      );
+      if (hubResult.rows[0]) {
+        finalLng = hubResult.rows[0].hub_lon;
+        finalLat = hubResult.rows[0].hub_lat;
+      }
     }
 
     // Update crew to 'idle' at hub
@@ -770,15 +808,19 @@ async function dispatchCrewToTask(
             travelTimeS = (Date.parse(lastWaypoint.arrive_at) - departAt) / 1000;
           }
         } else {
+          // Pathfinding failed - use straight-line fallback
           travelTimeS = haversineDistanceMeters(startPoint, roadPoint) / CREW_TRAVEL_MPS;
+          waypoints = buildStraightLineWaypoints(startPoint, roadPoint, departAt, travelTimeS);
         }
       } else {
+        // No connectors found - use straight-line fallback
         travelTimeS = haversineDistanceMeters(startPoint, roadPoint) / CREW_TRAVEL_MPS;
+        waypoints = buildStraightLineWaypoints(startPoint, roadPoint, departAt, travelTimeS);
       }
     } else {
-      const startPoint: Point = [crew.current_lng, crew.current_lat];
-      const roadPoint: Point = [road.road_lon, road.road_lat];
+      // No graph data - use straight-line fallback
       travelTimeS = haversineDistanceMeters(startPoint, roadPoint) / CREW_TRAVEL_MPS;
+      waypoints = buildStraightLineWaypoints(startPoint, roadPoint, departAt, travelTimeS);
     }
   }
 
@@ -880,13 +922,19 @@ async function returnCrewToHub(
           travelTimeS = (Date.parse(lastWaypoint.arrive_at) - departAt) / 1000;
         }
       } else {
+        // Pathfinding failed - use straight-line fallback
         travelTimeS = haversineDistanceMeters(startPoint, hubPoint) / CREW_TRAVEL_MPS;
+        waypoints = buildStraightLineWaypoints(startPoint, hubPoint, departAt, travelTimeS);
       }
     } else {
+      // Connectors not found - use straight-line fallback
       travelTimeS = haversineDistanceMeters(startPoint, hubPoint) / CREW_TRAVEL_MPS;
+      waypoints = buildStraightLineWaypoints(startPoint, hubPoint, departAt, travelTimeS);
     }
   } else {
+    // No graph data - use straight-line fallback
     travelTimeS = haversineDistanceMeters(startPoint, hubPoint) / CREW_TRAVEL_MPS;
+    waypoints = buildStraightLineWaypoints(startPoint, hubPoint, departAt, travelTimeS);
   }
 
   travelTimeS = Math.max(CREW_TRAVEL_MIN_S, Math.min(CREW_TRAVEL_MAX_S, travelTimeS));
