@@ -153,7 +153,7 @@ export default function DemoMap({
   const activeBoostedBuildingIds = useMemo(() => {
     const now = Date.now();
     return Object.values(buildingBoosts)
-      .filter((boost) => Date.parse(boost.expires_at) > now)
+      .filter((boost) => new Date(boost.expires_at).getTime() > now)
       .map((boost) => boost.building_gers_id);
   }, [buildingBoosts]);
 

@@ -91,7 +91,7 @@ export default function KitchenRush({ config, difficulty, onComplete }: KitchenR
       const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
       return () => clearTimeout(timer);
     } else {
-      // Start the game with a 2-item sequence
+      // Start with one station pre-selected; startNewRound adds another for a 2-item sequence
       const firstStation = Math.floor(Math.random() * STATIONS.length);
       startNewRound([firstStation]);
     }
