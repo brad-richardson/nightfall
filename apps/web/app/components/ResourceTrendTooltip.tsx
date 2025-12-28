@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import { Sparkline } from "./Sparkline";
 import {
   getResourceHistory,
@@ -104,7 +105,8 @@ export function ResourceTrendTooltip({
   const resourceLabel =
     resourceType.charAt(0).toUpperCase() + resourceType.slice(1);
 
-  return (
+  // Use portal to render at document.body level, avoiding parent overflow/backdrop-filter issues
+  const tooltipContent = (
     <div
       ref={tooltipRef}
       className={`fixed z-[100] rounded-xl border p-3 shadow-xl backdrop-blur-md transition-all duration-200 ${
@@ -183,6 +185,12 @@ export function ResourceTrendTooltip({
       </div>
     </div>
   );
+
+  // Render via portal to escape parent overflow constraints
+  if (typeof document !== "undefined") {
+    return createPortal(tooltipContent, document.body);
+  }
+  return tooltipContent;
 }
 
 /**

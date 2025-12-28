@@ -2,29 +2,34 @@
 
 import React from "react";
 import { getHealthColor, getRustColor } from "../lib/metricColors";
+import { getCityStatusLabel, getCityStatusColor } from "@nightfall/config";
+
+type TrendDirection = "up" | "down" | "stable";
 
 type RegionalHealthRingProps = {
   healthPercent: number;
   rustLevel: number;
   score: number;
   className?: string;
+  // Optional trend data for gamification
+  scoreTrend?: TrendDirection;
+  scoreChange?: number;
+  streak?: number;
+  streakType?: "improving" | "declining" | "stable";
 };
 
 const clamp = (value: number) => Math.max(0, Math.min(100, value));
 
-/**
- * Get color for city resilience score.
- * Higher score = healthier city (green), lower = critical (red)
- */
-function getScoreColor(score: number): string {
-  if (score >= 80) return "#22c55e"; // green-500 - Thriving
-  if (score >= 60) return "#84cc16"; // lime-500 - Stable
-  if (score >= 40) return "#eab308"; // yellow-500 - Struggling
-  if (score >= 20) return "#f97316"; // orange-500 - Critical
-  return "#ef4444"; // red-500 - Collapse
-}
-
-export default function RegionalHealthRing({ healthPercent, rustLevel, score, className }: RegionalHealthRingProps) {
+export default function RegionalHealthRing({
+  healthPercent,
+  rustLevel,
+  score,
+  className,
+  scoreTrend,
+  scoreChange,
+  streak,
+  streakType
+}: RegionalHealthRingProps) {
   const safeHealth = clamp(healthPercent);
   const safeRust = clamp(rustLevel);
   const safeScore = clamp(score);
@@ -42,7 +47,12 @@ export default function RegionalHealthRing({ healthPercent, rustLevel, score, cl
 
   const healthColor = getHealthColor(safeHealth);
   const rustColor = getRustColor(safeRust);
-  const scoreColor = getScoreColor(safeScore);
+  const scoreColor = getCityStatusColor(safeScore);
+  const statusLabel = getCityStatusLabel(safeScore);
+
+  // Trend indicator styling
+  const trendIcon = scoreTrend === "up" ? "\u2191" : scoreTrend === "down" ? "\u2193" : "";
+  const trendColor = scoreTrend === "up" ? "#22c55e" : scoreTrend === "down" ? "#ef4444" : "rgba(255,255,255,0.4)";
 
   return (
     <div className={`regional-health-ring${className ? ` ${className}` : ""}`} aria-label="City resilience score">
@@ -98,7 +108,7 @@ export default function RegionalHealthRing({ healthPercent, rustLevel, score, cl
         {/* Score display (center) */}
         <text
           x="70"
-          y="66"
+          y="58"
           textAnchor="middle"
           dominantBaseline="middle"
           fontSize="24"
@@ -108,18 +118,35 @@ export default function RegionalHealthRing({ healthPercent, rustLevel, score, cl
         >
           {Math.round(safeScore)}
         </text>
+        {/* Status label */}
         <text
           x="70"
-          y="86"
+          y="76"
           textAnchor="middle"
           dominantBaseline="middle"
-          fontSize="10"
-          fill="rgba(255,255,255,0.6)"
+          fontSize="9"
+          fontWeight="600"
+          fill={scoreColor}
+          style={{ transition: "fill 0.5s ease-out", textTransform: "uppercase", letterSpacing: "0.05em" }}
         >
-          SCORE
+          {statusLabel}
         </text>
+        {/* Trend indicator - only show when there's a meaningful change */}
+        {scoreTrend && scoreTrend !== "stable" && scoreChange != null && Math.abs(scoreChange) >= 1 && (
+          <text
+            x="70"
+            y="92"
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fontSize="10"
+            fill={trendColor}
+          >
+            {trendIcon} {(scoreChange > 0 ? "+" : "") + Math.round(scoreChange)}
+          </text>
+        )}
       </svg>
 
+      {/* Health/Rust labels with trend */}
       <div className="ring-label">
         <span style={{ color: healthColor }}>
           Health: {Math.round(safeHealth)}%
@@ -128,6 +155,16 @@ export default function RegionalHealthRing({ healthPercent, rustLevel, score, cl
           Rust: {Math.round(safeRust)}%
         </span>
       </div>
+
+      {/* Streak indicator */}
+      {streak != null && streak > 2 && streakType && streakType !== "stable" && (
+        <div
+          className="mt-1 text-center text-[10px] font-semibold"
+          style={{ color: streakType === "improving" ? "#22c55e" : "#ef4444" }}
+        >
+          {streakType === "improving" ? "\u{1F525}" : "\u26A0\uFE0F"} {streak} {streak === 1 ? "tick" : "ticks"} {streakType} streak
+        </div>
+      )}
     </div>
   );
 }
