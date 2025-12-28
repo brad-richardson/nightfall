@@ -886,7 +886,7 @@ export default function Dashboard({
       >
         <div className="pointer-events-none absolute inset-0">
           {cycle.phase === "dusk" && (
-            <div className="pointer-events-none absolute top-20 left-1/2 z-40 -translate-x-1/2">
+            <div className="pointer-events-none absolute top-36 left-1/2 z-40 -translate-x-1/2 lg:top-20">
               <div className="animate-pulse rounded-full border border-amber-500/50 bg-amber-900/80 px-6 py-2 text-xs font-bold uppercase tracking-[0.2em] text-amber-200 shadow-[0_0_20px_rgba(245,158,11,0.4)] backdrop-blur-md">
                 Warning: Nightfall Imminent ({formatTime(cycle.next_phase_in_seconds)})
               </div>
