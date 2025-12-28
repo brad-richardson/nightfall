@@ -24,7 +24,6 @@ export default function SalvageRun({ config, difficulty, onComplete }: SalvageRu
   const [phase, setPhase] = useState<GamePhase>("ready");
   const [countdown, setCountdown] = useState(3);
   const [markerPosition, setMarkerPosition] = useState(0); // 0 to 100
-  const [markerDirection, setMarkerDirection] = useState(1);
   const [roundsCompleted, setRoundsCompleted] = useState(0);
   const [score, setScore] = useState(0);
   const [lastResult, setLastResult] = useState<{ zone: string; points: number; color: string } | null>(null);
@@ -32,6 +31,9 @@ export default function SalvageRun({ config, difficulty, onComplete }: SalvageRu
 
   const animationRef = useRef<number>();
   const lastTimeRef = useRef<number>(0);
+  const markerDirectionRef = useRef(1); // Use ref to avoid stale closure and effect re-runs
+  const resultTimeoutRef = useRef<ReturnType<typeof setTimeout>>(); // For cleanup
+  const mountedRef = useRef(true); // Track mounted state
   const scoreRef = useRef(score);
   scoreRef.current = score;
 
@@ -75,6 +77,14 @@ export default function SalvageRun({ config, difficulty, onComplete }: SalvageRu
     }
   }, [cleanZone, config.max_score, roundsNeeded]);
 
+  // Track mounted state for cleanup
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   // Animation loop for marker movement
   useEffect(() => {
     if (phase !== "scanning") {
@@ -93,18 +103,20 @@ export default function SalvageRun({ config, difficulty, onComplete }: SalvageRu
       lastTimeRef.current = time;
 
       setMarkerPosition((prev) => {
-        let next = prev + markerDirection * speed * delta;
+        let next = prev + markerDirectionRef.current * speed * delta;
 
-        // Bounce at edges
-        if (next > 100) {
-          next = 100 - (next - 100);
-          setMarkerDirection(-1);
-        } else if (next < 0) {
-          next = -(next);
-          setMarkerDirection(1);
+        // Bounce at edges with loop to handle multiple reflections for large deltas
+        while (next > 100 || next < 0) {
+          if (next > 100) {
+            next = 200 - next; // Reflect: 100 - (next - 100) = 200 - next
+            markerDirectionRef.current = -1;
+          } else if (next < 0) {
+            next = -next;
+            markerDirectionRef.current = 1;
+          }
         }
 
-        return Math.max(0, Math.min(100, next));
+        return next;
       });
 
       animationRef.current = requestAnimationFrame(animate);
@@ -118,7 +130,7 @@ export default function SalvageRun({ config, difficulty, onComplete }: SalvageRu
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [phase, markerDirection, speed]);
+  }, [phase, speed]);
 
   // Countdown before game starts
   useEffect(() => {
@@ -132,7 +144,7 @@ export default function SalvageRun({ config, difficulty, onComplete }: SalvageRu
       generateCleanZone();
       setPhase("scanning");
       setMarkerPosition(0);
-      setMarkerDirection(1);
+      markerDirectionRef.current = 1;
     }
   }, [countdown, phase, generateCleanZone]);
 
@@ -145,8 +157,15 @@ export default function SalvageRun({ config, difficulty, onComplete }: SalvageRu
     setRoundsCompleted((c) => c + 1);
     setPhase("result");
 
+    // Clear any existing timeout
+    if (resultTimeoutRef.current) {
+      clearTimeout(resultTimeoutRef.current);
+    }
+
     // After showing result, either continue or complete
-    setTimeout(() => {
+    resultTimeoutRef.current = setTimeout(() => {
+      if (!mountedRef.current) return; // Don't update state if unmounted
+
       if (roundsCompleted + 1 >= roundsNeeded) {
         setPhase("complete");
         onComplete(scoreRef.current + result.points);
@@ -155,12 +174,21 @@ export default function SalvageRun({ config, difficulty, onComplete }: SalvageRu
         generateCleanZone();
         // Reset marker
         setMarkerPosition(Math.random() * 100);
-        setMarkerDirection(Math.random() > 0.5 ? 1 : -1);
+        markerDirectionRef.current = Math.random() > 0.5 ? 1 : -1;
         setLastResult(null);
         setPhase("scanning");
       }
     }, 500);
   }, [phase, markerPosition, roundsCompleted, roundsNeeded, getZonePoints, generateCleanZone, onComplete]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (resultTimeoutRef.current) {
+        clearTimeout(resultTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Handle keyboard/touch
   useEffect(() => {
@@ -255,7 +283,7 @@ export default function SalvageRun({ config, difficulty, onComplete }: SalvageRu
             style={{ left: `${markerPosition}%` }}
           >
             {/* Grabber arm */}
-            <div className="h-full w-1 mx-auto rounded-full bg-white shadow-[0_0_15px_rgba(255,255,255,0.8)]" />
+            <div className="mx-auto h-full w-1 rounded-full bg-white shadow-[0_0_15px_rgba(255,255,255,0.8)]" />
             {/* Grabber claw */}
             <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 text-lg">
               🦾
