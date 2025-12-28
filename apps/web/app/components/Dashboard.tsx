@@ -12,7 +12,7 @@ import RegionalHealthRing from "./RegionalHealthRing";
 import { MapOverlay } from "./MapOverlay";
 import { useEventStream, type EventPayload } from "../hooks/useEventStream";
 import { useStore, type Region, type Feature, type Hex, type CycleState } from "../store";
-import { BAR_HARBOR_DEMO_BBOX, DEGRADED_HEALTH_THRESHOLD } from "@nightfall/config";
+import { BAR_HARBOR_DEMO_BBOX, DEGRADED_HEALTH_THRESHOLD, calculateCityScore } from "@nightfall/config";
 import { fetchWithRetry } from "../lib/retry";
 import { formatNumber } from "../lib/formatters";
 import { ResourcePoolsPanel } from "./sidebar/ResourcePoolsPanel";
@@ -20,6 +20,7 @@ import { RegionHealthPanel } from "./sidebar/RegionHealthPanel";
 import { OnboardingOverlay } from "./OnboardingOverlay";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { recordResourceValues, clearResourceHistory } from "../lib/resourceHistory";
+import { recordHealthValues, getHealthTrend, clearHealthHistory } from "../lib/healthHistory";
 import { MinigameOverlay } from "./minigames";
 import { Navigation } from "lucide-react";
 import { AdminConsole } from "./admin";
@@ -278,12 +279,16 @@ export default function Dashboard({
     });
     // Clear history and record initial values for the new region
     clearResourceHistory();
+    clearHealthHistory();
     recordResourceValues({
       pool_food: initialRegion.pool_food,
       pool_equipment: initialRegion.pool_equipment,
       pool_energy: initialRegion.pool_energy,
       pool_materials: initialRegion.pool_materials
     });
+    // Record initial health values
+    const initialScore = calculateCityScore(initialRegion.stats.health_avg, initialRegion.stats.rust_avg);
+    recordHealthValues(initialRegion.stats.health_avg, initialRegion.stats.rust_avg, initialScore);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -383,6 +388,11 @@ export default function Dashboard({
           pool_energy: update.pool_energy,
           pool_materials: update.pool_materials
         });
+        // Record health values for trend tracking
+        if (update.health_avg != null && update.rust_avg != null) {
+          const updatedScore = calculateCityScore(update.health_avg, update.rust_avg);
+          recordHealthValues(update.health_avg, update.rust_avg, updatedScore);
+        }
         pending.regionUpdate = null;
       }
 
@@ -792,7 +802,8 @@ export default function Dashboard({
 
   const healthPercent = region.stats.health_avg;
   const rustPercent = region.stats.rust_avg * 100;
-  const cityScore = region.stats.score;
+  const cityScore = calculateCityScore(region.stats.health_avg, region.stats.rust_avg);
+  const healthTrend = getHealthTrend();
 
   const SidebarContent = ({ resourceFeed }: { resourceFeed: ResourceDelta[] }) => (
     <>
@@ -965,6 +976,10 @@ export default function Dashboard({
                 healthPercent={healthPercent}
                 rustLevel={rustPercent}
                 score={cityScore}
+                scoreTrend={healthTrend.scoreTrend}
+                scoreChange={healthTrend.scoreChange}
+                streak={healthTrend.streak}
+                streakType={healthTrend.streakType}
               />
               <div className="mt-3 grid w-full grid-cols-2 gap-3 text-xs">
                 <div className="rounded-xl bg-white/5 px-2 py-2 text-center">
