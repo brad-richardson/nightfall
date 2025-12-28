@@ -255,10 +255,11 @@ export function calculateBuildingWeight(
 ): number {
   // Weight formula: prioritize matched categories, then larger footprints
   // Matched category: +1000 base weight
-  // Area contributes directly (larger = higher weight)
+  // Area contributes significantly (larger = higher weight, easier to interact with on mobile)
+  // Using sqrt scaling to compress extreme outliers while still differentiating sizes
   // Hash provides deterministic tiebreaker
   const baseWeight = hasMatchedCategory ? 1000 : 0;
-  const areaWeight = Math.min(area * 10000, 500); // Cap area contribution
+  const areaWeight = Math.min(Math.sqrt(area) * 4000, 800); // Sqrt scaling, cap at 800
   const hashTiebreaker = (hashString(gersId) % 100) / 100; // 0-1 range
   return baseWeight + areaWeight + hashTiebreaker;
 }
