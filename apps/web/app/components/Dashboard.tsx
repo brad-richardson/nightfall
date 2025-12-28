@@ -466,10 +466,79 @@ export default function Dashboard({
     regionRef.current = region;
   }, [region]);
 
+  // Refresh region state after reconnection or visibility change
+  const refreshRegionState = useCallback(async () => {
+    try {
+      const res = await fetchWithRetry(
+        `${apiBaseUrl}/api/region/${regionRef.current.region_id}`,
+        { cache: "no-store" },
+        FETCH_RETRY_OPTIONS
+      );
+      if (!res.ok) {
+        console.error("[Dashboard] Failed to refresh region state:", res.status);
+        return;
+      }
+      const data = await res.json();
+
+      // Update store with fresh data
+      setRegion((prev) => ({
+        ...prev,
+        pool_food: data.pool_food,
+        pool_equipment: data.pool_equipment,
+        pool_energy: data.pool_energy,
+        pool_materials: data.pool_materials,
+        stats: data.stats ?? prev.stats,
+        tasks: data.tasks ?? prev.tasks,
+        crews: data.crews ?? prev.crews,
+        resource_transfers: data.resource_transfers ?? []
+      }));
+
+      if (data.features) {
+        setFeatures(data.features);
+      }
+      if (data.hexes) {
+        setHexes(data.hexes);
+      }
+
+      // Spawn any in-transit resource transfers that we might have missed
+      if (data.resource_transfers) {
+        const now = Date.now();
+        for (const transfer of data.resource_transfers) {
+          const arriveAt = Date.parse(transfer.arrive_at);
+          if (!Number.isNaN(arriveAt) && arriveAt > now) {
+            window.dispatchEvent(new CustomEvent("nightfall:resource_transfer", {
+              detail: {
+                transfer_id: transfer.transfer_id,
+                region_id: data.region_id,
+                source_gers_id: transfer.source_gers_id,
+                hub_gers_id: transfer.hub_gers_id,
+                resource_type: transfer.resource_type,
+                amount: transfer.amount,
+                depart_at: transfer.depart_at,
+                arrive_at: transfer.arrive_at,
+                path_waypoints: transfer.path_waypoints
+              }
+            }));
+          }
+        }
+      }
+
+      console.debug("[Dashboard] Region state refreshed after reconnection");
+    } catch (err) {
+      console.error("[Dashboard] Error refreshing region state:", err);
+    }
+  }, [apiBaseUrl, setRegion, setFeatures, setHexes]);
+
   const handleEvent = useCallback((payload: EventPayload) => {
     const pending = pendingUpdatesRef.current;
 
     switch (payload.event) {
+    case "reconnected":
+      // SSE reconnected after visibility change or network recovery
+      // Refresh the region state to ensure we have latest data
+      console.debug("[SSE] Reconnected, refreshing state");
+      refreshRegionState();
+      break;
     case "phase_change":
       pending.cycle = payload.data as Partial<CycleState>;
       pending.dirty = true;
@@ -630,7 +699,7 @@ export default function Dashboard({
       break;
     }
     }
-  }, []);
+  }, [refreshRegionState]);
 
   useEventStream(apiBaseUrl, handleEvent);
 
