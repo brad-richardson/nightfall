@@ -433,16 +433,16 @@ export default function Dashboard({
           const energyDelta = match.pool_energy - prevEnergy;
           const materialDelta = match.pool_materials - prevMaterials;
           if (foodDelta !== 0) {
-            pending.resourceDeltas.push({ type: "food", delta: foodDelta, source: "Daily ops", ts: Date.now() });
+            pending.resourceDeltas.push({ type: "food", delta: foodDelta, source: foodDelta > 0 ? "Transfer arrived" : "Crew expenses", ts: Date.now() });
           }
           if (equipmentDelta !== 0) {
-            pending.resourceDeltas.push({ type: "equipment", delta: equipmentDelta, source: "Daily ops", ts: Date.now() });
+            pending.resourceDeltas.push({ type: "equipment", delta: equipmentDelta, source: equipmentDelta > 0 ? "Transfer arrived" : "Crew expenses", ts: Date.now() });
           }
           if (energyDelta !== 0) {
-            pending.resourceDeltas.push({ type: "energy", delta: energyDelta, source: "Daily ops", ts: Date.now() });
+            pending.resourceDeltas.push({ type: "energy", delta: energyDelta, source: energyDelta > 0 ? "Transfer arrived" : "Crew expenses", ts: Date.now() });
           }
           if (materialDelta !== 0) {
-            pending.resourceDeltas.push({ type: "materials", delta: materialDelta, source: "Daily ops", ts: Date.now() });
+            pending.resourceDeltas.push({ type: "materials", delta: materialDelta, source: materialDelta > 0 ? "Transfer arrived" : "Crew expenses", ts: Date.now() });
           }
           pending.regionUpdate = match;
           pending.dirty = true;
@@ -456,7 +456,16 @@ export default function Dashboard({
       if (transfer.region_id !== regionRef.current.region_id) {
         break;
       }
+      // Dispatch for map animation
       window.dispatchEvent(new CustomEvent("nightfall:resource_transfer", { detail: transfer }));
+      // Add to resource deltas for the ticker
+      pending.resourceDeltas.push({
+        type: transfer.resource_type,
+        delta: transfer.amount,
+        source: "Transfer departing",
+        ts: Date.now()
+      });
+      pending.dirty = true;
       break;
     }
     case "feature_delta": {
