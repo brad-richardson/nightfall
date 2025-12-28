@@ -52,6 +52,20 @@ const JUNK_ITEMS: Omit<SalvageItem, "id" | "isValuable">[] = [
 
 // Swipe threshold in pixels
 const SWIPE_THRESHOLD = 80;
+// Card exit animation distance in pixels
+const CARD_EXIT_DISTANCE = 300;
+// Card rotation multiplier (degrees per pixel of offset)
+const CARD_ROTATION_FACTOR = 0.05;
+// Card opacity fade distance
+const CARD_OPACITY_FADE_DISTANCE = 400;
+// Timer update interval in milliseconds
+const TIMER_INTERVAL_MS = 200;
+// Maximum speed bonus multiplier (50% bonus for instant answers)
+const MAX_SPEED_BONUS = 0.5;
+// Maximum streak bonus multiplier (50% bonus at 5+ streak)
+const MAX_STREAK_BONUS = 0.5;
+// Streak bonus increment per correct answer
+const STREAK_BONUS_INCREMENT = 0.1;
 
 export default function SalvageRun({ config, difficulty, onComplete }: SalvageRunProps) {
   const [phase, setPhase] = useState<GamePhase>("ready");
@@ -157,9 +171,9 @@ export default function SalvageRun({ config, difficulty, onComplete }: SalvageRu
 
     if (correct && !timedOut) {
       // Bonus for speed (more time left = more points)
-      const speedBonus = 1 + (timeLeft / timePerItem) * 0.5;
+      const speedBonus = 1 + (timeLeft / timePerItem) * MAX_SPEED_BONUS;
       // Streak bonus
-      const streakBonus = 1 + Math.min(streak * 0.1, 0.5);
+      const streakBonus = 1 + Math.min(streak * STREAK_BONUS_INCREMENT, MAX_STREAK_BONUS);
       points = Math.round(basePoints * speedBonus * streakBonus);
       setStreak((s) => s + 1);
     } else {
@@ -168,7 +182,7 @@ export default function SalvageRun({ config, difficulty, onComplete }: SalvageRu
 
     setScore((s) => s + points);
     setFeedback({ correct, points, direction });
-    setCardOffset(direction === "left" ? -300 : 300);
+    setCardOffset(direction === "left" ? -CARD_EXIT_DISTANCE : CARD_EXIT_DISTANCE);
     setPhase("feedback");
 
     // Move to next item
@@ -205,15 +219,16 @@ export default function SalvageRun({ config, difficulty, onComplete }: SalvageRu
 
     timerRef.current = setInterval(() => {
       setTimeLeft((prev) => {
-        if (prev <= 0.1) {
+        const decrement = TIMER_INTERVAL_MS / 1000;
+        if (prev <= decrement) {
           // Time's up - count as wrong answer
           const item = currentItemRef.current;
           handleChoiceRef.current(item?.isValuable ? "right" : "left", true);
           return 0;
         }
-        return prev - 0.1;
+        return prev - decrement;
       });
-    }, 100);
+    }, TIMER_INTERVAL_MS);
 
     return () => {
       if (timerRef.current) {
@@ -273,6 +288,7 @@ export default function SalvageRun({ config, difficulty, onComplete }: SalvageRu
   }, [handleDragStart]);
 
   const onTouchMove = useCallback((e: React.TouchEvent) => {
+    e.preventDefault(); // Prevent page scrolling while swiping
     handleDragMove(e.touches[0].clientX);
   }, [handleDragMove]);
 
@@ -299,8 +315,8 @@ export default function SalvageRun({ config, difficulty, onComplete }: SalvageRu
   }, [phase, handleChoice]);
 
   // Calculate card rotation based on offset
-  const cardRotation = cardOffset * 0.05;
-  const cardOpacity = 1 - Math.abs(cardOffset) / 400;
+  const cardRotation = cardOffset * CARD_ROTATION_FACTOR;
+  const cardOpacity = 1 - Math.abs(cardOffset) / CARD_OPACITY_FADE_DISTANCE;
 
   // Render countdown
   if (phase === "ready") {
@@ -380,12 +396,8 @@ export default function SalvageRun({ config, difficulty, onComplete }: SalvageRu
       >
         {currentItem && (
           <div
-            className={`absolute left-1/2 top-0 h-full w-56 -translate-x-1/2 select-none rounded-2xl border-2 p-6 shadow-xl transition-shadow ${
+            className={`absolute left-1/2 top-0 h-full w-56 -translate-x-1/2 select-none rounded-2xl border-2 border-white/20 bg-gradient-to-b from-slate-800/80 to-slate-900/80 p-6 shadow-xl transition-shadow ${
               isDragging ? "shadow-2xl" : ""
-            } ${
-              currentItem.isValuable
-                ? "border-green-500/30 bg-gradient-to-b from-green-900/40 to-green-950/60"
-                : "border-red-500/30 bg-gradient-to-b from-red-900/40 to-red-950/60"
             }`}
             style={{
               transform: `translateX(calc(-50% + ${cardOffset}px)) rotate(${cardRotation}deg)`,
@@ -397,18 +409,9 @@ export default function SalvageRun({ config, difficulty, onComplete }: SalvageRu
             <div className="flex h-full flex-col items-center justify-center text-center">
               <span className="text-6xl mb-4">{currentItem.emoji}</span>
               <h3 className="text-lg font-bold text-white mb-2">{currentItem.name}</h3>
-              <p className={`text-sm ${currentItem.isValuable ? "text-green-300/80" : "text-red-300/80"}`}>
+              <p className="text-sm text-white/70">
                 {currentItem.description}
               </p>
-
-              {/* Visual hint for item type */}
-              <div className={`mt-4 rounded-full px-3 py-1 text-xs font-semibold ${
-                currentItem.isValuable
-                  ? "bg-green-500/20 text-green-400"
-                  : "bg-red-500/20 text-red-400"
-              }`}>
-                {currentItem.isValuable ? "VALUABLE" : "CONTAMINATED"}
-              </div>
             </div>
 
             {/* Swipe indicator overlays */}
@@ -466,6 +469,12 @@ export default function SalvageRun({ config, difficulty, onComplete }: SalvageRu
       <div className="flex gap-4">
         <button
           onClick={() => handleChoice("left")}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              handleChoice("left");
+            }
+          }}
           disabled={phase !== "playing"}
           className={`flex h-16 w-16 items-center justify-center rounded-full border-2 text-2xl transition-all ${
             phase === "playing"
@@ -478,6 +487,12 @@ export default function SalvageRun({ config, difficulty, onComplete }: SalvageRu
         </button>
         <button
           onClick={() => handleChoice("right")}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              handleChoice("right");
+            }
+          }}
           disabled={phase !== "playing"}
           className={`flex h-16 w-16 items-center justify-center rounded-full border-2 text-2xl transition-all ${
             phase === "playing"
