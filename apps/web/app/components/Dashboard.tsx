@@ -20,6 +20,7 @@ import { ResourcePoolsPanel } from "./sidebar/ResourcePoolsPanel";
 import { RegionHealthPanel } from "./sidebar/RegionHealthPanel";
 import { OnboardingOverlay } from "./OnboardingOverlay";
 import { recordResourceValues, clearResourceHistory } from "../lib/resourceHistory";
+import { MinigameOverlay } from "./minigames";
 
 type ResourceType = "food" | "equipment" | "energy" | "materials";
 
@@ -172,6 +173,8 @@ export default function Dashboard({
   const cycle = useStore((state) => state.cycle);
   const auth = useStore((state) => state.auth);
   const userVotes = useStore((state) => state.userVotes);
+  const activeMinigame = useStore((state) => state.activeMinigame);
+  const minigameResult = useStore((state) => state.minigameResult);
 
   // Get stable action references (actions never change)
   const setRegion = useStore.getState().setRegion;
@@ -181,8 +184,13 @@ export default function Dashboard({
   const setAuth = useStore.getState().setAuth;
   const setUserVote = useStore.getState().setUserVote;
   const clearUserVote = useStore.getState().clearUserVote;
-  
+  const startMinigame = useStore.getState().startMinigame;
+  const abandonMinigame = useStore.getState().abandonMinigame;
+  const setCooldown = useStore.getState().setCooldown;
+  const addBuildingBoost = useStore.getState().addBuildingBoost;
+
   const [resourceDeltas, setResourceDeltas] = useState<ResourceDelta[]>([]);
+  const [showMinigameOverlay, setShowMinigameOverlay] = useState(false);
   const prevTasksRef = useRef<Map<string, string>>(new Map());
   const hasHydratedRef = useRef(false);
 
@@ -608,6 +616,57 @@ export default function Dashboard({
     }
   }, [apiBaseUrl, auth, region.region_id]);
 
+  const handleBoostProduction = useCallback(async (buildingGersId: string, buildingName: string) => {
+    if (!auth.clientId || !auth.token) return;
+
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/minigame/start`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${auth.token}`
+        },
+        body: JSON.stringify({
+          client_id: auth.clientId,
+          building_gers_id: buildingGersId
+        })
+      });
+
+      const data = await res.json();
+
+      if (data.ok) {
+        startMinigame({
+          session_id: data.session_id,
+          building_gers_id: buildingGersId,
+          building_name: buildingName,
+          minigame_type: data.minigame_type,
+          resource_type: data.resource_type,
+          config: data.config,
+          difficulty: data.difficulty,
+          started_at: Date.now(),
+        });
+        setShowMinigameOverlay(true);
+      } else if (data.error === "cooldown_active") {
+        setCooldown({
+          building_gers_id: buildingGersId,
+          available_at: data.available_at,
+        });
+        toast.error("Cooldown active", {
+          description: `Wait ${Math.ceil(data.cooldown_remaining_ms / 1000 / 60)} minutes`
+        });
+      } else {
+        toast.error("Failed to start minigame", { description: data.error });
+      }
+    } catch (err) {
+      console.error("Failed to start minigame", err);
+      toast.error("Failed to start minigame", { description: "Please try again" });
+    }
+  }, [apiBaseUrl, auth, startMinigame, setCooldown]);
+
+  const handleMinigameClose = useCallback(() => {
+    setShowMinigameOverlay(false);
+  }, []);
+
   const counts = useMemo(() => {
     let roads = 0;
     let buildings = 0;
@@ -838,6 +897,7 @@ export default function Dashboard({
               activeTasks={region.tasks}
               onVote={handleVote}
               onContribute={handleContribute}
+              onBoostProduction={handleBoostProduction}
               canContribute={Boolean(auth.token && auth.clientId)}
               userVotes={userVotes}
             />
@@ -845,6 +905,9 @@ export default function Dashboard({
         </div>
       </DemoMap>
       <OnboardingOverlay />
+      {showMinigameOverlay && (activeMinigame || minigameResult) && (
+        <MinigameOverlay onClose={handleMinigameClose} />
+      )}
     </div>
   );
 }
