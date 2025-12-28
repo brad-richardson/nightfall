@@ -10,7 +10,16 @@ import { loadCycleState, loadCycleSummary } from "./cycle";
 import { PHASE_DURATIONS, getNextPhase, type Phase } from "./utils/phase";
 import { createDbEventStream } from "./event-stream";
 import type { EventStream } from "./event-stream";
-import { ROAD_CLASSES, DEGRADED_HEALTH_THRESHOLD, calculateCityScore } from "@nightfall/config";
+import {
+  ROAD_CLASSES,
+  DEGRADED_HEALTH_THRESHOLD,
+  calculateCityScore,
+  SCORE_ACTIONS,
+  getPlayerTier,
+  getPlayerTierConfig,
+  getTierProgress,
+  type PlayerTier
+} from "@nightfall/config";
 import {
   type Graph,
   type ConnectorCoords,
@@ -179,6 +188,105 @@ const FOCUS_HEX_CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
 
 export function resetFocusHexCacheForTests() {
   focusHexCache.clear();
+}
+
+// =============================================================================
+// Score Tracking Helpers
+// =============================================================================
+
+type ScoreEventType = "contribution" | "vote" | "minigame" | "task_completion";
+
+interface PlayerScoreData {
+  total_score: number;
+  contribution_score: number;
+  vote_score: number;
+  minigame_score: number;
+  task_completion_bonus: number;
+}
+
+/**
+ * Award score to a player and record the event
+ * This upserts the player_scores record and creates a score_event for audit trail
+ */
+async function awardPlayerScore(
+  pool: ReturnType<typeof getPool>,
+  clientId: string,
+  eventType: ScoreEventType,
+  amount: number,
+  regionId?: string,
+  relatedId?: string
+): Promise<{ newScore: number; tier: PlayerTier } | null> {
+  if (amount <= 0) return null;
+
+  const scoreColumn = {
+    contribution: "contribution_score",
+    vote: "vote_score",
+    minigame: "minigame_score",
+    task_completion: "task_completion_bonus"
+  }[eventType];
+
+  // Upsert player_scores and get new total
+  const result = await pool.query<{ total_score: number }>(
+    `
+    INSERT INTO player_scores (client_id, ${scoreColumn}, total_score, updated_at)
+    VALUES ($1, $2, $2, now())
+    ON CONFLICT (client_id) DO UPDATE SET
+      ${scoreColumn} = player_scores.${scoreColumn} + $2,
+      total_score = player_scores.total_score + $2,
+      updated_at = now()
+    RETURNING total_score
+    `,
+    [clientId, amount]
+  );
+
+  // Record score event for audit trail
+  await pool.query(
+    `
+    INSERT INTO score_events (client_id, event_type, amount, region_id, related_id)
+    VALUES ($1, $2, $3, $4, $5)
+    `,
+    [clientId, eventType, amount, regionId || null, relatedId || null]
+  );
+
+  const newScore = Number(result.rows[0]?.total_score ?? 0);
+  return {
+    newScore,
+    tier: getPlayerTier(newScore)
+  };
+}
+
+/**
+ * Get player's current score data
+ */
+async function getPlayerScoreData(
+  pool: ReturnType<typeof getPool>,
+  clientId: string
+): Promise<PlayerScoreData | null> {
+  const result = await pool.query<PlayerScoreData>(
+    `
+    SELECT
+      total_score,
+      contribution_score,
+      vote_score,
+      minigame_score,
+      task_completion_bonus
+    FROM player_scores
+    WHERE client_id = $1
+    `,
+    [clientId]
+  );
+
+  if (result.rows.length === 0) {
+    return null;
+  }
+
+  return {
+    total_score: Number(result.rows[0].total_score),
+    contribution_score: Number(result.rows[0].contribution_score),
+    vote_score: Number(result.rows[0].vote_score),
+    minigame_score: Number(result.rows[0].minigame_score),
+    task_completion_bonus: Number(result.rows[0].task_completion_bonus)
+  };
 }
 
 async function loadGraphForRegion(
@@ -635,6 +743,96 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       home_region_id: playerResult.rows[0]?.home_region_id ?? null,
       regions: regionsResult.rows,
       cycle
+    };
+  });
+
+  // ========================================================================
+  // PLAYER SCORE ENDPOINT
+  // ========================================================================
+
+  app.get<{ Querystring: { client_id?: string } }>("/api/player/score", async (request, reply) => {
+    reply.header("Cache-Control", "no-store");
+
+    const clientId = request.query.client_id?.trim();
+    const authHeader = request.headers["authorization"];
+
+    if (!clientId) {
+      reply.status(400);
+      return { ok: false, error: "client_id_required" };
+    }
+
+    if (clientId.length > MAX_CLIENT_ID_LENGTH) {
+      reply.status(400);
+      return { ok: false, error: "client_id_too_long" };
+    }
+
+    if (!authHeader || !verifyToken(clientId, authHeader)) {
+      reply.status(401);
+      return { ok: false, error: "unauthorized" };
+    }
+
+    const pool = getPool();
+
+    // Get player's score data
+    const scoreData = await getPlayerScoreData(pool, clientId);
+
+    if (!scoreData) {
+      // Player exists but has no score record yet - return zeros
+      const playerCheck = await pool.query("SELECT 1 FROM players WHERE client_id = $1", [clientId]);
+      if (playerCheck.rowCount === 0) {
+        reply.status(404);
+        return { ok: false, error: "player_not_found" };
+      }
+
+      const tierProgress = getTierProgress(0);
+      return {
+        ok: true,
+        score: {
+          total: 0,
+          contribution: 0,
+          vote: 0,
+          minigame: 0,
+          taskCompletion: 0
+        },
+        tier: {
+          current: tierProgress.currentTier,
+          next: tierProgress.nextTier,
+          progress: tierProgress.progress,
+          scoreToNext: tierProgress.scoreToNext,
+          config: getPlayerTierConfig(0)
+        }
+      };
+    }
+
+    const tierProgress = getTierProgress(scoreData.total_score);
+
+    // Get player's leaderboard position using same COALESCE logic as leaderboard endpoint
+    const rankResult = await pool.query<{ rank: number }>(
+      `SELECT COUNT(*) + 1 AS rank
+       FROM players p
+       LEFT JOIN player_scores ps ON ps.client_id = p.client_id
+       WHERE COALESCE(ps.total_score, p.lifetime_contrib, 0) > $1`,
+      [scoreData.total_score]
+    );
+    const rank = Number(rankResult.rows[0]?.rank ?? 1);
+
+    return {
+      ok: true,
+      score: {
+        total: scoreData.total_score,
+        contribution: scoreData.contribution_score,
+        vote: scoreData.vote_score,
+        minigame: scoreData.minigame_score,
+        taskCompletion: scoreData.task_completion_bonus
+      },
+      tier: {
+        current: tierProgress.currentTier,
+        next: tierProgress.nextTier,
+        progress: tierProgress.progress,
+        scoreToNext: tierProgress.scoreToNext,
+        config: getPlayerTierConfig(scoreData.total_score)
+      },
+      rank
     };
   });
 
@@ -1502,6 +1700,11 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         );
       }
 
+      // Award contribution score (1 point per resource unit)
+      const totalContributed = appliedFood + appliedEquipment + appliedEnergy + appliedMaterials;
+      const scoreAmount = totalContributed * SCORE_ACTIONS.resourceContribution;
+      const scoreResult = await awardPlayerScore(pool, clientId, "contribution", scoreAmount, regionId, source.gers_id);
+
       await pool.query("COMMIT");
 
       return {
@@ -1514,7 +1717,10 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         remaining_equipment: Math.max(0, remainingEquipment - allowedEquipment),
         remaining_energy: Math.max(0, remainingEnergy - allowedEnergy),
         remaining_materials: Math.max(0, remainingMaterials - allowedMaterials),
-        transfers: transferResult.rows
+        transfers: transferResult.rows,
+        score_awarded: scoreResult ? scoreAmount : 0,
+        new_total_score: scoreResult?.newScore ?? null,
+        new_tier: scoreResult?.tier ?? null
       };
     } catch (error) {
       await pool.query("ROLLBACK");
@@ -1562,6 +1768,13 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         reply.status(404);
         return { ok: false, error: "task_not_found" };
       }
+
+      // Check if this is a new vote (not a vote change)
+      const existingVote = await pool.query(
+        "SELECT 1 FROM task_votes WHERE task_id = $1 AND client_id = $2",
+        [taskId, clientId]
+      );
+      const isNewVote = existingVote.rowCount === 0;
 
       await pool.query(
         `
@@ -1658,6 +1871,19 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         taskDelta = fallbackTask.rows[0];
       }
 
+      // Award vote score only for new votes (not vote changes)
+      let playerScoreResult: { newScore: number; tier: PlayerTier } | null = null;
+      if (isNewVote) {
+        playerScoreResult = await awardPlayerScore(
+          pool,
+          clientId,
+          "vote",
+          SCORE_ACTIONS.voteSubmitted,
+          taskDelta?.region_id,
+          taskId
+        );
+      }
+
       await pool.query("COMMIT");
 
       // Send notification after successful commit if we have task data
@@ -1667,7 +1893,14 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         ]);
       }
 
-      return { ok: true, new_vote_score: voteScore, priority_score: taskDelta?.priority_score ?? null };
+      return {
+        ok: true,
+        new_vote_score: voteScore,
+        priority_score: taskDelta?.priority_score ?? null,
+        score_awarded: isNewVote ? SCORE_ACTIONS.voteSubmitted : 0,
+        new_total_score: playerScoreResult?.newScore ?? null,
+        new_tier: playerScoreResult?.tier ?? null
+      };
     } catch (error) {
       await pool.query("ROLLBACK");
       throw error;
@@ -2070,6 +2303,27 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         })
       ]);
 
+      // Award minigame score (base + perfect bonus)
+      const performance = score / session.max_possible_score;
+      const isPerfect = performance >= 0.99; // Allow 1% margin for floating point
+      const minigameScoreAmount = SCORE_ACTIONS.minigameCompleted + (isPerfect ? SCORE_ACTIONS.minigamePerfect : 0);
+
+      // Get building's region for the score event
+      const buildingRegion = await pool.query<{ region_id: string }>(
+        "SELECT region_id FROM world_features WHERE gers_id = $1",
+        [session.building_gers_id]
+      );
+      const regionId = buildingRegion.rows[0]?.region_id;
+
+      const playerScoreResult = await awardPlayerScore(
+        pool,
+        clientId,
+        "minigame",
+        minigameScoreAmount,
+        regionId,
+        sessionId
+      );
+
       await pool.query("COMMIT");
 
       return {
@@ -2080,7 +2334,10 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
           expires_at: expiresAt.toISOString(),
         },
         new_cooldown_at: cooldownAt.toISOString(),
-        performance: Math.round((score / session.max_possible_score) * 100),
+        performance: Math.round(performance * 100),
+        score_awarded: minigameScoreAmount,
+        new_total_score: playerScoreResult?.newScore ?? null,
+        new_tier: playerScoreResult?.tier ?? null
       };
     } catch (err) {
       await pool.query("ROLLBACK");
@@ -2468,46 +2725,71 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   // LEADERBOARD ENDPOINT
   // ========================================================================
 
-  app.get<{ Querystring: { limit?: string } }>("/api/leaderboard", async (request, reply) => {
+  app.get<{ Querystring: { limit?: string; region_id?: string } }>("/api/leaderboard", async (request, reply) => {
     reply.header("Cache-Control", "no-store");
 
     const limit = Math.min(100, Math.max(1, parseInt(request.query.limit ?? "50", 10) || 50));
+    const regionFilter = request.query.region_id?.trim();
     const pool = getPool();
 
-    // Query players ordered by lifetime contribution (as proxy for score until server-side scoring is implemented)
-    // Note: For now we use lifetime_contrib as the score. A full implementation would track
-    // scores server-side. See TODO.md for next steps.
+    // Query players from player_scores table, joined with players for display info
+    // Falls back to lifetime_contrib for players without score records (backwards compatibility)
     const result = await pool.query<{
       client_id: string;
       display_name: string | null;
-      lifetime_contrib: number;
+      total_score: number;
+      contribution_score: number;
+      vote_score: number;
+      minigame_score: number;
+      task_completion_bonus: number;
       home_region_id: string | null;
       last_seen: string;
     }>(
       `SELECT
-        client_id,
-        display_name,
-        COALESCE(lifetime_contrib, 0) AS lifetime_contrib,
-        home_region_id,
-        last_seen::text
-      FROM players
-      WHERE lifetime_contrib > 0
-      ORDER BY lifetime_contrib DESC
+        p.client_id,
+        p.display_name,
+        COALESCE(ps.total_score, p.lifetime_contrib, 0) AS total_score,
+        COALESCE(ps.contribution_score, 0) AS contribution_score,
+        COALESCE(ps.vote_score, 0) AS vote_score,
+        COALESCE(ps.minigame_score, 0) AS minigame_score,
+        COALESCE(ps.task_completion_bonus, 0) AS task_completion_bonus,
+        p.home_region_id,
+        p.last_seen::text
+      FROM players p
+      LEFT JOIN player_scores ps ON ps.client_id = p.client_id
+      WHERE COALESCE(ps.total_score, p.lifetime_contrib, 0) > 0
+        ${regionFilter ? "AND p.home_region_id = $2" : ""}
+      ORDER BY COALESCE(ps.total_score, p.lifetime_contrib, 0) DESC
       LIMIT $1`,
-      [limit]
+      regionFilter ? [limit, regionFilter] : [limit]
     );
 
     return {
       ok: true,
-      leaderboard: result.rows.map((row, index) => ({
-        rank: index + 1,
-        // Use truncated client_id suffix as anonymous identifier (privacy: don't expose full client_id)
-        playerId: row.client_id.slice(-8),
-        displayName: row.display_name || `Player ${row.client_id.slice(-6)}`,
-        score: Number(row.lifetime_contrib),
-        homeRegionId: row.home_region_id,
-        lastSeen: row.last_seen
-      }))
+      leaderboard: result.rows.map((row, index) => {
+        const score = Number(row.total_score);
+        const tier = getPlayerTier(score);
+        const tierConfig = getPlayerTierConfig(score);
+
+        return {
+          rank: index + 1,
+          // Use truncated client_id suffix as anonymous identifier (privacy: don't expose full client_id)
+          playerId: row.client_id.slice(-8),
+          displayName: row.display_name || `Player ${row.client_id.slice(-6)}`,
+          score,
+          tier,
+          tierBadge: tierConfig.badgeIcon,
+          tierColor: tierConfig.color,
+          breakdown: {
+            contribution: Number(row.contribution_score),
+            vote: Number(row.vote_score),
+            minigame: Number(row.minigame_score),
+            taskCompletion: Number(row.task_completion_bonus)
+          },
+          homeRegionId: row.home_region_id,
+          lastSeen: row.last_seen
+        };
+      })
     };
   });
 
