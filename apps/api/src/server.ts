@@ -513,6 +513,19 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
 
     const once = request.headers["x-sse-once"] === "1";
 
+    // Manually set CORS headers for SSE (hijacked responses bypass @fastify/cors)
+    const origin = request.headers.origin;
+    const allowedOrigins = config.ALLOWED_ORIGINS
+      ? config.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+      : null;
+
+    if (origin) {
+      if (!allowedOrigins || allowedOrigins.includes(origin)) {
+        reply.raw.setHeader("Access-Control-Allow-Origin", origin);
+        reply.raw.setHeader("Access-Control-Allow-Credentials", "true");
+      }
+    }
+
     reply.raw.setHeader("Content-Type", "text/event-stream");
     reply.raw.setHeader("Cache-Control", "no-store");
     reply.raw.setHeader("Pragma", "no-cache");

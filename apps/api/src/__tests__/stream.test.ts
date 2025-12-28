@@ -36,4 +36,31 @@ describe("event stream", () => {
 
     await app.close();
   });
+
+  it("sets CORS headers for allowed origins", async () => {
+    const eventStream: EventStream = {
+      subscribe: (handler) => {
+        handler(eventPayload);
+        return () => {};
+      }
+    };
+
+    const app = buildServer({ eventStream });
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/stream",
+      headers: {
+        "x-sse-once": "1",
+        origin: "https://brad-richardson.github.io"
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["access-control-allow-origin"]).toBe(
+      "https://brad-richardson.github.io"
+    );
+    expect(response.headers["access-control-allow-credentials"]).toBe("true");
+
+    await app.close();
+  });
 });
