@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import DemoMap from "./DemoMap";
 import PhaseIndicator from "./PhaseIndicator";
-import ActivityFeed, { type FeedItem } from "./ActivityFeed";
 import TaskList from "./TaskList";
 import FeaturePanel from "./FeaturePanel";
 import MobileSidebar from "./MobileSidebar";
@@ -452,11 +451,6 @@ export default function Dashboard({
 
       break;
     }
-    case "feed_item": {
-      const item = payload.data as FeedItem;
-      window.dispatchEvent(new CustomEvent("nightfall:feed_item", { detail: item }));
-      break;
-    }
     case "resource_transfer": {
       const transfer = payload.data as ResourceTransferPayload;
       if (transfer.region_id !== regionRef.current.region_id) {
@@ -855,9 +849,6 @@ export default function Dashboard({
             </details>
           </MapOverlay>
 
-          <div className="pointer-events-auto absolute bottom-0 left-0 right-0 hidden lg:block">
-            <ActivityFeed />
-          </div>
 
           <div className="pointer-events-auto absolute bottom-0 left-0 right-0 lg:hidden">
             <MobileSidebar>
