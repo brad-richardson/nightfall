@@ -1,11 +1,15 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useState, useRef, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import Dashboard from "./components/Dashboard";
 import { type Region, type Feature, type Hex } from "./store";
 import { BAR_HARBOR_DEMO_BBOX, type Bbox } from "@nightfall/config";
 import { fetchWithRetry } from "./lib/retry";
+
+// Retry configuration for Overture tiles - more patient than other fetches
+const OVERTURE_RETRY_OPTIONS = { attempts: 5, baseDelayMs: 1000, maxDelayMs: 5000, jitter: 0.2 };
+const OVERTURE_POLL_INTERVAL_MS = 15000; // Retry every 15 seconds if unavailable
 
 type Boundary =
   | { type: "Polygon"; coordinates: number[][][] }
@@ -99,7 +103,7 @@ async function fetchOvertureRelease(apiBaseUrl: string): Promise<string | null> 
     const res = await fetchWithRetry(
       `${apiBaseUrl}/api/overture-latest`,
       { cache: "no-store" },
-      FETCH_RETRY_OPTIONS
+      OVERTURE_RETRY_OPTIONS
     );
     if (res.ok) {
       const data = (await res.json()) as OvertureResponse;
@@ -137,6 +141,32 @@ function HomePageContent({ regionId }: { regionId: string }) {
   const [features, setFeatures] = useState<Feature[]>([]);
   const [hexes, setHexes] = useState<Hex[]>([]);
   const [overtureRelease, setOvertureRelease] = useState<string | null>(null);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isMountedRef = useRef(true);
+
+  // Track component mount state to prevent state updates after unmount
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // Poll for Overture release if unavailable
+  const pollOvertureRelease = useCallback(async () => {
+    const release = await fetchOvertureRelease(API_BASE_URL);
+    // Check if component is still mounted before updating state
+    if (!isMountedRef.current) return;
+    if (release) {
+      setOvertureRelease(release);
+      // Stop polling once we have the release
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -147,6 +177,13 @@ function HomePageContent({ regionId }: { regionId: string }) {
       setFeatures([]);
       setHexes([]);
       setOvertureRelease(null);
+      setIsInitialLoad(true);
+
+      // Clear any existing poll interval
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
 
       const [nextRegion, nextWorld] = await Promise.all([
         fetchRegion(API_BASE_URL, regionId),
@@ -170,16 +207,27 @@ function HomePageContent({ regionId }: { regionId: string }) {
       setFeatures(nextFeatures);
       setHexes(nextHexes);
       setOvertureRelease(nextRelease);
+      setIsInitialLoad(false);
+
+      // Start polling if Overture release is unavailable
+      if (!nextRelease && !pollIntervalRef.current) {
+        pollIntervalRef.current = setInterval(pollOvertureRelease, OVERTURE_POLL_INTERVAL_MS);
+      }
     }
 
     load();
 
     return () => {
       cancelled = true;
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
     };
-  }, [regionId]);
+  }, [regionId, pollOvertureRelease]);
 
-  if (!region || !world) {
+  // Show loading screen only during initial data fetch
+  if (!region || !world || isInitialLoad) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[color:var(--night-sand)] text-[color:var(--night-ink)]">
         <div className="text-center">
@@ -190,17 +238,7 @@ function HomePageContent({ regionId }: { regionId: string }) {
     );
   }
 
-  if (!overtureRelease) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-[color:var(--night-sand)] text-[color:var(--night-ink)]">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold">Awaiting Map Data...</h1>
-          <p className="mt-2 opacity-60">Overture tiles are temporarily unavailable.</p>
-        </div>
-      </main>
-    );
-  }
-
+  // Render Dashboard even without Overture tiles - show degraded experience with connection status
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_var(--night-glow),_var(--night-sand))]">
       <Dashboard
