@@ -27,8 +27,6 @@ type CrackPath = {
 const PERFECT_ZONE = 8;
 const GREAT_ZONE = 16;
 const GOOD_ZONE = 24;
-const WELD_RADIUS = 12;
-const PATH_SEGMENT_LENGTH = 8; // How far apart progress checkpoints are
 
 // Generate a random crack path
 function generateCrackPath(width: number, height: number): CrackPath {
@@ -374,7 +372,6 @@ export default function PatchJob({ config, difficulty, onComplete }: PatchJobPro
         // Check if crack has fully spread before being welded
         if (newProgress >= 1 && weldProgress < 0.95) {
           // Round failed - crack spread too much
-          const avgAccuracy = accuracyCount > 0 ? accuracySum / accuracyCount : GOOD_ZONE * 2;
           const result = { zone: "TOO SLOW!", points: Math.round(config.max_score / roundsNeeded * 0.1), color: "#ef4444" };
 
           setLastResult(result);
