@@ -25,9 +25,11 @@ function buildStraightLineWaypoints(
   departAtMs: number,
   travelTimeS: number
 ): CrewWaypoint[] {
+  // Handle invalid travel times (NaN, Infinity) by using minimum travel time
+  const safeTravelTimeS = !Number.isFinite(travelTimeS) ? CREW_TRAVEL_MIN_S : travelTimeS;
   return [
     { coord: start, arrive_at: new Date(departAtMs).toISOString() },
-    { coord: end, arrive_at: new Date(departAtMs + travelTimeS * 1000).toISOString() }
+    { coord: end, arrive_at: new Date(departAtMs + safeTravelTimeS * 1000).toISOString() }
   ];
 }
 
@@ -927,7 +929,7 @@ async function returnCrewToHub(
         waypoints = buildStraightLineWaypoints(startPoint, hubPoint, departAt, travelTimeS);
       }
     } else {
-      // Connectors not found - use straight-line fallback
+      // No connectors found - use straight-line fallback
       travelTimeS = haversineDistanceMeters(startPoint, hubPoint) / CREW_TRAVEL_MPS;
       waypoints = buildStraightLineWaypoints(startPoint, hubPoint, departAt, travelTimeS);
     }

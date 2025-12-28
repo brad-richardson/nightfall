@@ -8,7 +8,7 @@ FROM hex_cells h
 JOIN world_features hub ON hub.gers_id = h.hub_building_gers_id
 WHERE c.region_id = h.region_id
   AND h.hub_building_gers_id IS NOT NULL
-  AND c.current_lng IS NULL;
+  AND (c.current_lng IS NULL OR c.current_lat IS NULL);
 
 -- migrate:down
 -- No rollback needed (positions are cosmetic and will be set again by ticker)
