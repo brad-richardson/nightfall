@@ -601,11 +601,12 @@ export function getCrewPathLayers(): maplibregl.LayerSpecification[] {
 
 export function getResourcePackageLayers(): maplibregl.LayerSpecification[] {
   return [
+    // Trail for regular (non-boosted) convoys - dashed
     {
       id: "game-resource-trail",
       type: "line",
       source: "game-resource-packages",
-      filter: ["==", ["get", "featureType"], "trail"],
+      filter: ["all", ["==", ["get", "featureType"], "trail"], ["!=", ["get", "boosted"], true]],
       paint: {
         "line-color": [
           "match",
@@ -621,13 +622,52 @@ export function getResourcePackageLayers(): maplibregl.LayerSpecification[] {
         "line-dasharray": [2, 2]
       }
     },
+    // Trail for boosted convoys - solid, wider, brighter
+    {
+      id: "game-resource-trail-boosted",
+      type: "line",
+      source: "game-resource-packages",
+      filter: ["all", ["==", ["get", "featureType"], "trail"], ["==", ["get", "boosted"], true]],
+      paint: {
+        "line-color": [
+          "match",
+          ["get", "resourceType"],
+          "food", COLORS.buildingsFood,
+          "equipment", COLORS.buildingsEquipment,
+          "energy", COLORS.buildingsEnergy,
+          "materials", COLORS.buildingsMaterials,
+          "#ffffff"
+        ],
+        "line-width": 4,
+        "line-opacity": 0.7
+        // Solid line (no dasharray) for boosted convoys
+      }
+    },
+    // Outer boost aura - only for boosted packages (pulsing effect via larger radius)
+    {
+      id: "game-resource-package-boost-aura",
+      type: "circle",
+      source: "game-resource-packages",
+      filter: ["all", ["==", ["get", "featureType"], "package"], ["==", ["get", "boosted"], true]],
+      paint: {
+        "circle-radius": 22,
+        "circle-color": "#ffffff",
+        "circle-blur": 1.5,
+        "circle-opacity": ["*", ["get", "opacity"], 0.3]
+      }
+    },
     {
       id: "game-resource-package-glow",
       type: "circle",
       source: "game-resource-packages",
       filter: ["==", ["get", "featureType"], "package"],
       paint: {
-        "circle-radius": 14,
+        // Boosted packages get a larger glow
+        "circle-radius": [
+          "case",
+          ["==", ["get", "boosted"], true], 18,
+          14
+        ],
         "circle-color": [
           "match",
           ["get", "resourceType"],
@@ -657,7 +697,12 @@ export function getResourcePackageLayers(): maplibregl.LayerSpecification[] {
           "materials", COLORS.buildingsMaterials,
           "#ffffff"
         ],
-        "circle-stroke-width": 2,
+        // Boosted packages have a thicker white stroke
+        "circle-stroke-width": [
+          "case",
+          ["==", ["get", "boosted"], true], 3,
+          2
+        ],
         "circle-stroke-color": "#ffffff",
         "circle-opacity": ["get", "opacity"],
         "circle-stroke-opacity": ["get", "opacity"]

@@ -25,6 +25,7 @@ export type ResourcePackage = {
   startTime: number;
   duration: number; // ms
   waypoints?: PathWaypoint[] | null; // Server-provided waypoints for time-based animation
+  boostMultiplier?: number | null; // Multiplier if source building is boosted
 };
 
 /**

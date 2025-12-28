@@ -67,6 +67,7 @@ export type ResourceTransferPayload = {
   depart_at: string;
   arrive_at: string;
   path_waypoints?: PathWaypoint[] | null;
+  boost_multiplier?: number | null; // If source building has active boost
 };
 
 export type Boundary =

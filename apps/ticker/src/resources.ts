@@ -20,6 +20,7 @@ export type ResourceTransfer = {
   depart_at: string;
   arrive_at: string;
   path_waypoints?: { coord: Point; arrive_at: string }[] | null;
+  boost_multiplier?: number | null; // Multiplier if source building has active boost
 };
 
 type ArrivalResult = {
@@ -179,6 +180,7 @@ type BuildingOutput = {
   equipment_amount: number;
   energy_amount: number;
   materials_amount: number;
+  boost_multiplier: number | null;
 };
 
 export async function enqueueResourceTransfers(
@@ -236,7 +238,8 @@ export async function enqueueResourceTransfers(
         ))::int AS energy_amount,
         GREATEST(0, FLOOR(
           CASE WHEN fr.generates_materials THEN (1 - fr.rust_level) * $1 * COALESCE(ab.multiplier, 1) ELSE 0 END
-        ))::int AS materials_amount
+        ))::int AS materials_amount,
+        ab.multiplier AS boost_multiplier
       FROM feature_rust AS fr
       LEFT JOIN active_boosts AS ab ON ab.building_gers_id = fr.gers_id
     ),
@@ -260,7 +263,8 @@ export async function enqueueResourceTransfers(
       bo.food_amount,
       bo.equipment_amount,
       bo.energy_amount,
-      bo.materials_amount
+      bo.materials_amount,
+      bo.boost_multiplier
     FROM building_outputs AS bo
     JOIN world_features AS wf ON wf.gers_id = bo.source_gers_id
     JOIN hub_lookup ON hub_lookup.h3_index = bo.h3_index
@@ -297,6 +301,7 @@ export async function enqueueResourceTransfers(
     amount: number;
     waypoints: { coord: Point; arrive_at: string }[] | null;
     travel_seconds: number;
+    boost_multiplier: number | null;
   }> = [];
 
   const departAt = Date.now();
@@ -379,6 +384,7 @@ export async function enqueueResourceTransfers(
           amount,
           waypoints,
           travel_seconds: travelSeconds,
+          boost_multiplier: building.boost_multiplier,
         });
       }
     }
@@ -413,7 +419,7 @@ export async function enqueueResourceTransfers(
       );
     });
 
-    const result = await pool.query<ResourceTransfer>(
+    const result = await pool.query<Omit<ResourceTransfer, 'boost_multiplier'>>(
       `INSERT INTO resource_transfers (
         region_id,
         source_gers_id,
@@ -439,7 +445,14 @@ export async function enqueueResourceTransfers(
       values
     );
 
-    insertedTransfers.push(...result.rows);
+    // Add boost_multiplier from the original transfer data (not stored in DB, just for display)
+    const boostBySource = new Map(batch.map(t => [t.source_gers_id, t.boost_multiplier]));
+    for (const row of result.rows) {
+      insertedTransfers.push({
+        ...row,
+        boost_multiplier: row.source_gers_id ? boostBySource.get(row.source_gers_id) ?? null : null,
+      });
+    }
   }
 
   return insertedTransfers;
