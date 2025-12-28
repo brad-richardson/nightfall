@@ -1,7 +1,11 @@
 import { test, expect } from "@playwright/test";
+import { setupApiMocks } from "./test-utils";
 
 test.describe("Resource Convoy Animation", () => {
   test("convoy appears on map when resource transfer event is dispatched", async ({ page }) => {
+    // Set up API mocks before navigating
+    await setupApiMocks(page);
+
     await page.goto("/");
 
     // Wait for map canvas to be visible
