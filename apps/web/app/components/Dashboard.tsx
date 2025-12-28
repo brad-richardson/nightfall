@@ -22,6 +22,7 @@ import { ConnectionStatus } from "./ConnectionStatus";
 import { recordResourceValues, clearResourceHistory } from "../lib/resourceHistory";
 import { MinigameOverlay } from "./minigames";
 import { Navigation } from "lucide-react";
+import { AdminConsole } from "./admin";
 
 type ResourceType = "food" | "equipment" | "energy" | "materials";
 
@@ -1029,6 +1030,7 @@ export default function Dashboard({
       {showMinigameOverlay && (activeMinigame || minigameResult) && (
         <MinigameOverlay onClose={handleMinigameClose} />
       )}
+      {process.env.NODE_ENV === "development" && <AdminConsole />}
     </div>
   );
 }
