@@ -57,16 +57,16 @@ export const CREW_DASH_SEQUENCE: number[][] = [
 // Construction crew SVG icon - centered workers with construction badge background
 export const CONSTRUCTION_VEHICLE_SVG = `
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-  <!-- Badge background - rounded rectangle with construction colors -->
-  <rect x="4" y="4" width="56" height="56" rx="8" fill="#1a1a1a" fill-opacity="0.85"/>
-  <rect x="4" y="4" width="56" height="56" rx="8" fill="none" stroke="#FF9800" stroke-width="3" stroke-opacity="0.9"/>
-  <!-- Hazard stripes at top -->
-  <rect x="4" y="4" width="56" height="8" rx="8" ry="8" fill="#FF9800" fill-opacity="0.3" clip-path="url(#topClip)"/>
   <defs>
     <clipPath id="topClip">
       <rect x="4" y="4" width="56" height="8" rx="8"/>
     </clipPath>
   </defs>
+  <!-- Badge background - rounded rectangle with construction colors -->
+  <rect x="4" y="4" width="56" height="56" rx="8" fill="#1a1a1a" fill-opacity="0.85"/>
+  <rect x="4" y="4" width="56" height="56" rx="8" fill="none" stroke="#FF9800" stroke-width="3" stroke-opacity="0.9"/>
+  <!-- Hazard stripes at top -->
+  <rect x="4" y="4" width="56" height="8" rx="8" ry="8" fill="#FF9800" fill-opacity="0.3" clip-path="url(#topClip)"/>
 
   <!-- Construction Worker 1 (left) -->
   <!-- Hard hat -->

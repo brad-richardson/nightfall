@@ -49,4 +49,13 @@ describe("crew layers", () => {
     // No rotation specified - badge stays upright
     expect(layout?.["icon-rotate"]).toBeUndefined();
   });
+
+  it("crew path icon layer does not rotate (badge stays upright)", () => {
+    const layers = getCrewPathLayers();
+    const iconLayer = layers[2];
+
+    const layout = (iconLayer as { layout?: { "icon-rotate"?: unknown } }).layout;
+    // No rotation specified - moving crew badge stays upright
+    expect(layout?.["icon-rotate"]).toBeUndefined();
+  });
 });
