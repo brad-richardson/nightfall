@@ -6,14 +6,28 @@ import { getHealthColor, getRustColor } from "../lib/metricColors";
 type RegionalHealthRingProps = {
   healthPercent: number;
   rustLevel: number;
+  score: number;
   className?: string;
 };
 
 const clamp = (value: number) => Math.max(0, Math.min(100, value));
 
-export default function RegionalHealthRing({ healthPercent, rustLevel, className }: RegionalHealthRingProps) {
+/**
+ * Get color for city resilience score.
+ * Higher score = healthier city (green), lower = critical (red)
+ */
+function getScoreColor(score: number): string {
+  if (score >= 80) return "#22c55e"; // green-500 - Thriving
+  if (score >= 60) return "#84cc16"; // lime-500 - Stable
+  if (score >= 40) return "#eab308"; // yellow-500 - Struggling
+  if (score >= 20) return "#f97316"; // orange-500 - Critical
+  return "#ef4444"; // red-500 - Collapse
+}
+
+export default function RegionalHealthRing({ healthPercent, rustLevel, score, className }: RegionalHealthRingProps) {
   const safeHealth = clamp(healthPercent);
   const safeRust = clamp(rustLevel);
+  const safeScore = clamp(score);
 
   const radius = 50;
   const strokeWidth = 8;
@@ -28,10 +42,12 @@ export default function RegionalHealthRing({ healthPercent, rustLevel, className
 
   const healthColor = getHealthColor(safeHealth);
   const rustColor = getRustColor(safeRust);
+  const scoreColor = getScoreColor(safeScore);
 
   return (
-    <div className={`regional-health-ring${className ? ` ${className}` : ""}`} aria-label="Regional health">
+    <div className={`regional-health-ring${className ? ` ${className}` : ""}`} aria-label="City resilience score">
       <svg width="140" height="140" viewBox="0 0 140 140" role="img" aria-hidden="true">
+        {/* Background rings */}
         <circle
           cx="70"
           cy="70"
@@ -49,6 +65,7 @@ export default function RegionalHealthRing({ healthPercent, rustLevel, className
           strokeWidth={innerStrokeWidth}
         />
 
+        {/* Health ring (outer) */}
         <circle
           cx="70"
           cy="70"
@@ -63,6 +80,7 @@ export default function RegionalHealthRing({ healthPercent, rustLevel, className
           style={{ transition: "stroke-dashoffset 1s ease-out, stroke 0.5s ease-out" }}
         />
 
+        {/* Rust ring (inner) */}
         <circle
           cx="70"
           cy="70"
@@ -77,6 +95,7 @@ export default function RegionalHealthRing({ healthPercent, rustLevel, className
           style={{ transition: "stroke-dashoffset 1s ease-out" }}
         />
 
+        {/* Score display (center) */}
         <text
           x="70"
           y="66"
@@ -84,9 +103,10 @@ export default function RegionalHealthRing({ healthPercent, rustLevel, className
           dominantBaseline="middle"
           fontSize="24"
           fontWeight="bold"
-          fill={healthColor}
+          fill={scoreColor}
+          style={{ transition: "fill 0.5s ease-out" }}
         >
-          {Math.round(safeHealth)}%
+          {Math.round(safeScore)}
         </text>
         <text
           x="70"
@@ -96,12 +116,15 @@ export default function RegionalHealthRing({ healthPercent, rustLevel, className
           fontSize="10"
           fill="rgba(255,255,255,0.6)"
         >
-          HEALTH
+          SCORE
         </text>
       </svg>
 
       <div className="ring-label">
-        <span className="rust-label" style={{ color: rustColor }}>
+        <span style={{ color: healthColor }}>
+          Health: {Math.round(safeHealth)}%
+        </span>
+        <span className="rust-label" style={{ color: rustColor, marginLeft: "8px" }}>
           Rust: {Math.round(safeRust)}%
         </span>
       </div>

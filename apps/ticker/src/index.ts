@@ -42,12 +42,23 @@ type RegionSnapshot = {
   pool_materials: number;
   rust_avg: number | null;
   health_avg: number | null;
+  score: number;
 };
+
+/**
+ * Calculate city resilience score from health and rust levels.
+ * Score = health × (1 - rust), so high rust directly reduces score.
+ */
+function calculateCityScore(healthAvg: number | null, rustAvg: number | null): number {
+  const health = Math.max(0, Math.min(100, healthAvg ?? 0));
+  const rust = Math.max(0, Math.min(1, rustAvg ?? 0));
+  return Math.round(health * (1 - rust));
+}
 
 async function fetchRegionSnapshots(client: PoolLike, regionIds: string[]): Promise<RegionSnapshot[]> {
   if (regionIds.length === 0) return [];
 
-  const result = await client.query<RegionSnapshot>(
+  const result = await client.query<Omit<RegionSnapshot, "score">>(
     `
     SELECT
       r.region_id,
@@ -71,7 +82,11 @@ async function fetchRegionSnapshots(client: PoolLike, regionIds: string[]): Prom
     [regionIds]
   );
 
-  return result.rows;
+  // Calculate score for each region
+  return result.rows.map((row) => ({
+    ...row,
+    score: calculateCityScore(row.health_avg, row.rust_avg)
+  }));
 }
 
 type HexUpdate = { h3_index: string; rust_level: number };

@@ -43,7 +43,8 @@ const initialRegion = {
     healthy_roads: 0,
     degraded_roads: 0,
     rust_avg: 0,
-    health_avg: 100
+    health_avg: 100,
+    score: 100
   }
 };
 
@@ -155,7 +156,8 @@ describe("Dashboard live events", () => {
             pool_energy: 110,
             pool_materials: 250,
             rust_avg: 0.2,
-            health_avg: 85
+            health_avg: 85,
+            score: 68
           }]
         }
       });
@@ -169,6 +171,7 @@ describe("Dashboard live events", () => {
     expect(useStore.getState().region.pool_materials).toBe(250);
     expect(useStore.getState().region.stats.rust_avg).toBe(0.2);
     expect(useStore.getState().region.stats.health_avg).toBe(85);
+    expect(useStore.getState().region.stats.score).toBe(68);
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     await act(async () => {

@@ -28,6 +28,17 @@ const MAX_REGION_ID_LENGTH = 64;
 
 const FEATURE_TYPES = new Set(["road", "building", "park", "water", "intersection"]);
 
+/**
+ * Calculate city resilience score from health and rust levels.
+ * Score = health × (1 - rust), so high rust directly reduces score.
+ * Range: 0-100
+ */
+function calculateCityScore(healthAvg: number, rustAvg: number): number {
+  const health = Math.max(0, Math.min(100, healthAvg));
+  const rust = Math.max(0, Math.min(1, rustAvg));
+  return Math.round(health * (1 - rust));
+}
+
 // Resource generation categories by building type
 const FOOD_CATEGORIES = [
   "restaurant",
@@ -693,11 +704,24 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
 
     const now = new Date();
 
+    // Calculate score for each region and city-wide aggregate
+    const regionsWithScore = regionResult.rows.map((r) => ({
+      ...r,
+      score: calculateCityScore(r.health_avg, r.rust_avg)
+    }));
+
+    // City-wide score: weighted average by region, or simple average
+    const totalHealth = regionResult.rows.reduce((sum, r) => sum + (r.health_avg ?? 0), 0);
+    const totalRust = regionResult.rows.reduce((sum, r) => sum + (r.rust_avg ?? 0), 0);
+    const regionCount = regionResult.rows.length || 1;
+    const cityScore = calculateCityScore(totalHealth / regionCount, totalRust / regionCount);
+
     return {
       world_version: Number((lastReset as { version?: string | number }).version ?? 1),
       last_reset: (lastReset as { ts?: string }).ts ?? now.toISOString(),
       next_reset: getNextReset(now),
       demo_mode: Boolean((demoMode as { enabled?: boolean }).enabled ?? false),
+      city_score: cityScore,
       cycle: {
         phase: cycle.phase,
         phase_progress: cycle.phase_progress,
@@ -705,7 +729,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         next_phase: cycle.next_phase,
         next_phase_in_seconds: cycle.next_phase_in_seconds
       },
-      regions: regionResult.rows
+      regions: regionsWithScore
     };
   });
 
