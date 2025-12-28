@@ -24,9 +24,10 @@ type CrackPath = {
 };
 
 // Zone thresholds (distance from path in pixels)
-const PERFECT_ZONE = 8;
-const GREAT_ZONE = 16;
-const GOOD_ZONE = 24;
+// Increased for better mobile touch tolerance
+const PERFECT_ZONE = 12;
+const GREAT_ZONE = 24;
+const GOOD_ZONE = 36;
 
 // Path generation constants
 const PATH_MARGIN = 40;
@@ -36,10 +37,11 @@ const MIN_SEGMENTS = 3;
 const MAX_EXTRA_SEGMENTS = 3;
 
 // Game constants
-const INITIAL_SPREAD_PROGRESS = 0.3;
+// Reduced initial spread and slower crack growth for more forgiving gameplay
+const INITIAL_SPREAD_PROGRESS = 0.2;
 const WELD_COMPLETE_THRESHOLD = 0.95;
-const BASE_SPREAD_SPEED = 0.08;
-const WELD_SPEED = 0.25;
+const BASE_SPREAD_SPEED = 0.055;
+const WELD_SPEED = 0.32;
 const RESULT_DISPLAY_MS = 700;
 
 // Generate a random crack path
