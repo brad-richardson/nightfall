@@ -59,8 +59,8 @@ test.describe("Mobile sidebar", () => {
     const drawer = page.getByRole("dialog");
     await expect(drawer).toBeVisible({ timeout: 10000 });
 
-    // Drawer content should be visible - look for Resource Pools text inside the drawer
-    const resourcePoolsHeading = drawer.getByText(/resource pools/i);
+    // Drawer content should be visible - look for Resource Pools heading (exact match to avoid sr-only text)
+    const resourcePoolsHeading = drawer.getByText("Resource Pools", { exact: true });
     await expect(resourcePoolsHeading).toBeVisible();
   });
 
