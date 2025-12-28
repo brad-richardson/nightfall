@@ -5,8 +5,7 @@ import { useStore } from "../store";
 import {
   getPlayerTier,
   getTierProgress,
-  PLAYER_TIERS,
-  type PlayerTier
+  PLAYER_TIERS
 } from "@nightfall/config";
 
 function formatNumber(n: number): string {
@@ -57,10 +56,10 @@ export function PlayerTierBadge({
     const tier = getPlayerTier(playerScore.totalScore);
     const config = PLAYER_TIERS[tier];
     const progress = getTierProgress(playerScore.totalScore);
-    return { tier, config, progress };
+    return { config, progress };
   }, [playerScore.totalScore]);
 
-  const { tier, config, progress } = tierInfo;
+  const { config, progress } = tierInfo;
   const classes = sizeClasses[size];
 
   return (

@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { PlayerTier } from "@nightfall/config";
 
 export type Phase = "dawn" | "day" | "dusk" | "night";
 

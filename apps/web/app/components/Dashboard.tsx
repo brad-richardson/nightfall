@@ -12,7 +12,7 @@ import RegionalHealthRing from "./RegionalHealthRing";
 import { MapOverlay } from "./MapOverlay";
 import { useEventStream, type EventPayload } from "../hooks/useEventStream";
 import { useStore, type Region, type Feature, type Hex, type CycleState } from "../store";
-import { BAR_HARBOR_DEMO_BBOX, DEGRADED_HEALTH_THRESHOLD, calculateCityScore, SCORE_ACTIONS, getPlayerTierConfig } from "@nightfall/config";
+import { BAR_HARBOR_DEMO_BBOX, DEGRADED_HEALTH_THRESHOLD, calculateCityScore, SCORE_ACTIONS } from "@nightfall/config";
 import { fetchWithRetry } from "../lib/retry";
 import { formatNumber } from "../lib/formatters";
 import { ResourcePoolsPanel } from "./sidebar/ResourcePoolsPanel";
@@ -240,7 +240,6 @@ export default function Dashboard({
   const setCooldown = useStore.getState().setCooldown;
   const addContributionScore = useStore.getState().addContributionScore;
   const addVoteScore = useStore.getState().addVoteScore;
-  const addMinigameScore = useStore.getState().addMinigameScore;
 
   const [resourceDeltas, setResourceDeltas] = useState<ResourceDelta[]>([]);
   const [showMinigameOverlay, setShowMinigameOverlay] = useState(false);
