@@ -51,6 +51,23 @@ pnpm ingest:demo      # Ingest demo region (Bar Harbor, ME)
 - When touching API behavior, update `scripts/check-db.mjs` or relevant test fixtures as needed.
 - This runs on a very small machine (low CPU + memory); design for minimal resource usage and avoid heavy in-memory caches or background work.
 
+## Common Pitfalls
+
+**Security:**
+- Never use `NEXT_PUBLIC_` prefix for secrets — these are bundled into client JavaScript. Use server-side environment variables only.
+
+**React hooks:**
+- Async operations in useEffect must track mounted state to prevent state updates on unmounted components
+- Include all referenced variables in useEffect/useCallback/useMemo dependency arrays
+- Effects with timers, subscriptions, or event listeners need cleanup functions
+
+**Database:**
+- Verify `result.rowCount` after UPDATE/DELETE to confirm expected rows were affected
+- Import shared constants from `packages/config` instead of hardcoding values
+
+**Accessibility:**
+- Interactive elements need keyboard handlers (onKeyDown) and ARIA attributes
+
 ## Database
 
 PostgreSQL with PostGIS. Key tables:
