@@ -301,7 +301,464 @@ Resources accumulate in the building's region pool. Generation is higher during 
 
 ---
 
-## 3. Road Class → Game Mechanics
+## 3. Production Minigames
+
+Buildings passively generate resources each tick, but players can **temporarily boost** a building's output by completing a skill-based minigame. This creates an active gameplay loop beyond voting and watching.
+
+### Overview
+
+- **Trigger**: Player clicks a resource-generating building → clicks "Boost Production"
+- **UI**: Opens an **immersive overlay** (80% viewport, centered, dimmed background)
+- **Duration**: 10-30 seconds depending on minigame
+- **Reward**: Temporary production multiplier (1.5-3×) for that building, duration based on performance
+- **Cooldown**: Per-building cooldown (e.g., 5 minutes) before player can boost again
+- **Constraint**: Only one active boost per building at a time (new boost replaces existing)
+
+### Minigame Roster
+
+Six minigames, themed to the four resource types:
+
+| Resource | Minigame | Skill Type | Description |
+|----------|----------|------------|-------------|
+| **Food** | Kitchen Rush | Memory (Simon Says) | Repeat the order sequence as it gets longer |
+| **Food** | Fresh Check | Reaction | Sort fresh ingredients left, spoiled right on a conveyor |
+| **Equipment** | Gear Up | Alignment/Timing | Drag spinning gear to mesh with fixed gear at right moment |
+| **Equipment** | Patch Job | Precision/Tracing | Trace a welding line along cracks before they spread |
+| **Energy** | Power Up | Rhythm/Control | Tap to spin generator, maintain RPM in sweet spot |
+| **Materials** | Salvage Run | Timing Windows | Hit action button when oscillating marker is in clean zone |
+
+### Resource Type Mapping
+
+Buildings have boolean flags indicating which resource they generate (see Section 2 and migration `20251227000001`):
+
+| Schema Column | Resource Type | Minigames |
+|---------------|---------------|-----------|
+| `generates_food` | Food | Kitchen Rush, Fresh Check |
+| `generates_equipment` | Equipment | Gear Up, Patch Job |
+| `generates_energy` | Energy | Power Up |
+| `generates_materials` | Materials | Salvage Run |
+
+Buildings may generate multiple resource types. When boosted, select the primary type (first true flag in order: food → equipment → energy → materials).
+
+### Minigame Selection
+
+When a player boosts a building:
+1. Determine building's resource type from `generates_*` flags (see mapping above)
+2. Randomly select from available minigames for that type
+3. Calculate difficulty modifiers:
+   - **Night phase**: Apply night difficulty scaling
+   - **High rust area** (hex rust_level > 0.5): Apply additional +10% speed, -10% timing windows
+4. Return minigame config with combined difficulty parameters
+
+### Overlay UI Specification
+
+The minigame runs in an immersive, focused overlay - not a tiny modal.
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│ [×]                                                              │
+│                                                                  │
+│                    ┌─────────────────────────┐                   │
+│                    │                         │                   │
+│                    │      MINIGAME AREA      │                   │
+│                    │       (see specs)       │                   │
+│                    │                         │                   │
+│                    │                         │                   │
+│                    └─────────────────────────┘                   │
+│                                                                  │
+│              ████████████░░░░░░░░  Progress / Timer              │
+│                                                                  │
+│                   🏭 Boosting: Corner Bakery                     │
+│                   🍞 Resource: Food                              │
+│                                                                  │
+└──────────────────────────────────────────────────────────────────┘
+       ▲
+       │ 80% viewport height, centered
+       │ Semi-transparent dark backdrop (click outside = confirm quit)
+```
+
+**Overlay behavior**:
+- Opens with subtle scale-up animation
+- Background map visible but dimmed (opacity 0.3)
+- Escape or × button to quit (confirms first: "Quit? You'll lose progress")
+- Mobile: Full-screen with safe area padding
+- Game world continues ticking in background (adds tension at night)
+
+### Minigame Specifications
+
+#### Kitchen Rush (Food) — Simon Says
+
+```
+     ┌─────┐    ┌─────┐    ┌─────┐    ┌─────┐
+     │ 🍳  │    │ 🥗  │    │ 🍜  │    │ 🍰  │
+     │  1  │    │  2  │    │  3  │    │  4  │
+     └─────┘    └─────┘    └─────┘    └─────┘
+
+            "Repeat the order!"
+
+     Round 5: ██████████░░░░░░░░░░
+
+```
+
+**Mechanic**:
+- 4 stations light up in sequence
+- Player repeats the sequence by clicking/tapping
+- Each successful round adds one more to the sequence
+- Fail = game ends, collect earnings based on rounds completed
+
+**Scoring**: Round reached × base multiplier
+**Night modifier**: Stations dim faster, sequence plays quicker
+
+---
+
+#### Fresh Check (Food) — Conveyor Sort
+
+```
+     ┌─────────────────────────────────────┐
+     │        ●────────────►               │
+     │      [🥬]                           │
+     │                                     │
+     │   [👎 SPOILED]         [👍 FRESH]   │
+     └─────────────────────────────────────┘
+
+     Score: 24    Mistakes: 1/3
+
+```
+
+**Mechanic**:
+- Items slide across screen (left to right or top to bottom)
+- Player swipes/clicks left for spoiled, right for fresh
+- Visual cues: brown spots, wilting, mold vs. vibrant colors
+- 3 mistakes = game over
+- Speed increases over time
+
+**Scoring**: Correct sorts × speed bonus
+**Night modifier**: Items are darker, harder to distinguish
+
+---
+
+#### Gear Up (Equipment) — Alignment
+
+```
+            ┌───────────┐
+            │  ╭─────╮  │  ← Fixed gear (target)
+            │  │ ◆◆◆ │  │     Teeth at set positions
+            │  ╰─────╯  │
+            └───────────┘
+                 ▲
+                 │ Drag to engage
+                 │
+            ┌───────────┐
+            │  ╭─────╮  │  ← Spinning gear (player drags)
+            │  │ ◇◇◇ │  │     Teeth rotating
+            │  ╰─────╯  │
+            └───────────┘
+
+            Chain: 2/5 gears
+
+```
+
+**Mechanic**:
+- Bottom gear spins continuously
+- Player drags it upward toward fixed gear
+- Must release when teeth align (timing window)
+- Perfect mesh = full points, partial = reduced, clash = retry with penalty
+
+**Scoring**: Precision × speed × chain multiplier
+**Night modifier**: Gears spin faster, timing window shrinks
+
+---
+
+#### Patch Job (Equipment) — Trace Welding
+
+```
+     ┌─────────────────────────────────────┐
+     │                                     │
+     │      ╱‾‾‾‾╲                         │
+     │     ╱      ╲___                     │
+     │    ●            ╲____               │  ← Crack pattern
+     │   START              ╲              │
+     │                       END           │
+     │                                     │
+     │   Accuracy: 94%    Time: 4.2s       │
+     └─────────────────────────────────────┘
+
+```
+
+**Mechanic**:
+- Crack pattern appears on metal surface
+- Player traces along crack with mouse/finger
+- Staying on line = good accuracy
+- Crack slowly spreads if player is too slow
+- Must reach end before crack spreads off-screen
+
+**Scoring**: Accuracy % × time bonus
+**Night modifier**: Crack spreads faster, line visibility reduced
+
+---
+
+#### Power Up (Energy) — Generator Crank
+
+```
+     ┌─────────────────────────────────────┐
+     │                                     │
+     │           ▲ OVERHEAT                │
+     │     ┌────────────────────┐          │
+     │     │        ████        │ ← Current RPM
+     │     │      ══════════    │ ← Sweet spot zone
+     │     └────────────────────┘          │
+     │           ▼ STALL                   │
+     │                                     │
+     │     Output: ████████░░░░░░░░        │
+     │                                     │
+     │          [ TAP TAP TAP ]            │
+     └─────────────────────────────────────┘
+
+```
+
+**Mechanic**:
+- Tap/click repeatedly to increase RPM
+- RPM naturally decays over time
+- Sweet spot zone in middle of meter
+- Above sweet spot = overheat warning, then penalty
+- Below sweet spot = reduced output
+- Stay in zone to fill output meter
+
+**Scoring**: Time in sweet spot × output accumulated
+**Night modifier**: Faster decay, narrower sweet spot
+
+---
+
+#### Salvage Run (Materials) — Timing Windows
+
+```
+     ┌─────────────────────────────────────┐
+     │                                     │
+     │   ◄═══════════════●═══════════════► │
+     │         RUST ████████ CLEAN ███ RUST│
+     │                                     │
+     │              [ SALVAGE ]            │
+     │                                     │
+     │   Salvaged: 6/10 pieces             │
+     │   Quality: ████████░░ 82%           │
+     └─────────────────────────────────────┘
+
+```
+
+**Mechanic**:
+- Marker oscillates left-right across meter
+- Green "clean" zone in center, red "rust" zones on edges
+- Player hits button when marker is in clean zone
+- Closer to center = higher quality bonus
+- 10 pieces to salvage, or time limit
+
+**Scoring**: Pieces salvaged × average quality
+**Night modifier**: Clean zone shrinks, oscillation speeds up
+
+---
+
+### Difficulty Scaling
+
+| Factor | Day | Night | High Rust Area |
+|--------|-----|-------|----------------|
+| Speed/tempo | Normal | +25% | +10% |
+| Timing windows | Normal | -20% | -10% |
+| Visual clarity | Full | Reduced | Haze overlay |
+| Rounds/pieces | Normal | +2 | Normal |
+
+### Reward Structure
+
+```javascript
+const BASE_BOOST_DURATION_MS = 3 * 60 * 1000; // 3 minutes base
+
+function calculateReward(score, maxScore, phase) {
+  const performance = score / maxScore; // 0.0 - 1.0
+
+  // Multiplier: 1.5× at 50% performance, up to 3× at 100%
+  const multiplier = 1.5 + (performance * 1.5);
+
+  // Duration: 1 min at 50%, up to 5 min at 100%
+  const durationMs = BASE_BOOST_DURATION_MS * (0.33 + performance * 1.67);
+
+  // Night bonus: +20% duration for playing during harder conditions
+  const nightBonus = (phase === 'night') ? 1.2 : 1.0;
+
+  return {
+    multiplier: Math.round(multiplier * 10) / 10,
+    durationMs: Math.round(durationMs * nightBonus),
+  };
+}
+```
+
+### Results Screen
+
+After minigame completion:
+
+```
+     ┌─────────────────────────────────────┐
+     │                                     │
+     │          ★ GREAT JOB! ★             │
+     │                                     │
+     │         Score: 847 points           │
+     │         Performance: 84%            │
+     │                                     │
+     │    ┌─────────────────────────┐      │
+     │    │ 🍞 Corner Bakery        │      │
+     │    │                         │      │
+     │    │ Production: 2.3× boost  │      │
+     │    │ Duration: 4:12          │      │
+     │    └─────────────────────────┘      │
+     │                                     │
+     │          [ BACK TO MAP ]            │
+     │                                     │
+     └─────────────────────────────────────┘
+```
+
+### Database Schema Addition
+
+```sql
+-- Track active production boosts (one per building at a time)
+CREATE TABLE production_boosts (
+  boost_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  building_gers_id TEXT NOT NULL REFERENCES world_features(gers_id),
+  client_id TEXT NOT NULL,
+  multiplier REAL NOT NULL DEFAULT 2.0,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL,
+  minigame_type TEXT NOT NULL,
+  score INT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- Server-side anti-cheat fields
+  session_id UUID NOT NULL,  -- Links to minigame_sessions for validation
+  CONSTRAINT one_active_boost_per_building UNIQUE (building_gers_id)
+);
+
+CREATE INDEX production_boosts_building_expires_idx
+  ON production_boosts(building_gers_id, expires_at);
+CREATE INDEX production_boosts_expires_idx
+  ON production_boosts(expires_at) WHERE expires_at > now();
+
+-- Track cooldowns per player per building
+CREATE TABLE minigame_cooldowns (
+  client_id TEXT NOT NULL,
+  building_gers_id TEXT NOT NULL REFERENCES world_features(gers_id),
+  available_at TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (client_id, building_gers_id)
+);
+
+CREATE INDEX minigame_cooldowns_available_idx
+  ON minigame_cooldowns(client_id, available_at);
+
+-- Server-side minigame sessions for anti-cheat validation
+CREATE TABLE minigame_sessions (
+  session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id TEXT NOT NULL,
+  building_gers_id TEXT NOT NULL REFERENCES world_features(gers_id),
+  minigame_type TEXT NOT NULL,
+  difficulty JSONB NOT NULL,  -- { speed_mult, window_mult, ... }
+  started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  max_possible_score INT NOT NULL,  -- Server-calculated maximum
+  expected_duration_ms INT NOT NULL,  -- Expected range for this minigame
+  completed_at TIMESTAMPTZ,
+  status TEXT NOT NULL DEFAULT 'active'  -- active, completed, abandoned
+);
+
+CREATE INDEX minigame_sessions_client_idx ON minigame_sessions(client_id, status);
+```
+
+### Security Considerations
+
+**Client Identity**: The `client_id` in requests should be validated against an authenticated session, not blindly trusted from the request body. Implementation should:
+1. Use HTTP-only session cookies or JWT tokens
+2. Derive `client_id` from the validated session on the server
+3. Never accept `client_id` directly from untrusted client input for authorization decisions
+
+**Anti-Cheat Strategy**: Minigame scores are validated server-side:
+1. `/api/minigame/start` creates a `minigame_sessions` record with server timestamp and max possible score
+2. `/api/minigame/complete` validates:
+   - Session exists and is active
+   - Duration is within expected range (not impossibly fast)
+   - Score does not exceed `max_possible_score`
+   - Session hasn't already been completed
+3. Suspicious patterns (consistently perfect scores, inhuman reaction times) can be flagged for review
+
+### API Additions
+
+```
+POST /api/minigame/start
+  Request:  { building_gers_id: string }
+  Headers:  Cookie (session) or Authorization (JWT)
+  Response: {
+    ok: boolean,
+    session_id: string (UUID),  -- Required for /complete
+    minigame_type: string,
+    config: { ... minigame-specific params ... },
+    difficulty: { speed_mult, window_mult, rust_level, phase },
+    max_possible_score: number
+  }
+  - Derives client_id from authenticated session
+  - Validates cooldown
+  - Selects minigame based on building resource type
+  - Creates minigame_session record
+  - Returns config adjusted for current phase and rust level
+
+POST /api/minigame/complete
+  Request:  {
+    session_id: string (UUID),
+    score: number,
+    duration_ms: number
+  }
+  Headers:  Cookie (session) or Authorization (JWT)
+  Response: {
+    ok: boolean,
+    reward: { multiplier, duration_ms },
+    new_cooldown_at: string (ISO)
+  }
+  - Derives client_id from authenticated session
+  - Validates session_id belongs to this client
+  - Validates score <= max_possible_score
+  - Validates duration is plausible (not faster than minimum)
+  - Creates/replaces production_boost record (UPSERT on building_gers_id)
+  - Sets cooldown
+  - Emits SSE event: building_boost
+
+POST /api/minigame/abandon
+  Request:  { session_id: string (UUID) }
+  Headers:  Cookie (session) or Authorization (JWT)
+  Response: { ok: boolean }
+  - Marks session as abandoned
+  - No cooldown penalty for abandonment
+```
+
+### Ticker Integration
+
+Modify resource generation to check for active boosts:
+
+```python
+# In tick loop, step 3 (generate resources)
+for building in resource_buildings(region):
+    rust = get_hex_rust(building.h3_index)
+    base_output = 1 * (1 - rust) * phase_mults['generation']
+
+    # Check for active boost
+    boost = get_active_boost(building.gers_id)
+    if boost and boost.expires_at > now:
+        base_output *= boost.multiplier
+
+    enqueue_transfer(building, base_output, building.resource_type)
+```
+
+### Visual Feedback on Map
+
+Buildings with active boosts show:
+- Pulsing glow ring matching resource color
+- Small multiplier badge (×2.3)
+- Boost timer arc around building
+- Particle effect (subtle sparks/energy)
+
+---
+
+## 4. Road Class → Repair Costs
 
 | Road class | Decay rate (per tick) | Repair cost (labor) | Repair cost (materials) | Repair time (s) | Repair amount |
 |------------|----------------------|---------------------|-------------------------|-----------------|---------------|
@@ -320,7 +777,7 @@ effective_decay = base_decay * (1 + rust_level) * night_multiplier
 
 ---
 
-## 4. Day/Night Cycle
+## 5. Day/Night Cycle
 
 ### Cycle timing
 
@@ -415,7 +872,7 @@ function getPhaseProgress(now) {
 
 ---
 
-## 5. Rust Mechanics
+## 6. Rust Mechanics
 
 ### Spread behavior
 
@@ -474,7 +931,7 @@ def spread_rust(phase):
 
 ---
 
-## 6. Vote Decay
+## 7. Vote Decay
 
 Votes decay exponentially over time when calculating priority.
 
@@ -503,7 +960,7 @@ class_weights = {
 
 ---
 
-## 7. Tick Loop (every 10 seconds, configurable)
+## 8. Tick Loop (every 10 seconds, configurable)
 
 ```python
 def tick(now):
@@ -596,7 +1053,7 @@ def tick(now):
 
 ---
 
-## 8. Weekly Reset
+## 9. Weekly Reset
 
 Every Sunday at 00:00 UTC:
 
@@ -616,12 +1073,19 @@ def weekly_reset():
     
     # Reset region pools to starting values
     UPDATE regions
-    SET pool_labor = 1000,
+    SET pool_food = 1000,
+        pool_equipment = 1000,
+        pool_energy = 1000,
         pool_materials = 1000,
         updated_at = now()
-    
+
     # Clear all queued/active tasks
     DELETE FROM tasks WHERE status IN ('queued', 'active')
+
+    # Clear minigame state (boosts, cooldowns, sessions)
+    DELETE FROM production_boosts
+    DELETE FROM minigame_cooldowns
+    DELETE FROM minigame_sessions
     
     # Reset crews
     UPDATE crews SET status = 'idle', active_task_id = NULL, busy_until = NULL
@@ -650,7 +1114,7 @@ def weekly_reset():
 
 ---
 
-## 9. API Routes
+## 10. API Routes
 
 ### Identity & Session
 
@@ -767,6 +1231,8 @@ GET /api/stream (SSE)
     - feed_item: { event_type, region_id, message, ts }
     - reset_warning: { minutes_until_reset }
     - reset: { world_version }
+    - building_boost: { building_gers_id, multiplier, expires_at, client_id }
+    - building_boost_expired: { building_gers_id }
 ```
 
 ### Admin / Demo
@@ -797,7 +1263,7 @@ POST /api/admin/set-phase
 
 ---
 
-## 10. UI Specification
+## 11. UI Specification
 
 ### Layout (Responsive)
 
@@ -961,7 +1427,7 @@ Event types:
 
 ---
 
-## 11. Tech Stack
+## 12. Tech Stack
 
 ### Frontend
 - **Framework**: Next.js 14+ (App Router)
@@ -991,7 +1457,7 @@ Event types:
 
 ---
 
-## 12. Data Ingest Pipeline
+## 13. Data Ingest Pipeline
 
 Run once per city, re-run on Overture updates.
 
@@ -1117,7 +1583,7 @@ CROSS JOIN generate_series(1, 2);  -- 2 crews per region
 
 ---
 
-## 13. Demo Mode
+## 14. Demo Mode
 
 When enabled:
 - Tick rate: 10x (1 tick per second instead of per 10 seconds)
@@ -1153,7 +1619,7 @@ Key demo beats:
 
 ---
 
-## 14. Implementation Order
+## 15. Implementation Order
 
 ### Phase 1: Foundation (Week 1)
 1. Set up Fly project (postgres, web app)
@@ -1191,7 +1657,7 @@ Key demo beats:
 
 ---
 
-## 15. Open Questions / Future Ideas
+## 16. Open Questions / Future Ideas
 
 - **Variable night length**: As the world degrades, nights get longer? ("The nights are getting longer" becomes literal)
 - **Seasonal events**: Longer nights in winter, shorter in summer?
