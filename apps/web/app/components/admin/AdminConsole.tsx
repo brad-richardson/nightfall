@@ -81,7 +81,7 @@ export function AdminConsole() {
       } else {
         toast.error(data.error || "Failed to update resources");
       }
-    } catch (err) {
+    } catch {
       toast.error("Failed to update resources");
     }
   }, [resourceEdits, region.region_id, setRegion]);
@@ -117,7 +117,7 @@ export function AdminConsole() {
       } else {
         toast.error(data.error || "Failed to update resources");
       }
-    } catch (err) {
+    } catch {
       toast.error("Failed to update resources");
     }
   }, [region.region_id, setRegion]);
@@ -147,7 +147,7 @@ export function AdminConsole() {
       } else {
         toast.error(data.error || "Failed to toggle demo mode");
       }
-    } catch (err) {
+    } catch {
       toast.error("Failed to toggle demo mode");
     }
   }, [demoEnabled, tickMultiplier, cycleSpeed]);
@@ -173,7 +173,7 @@ export function AdminConsole() {
       } else {
         toast.error(data.error || "Failed to trigger reset");
       }
-    } catch (err) {
+    } catch {
       toast.error("Failed to trigger reset");
     }
   }, []);
@@ -197,7 +197,7 @@ export function AdminConsole() {
       } else {
         toast.error(data.error || "Failed to set phase");
       }
-    } catch (err) {
+    } catch {
       toast.error("Failed to set phase");
     }
   }, [setCycle]);
@@ -223,7 +223,7 @@ export function AdminConsole() {
       } else {
         toast.error(data.error || "Failed to update road health");
       }
-    } catch (err) {
+    } catch {
       toast.error("Failed to update road health");
     }
   }, [region.region_id]);
@@ -249,7 +249,7 @@ export function AdminConsole() {
       } else {
         toast.error(data.error || "Failed to update rust");
       }
-    } catch (err) {
+    } catch {
       toast.error("Failed to update rust");
     }
   }, [region.region_id]);

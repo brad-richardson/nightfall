@@ -7,6 +7,7 @@ import rateLimit from "@fastify/rate-limit";
 import { getConfig } from "./config";
 import { closePool, getPool } from "./db";
 import { loadCycleState, loadCycleSummary } from "./cycle";
+import { PHASE_DURATIONS, getNextPhase, type Phase } from "./utils/phase";
 import { createDbEventStream } from "./event-stream";
 import type { EventStream } from "./event-stream";
 import { ROAD_CLASSES, DEGRADED_HEALTH_THRESHOLD, calculateCityScore } from "@nightfall/config";
@@ -25,6 +26,7 @@ const TAX_MULTIPLIER = 0.8;
 const MAX_CLIENT_ID_LENGTH = 64;
 const MAX_DISPLAY_NAME_LENGTH = 32;
 const MAX_REGION_ID_LENGTH = 64;
+const MAX_RESOURCE_VALUE = 1_000_000; // Prevent overflow/storage issues
 
 const FEATURE_TYPES = new Set(["road", "building", "park", "water", "intersection"]);
 
@@ -2241,19 +2243,19 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     const values: (string | number)[] = [body.region_id];
     let paramIndex = 2;
 
-    if (body.food !== undefined && Number.isFinite(body.food) && body.food >= 0) {
+    if (body.food !== undefined && Number.isFinite(body.food) && body.food >= 0 && body.food <= MAX_RESOURCE_VALUE) {
       updates.push(`pool_food = $${paramIndex++}`);
       values.push(body.food);
     }
-    if (body.equipment !== undefined && Number.isFinite(body.equipment) && body.equipment >= 0) {
+    if (body.equipment !== undefined && Number.isFinite(body.equipment) && body.equipment >= 0 && body.equipment <= MAX_RESOURCE_VALUE) {
       updates.push(`pool_equipment = $${paramIndex++}`);
       values.push(body.equipment);
     }
-    if (body.energy !== undefined && Number.isFinite(body.energy) && body.energy >= 0) {
+    if (body.energy !== undefined && Number.isFinite(body.energy) && body.energy >= 0 && body.energy <= MAX_RESOURCE_VALUE) {
       updates.push(`pool_energy = $${paramIndex++}`);
       values.push(body.energy);
     }
-    if (body.materials !== undefined && Number.isFinite(body.materials) && body.materials >= 0) {
+    if (body.materials !== undefined && Number.isFinite(body.materials) && body.materials >= 0 && body.materials <= MAX_RESOURCE_VALUE) {
       updates.push(`pool_materials = $${paramIndex++}`);
       values.push(body.materials);
     }
@@ -2263,31 +2265,29 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       return { ok: false, error: "no_valid_updates" };
     }
 
-    await pool.query(
-      `UPDATE regions SET ${updates.join(", ")} WHERE region_id = $1`,
-      values
-    );
-
-    // Notify clients of resource change
-    const regionResult = await pool.query<{
+    const updateResult = await pool.query<{
       pool_food: number;
       pool_equipment: number;
       pool_energy: number;
       pool_materials: number;
     }>(
-      "SELECT pool_food::float, pool_equipment::float, pool_energy::float, pool_materials::float FROM regions WHERE region_id = $1",
-      [body.region_id]
+      `UPDATE regions SET ${updates.join(", ")} WHERE region_id = $1 RETURNING pool_food::float, pool_equipment::float, pool_energy::float, pool_materials::float`,
+      values
     );
 
-    if (regionResult.rows[0]) {
-      await pool.query("SELECT pg_notify('world_delta', $1)", [
-        JSON.stringify({
-          type: "region_resources",
-          region_id: body.region_id,
-          ...regionResult.rows[0]
-        })
-      ]);
+    if (updateResult.rowCount === 0) {
+      reply.status(404);
+      return { ok: false, error: "region_not_found" };
     }
+
+    // Notify clients of resource change
+    await pool.query("SELECT pg_notify('world_delta', $1)", [
+      JSON.stringify({
+        type: "region_resources",
+        region_id: body.region_id,
+        ...updateResult.rows[0]
+      })
+    ]);
 
     return { ok: true };
   });
@@ -2309,26 +2309,16 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     }
 
     const body = request.body as { phase?: string };
-    const validPhases = ["dawn", "day", "dusk", "night"];
+    const validPhases: Phase[] = ["dawn", "day", "dusk", "night"];
 
-    if (!body.phase || !validPhases.includes(body.phase)) {
+    if (!body.phase || !validPhases.includes(body.phase as Phase)) {
       reply.status(400);
       return { ok: false, error: "invalid_phase" };
     }
 
+    const phase = body.phase as Phase;
     const pool = getPool();
-
-    // Get phase durations from config
-    const phaseDurations: Record<string, number> = {
-      dawn: 120,   // 2 min transition
-      day: 480,    // 8 min
-      dusk: 120,   // 2 min transition
-      night: 480   // 8 min
-    };
-
-    const phaseOrder = ["dawn", "day", "dusk", "night"];
-    const currentIndex = phaseOrder.indexOf(body.phase);
-    const nextPhase = phaseOrder[(currentIndex + 1) % 4];
+    const nextPhase = getNextPhase(phase);
 
     await pool.query(
       `
@@ -2339,19 +2329,19 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         updated_at = now()
       `,
       [JSON.stringify({
-        phase: body.phase,
+        phase,
         phase_start: new Date().toISOString(),
-        phase_duration_s: phaseDurations[body.phase]
+        phase_duration_s: PHASE_DURATIONS[phase]
       })]
     );
 
     // Notify clients of phase change
     await pool.query("SELECT pg_notify('phase_change', $1)", [
       JSON.stringify({
-        phase: body.phase,
+        phase,
         phase_progress: 0,
         next_phase: nextPhase,
-        next_phase_in_seconds: phaseDurations[body.phase]
+        next_phase_in_seconds: PHASE_DURATIONS[phase]
       })
     ]);
 
@@ -2388,7 +2378,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
 
     const pool = getPool();
 
-    await pool.query(
+    const updateResult = await pool.query(
       `
       UPDATE feature_state fs
       SET health = $2
@@ -2400,6 +2390,11 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       [body.region_id, body.health]
     );
 
+    if (updateResult.rowCount === 0) {
+      reply.status(404);
+      return { ok: false, error: "no_roads_found" };
+    }
+
     // Notify clients of feature changes
     await pool.query("SELECT pg_notify('world_delta', $1)", [
       JSON.stringify({
@@ -2409,7 +2404,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       })
     ]);
 
-    return { ok: true };
+    return { ok: true, roads_updated: updateResult.rowCount };
   });
 
   // Set rust level for all hexes in a region (admin only)
@@ -2442,10 +2437,15 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
 
     const pool = getPool();
 
-    await pool.query(
+    const updateResult = await pool.query(
       `UPDATE hex_cells SET rust_level = $2 WHERE region_id = $1`,
       [body.region_id, body.rust_level]
     );
+
+    if (updateResult.rowCount === 0) {
+      reply.status(404);
+      return { ok: false, error: "no_hexes_found" };
+    }
 
     // Notify clients of hex changes
     await pool.query("SELECT pg_notify('world_delta', $1)", [
@@ -2456,7 +2456,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       })
     ]);
 
-    return { ok: true };
+    return { ok: true, hexes_updated: updateResult.rowCount };
   });
 
   app.addHook("onClose", async () => {
