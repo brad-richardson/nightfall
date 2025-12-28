@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
 import type { MinigameDifficulty } from "../../store";
 
 type GearUpProps = {
@@ -23,6 +23,64 @@ const DEGREES_PER_TOOTH = 360 / TEETH_COUNT; // 45 degrees
 const PERFECT_ZONE = 5; // Within 5 degrees = perfect
 const GREAT_ZONE = 12; // Within 12 degrees = great
 const GOOD_ZONE = 20; // Within 20 degrees = good
+
+// Pre-calculate tooth geometry (static, never changes)
+function calculateTeethPaths(size: number): string[] {
+  const innerRadius = size * 0.35;
+  const outerRadius = size * 0.48;
+  const toothWidth = 0.4; // radians
+
+  const paths: string[] = [];
+  for (let i = 0; i < TEETH_COUNT; i++) {
+    const angle = (i * 2 * Math.PI) / TEETH_COUNT;
+    const x1 = Math.cos(angle - toothWidth / 2) * innerRadius;
+    const y1 = Math.sin(angle - toothWidth / 2) * innerRadius;
+    const x2 = Math.cos(angle - toothWidth / 3) * outerRadius;
+    const y2 = Math.sin(angle - toothWidth / 3) * outerRadius;
+    const x3 = Math.cos(angle + toothWidth / 3) * outerRadius;
+    const y3 = Math.sin(angle + toothWidth / 3) * outerRadius;
+    const x4 = Math.cos(angle + toothWidth / 2) * innerRadius;
+    const y4 = Math.sin(angle + toothWidth / 2) * innerRadius;
+
+    paths.push(`M ${x1} ${y1} L ${x2} ${y2} L ${x3} ${y3} L ${x4} ${y4} Z`);
+  }
+  return paths;
+}
+
+// Memoized SVG Gear component (defined outside to prevent recreation)
+type GearProps = {
+  rotation: number;
+  size: number;
+  color: string;
+};
+
+const Gear = memo(function Gear({ rotation, size, color }: GearProps) {
+  const innerRadius = size * 0.35;
+
+  // Memoize teeth paths calculation
+  const teethPaths = useMemo(() => calculateTeethPaths(size), [size]);
+
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox={`${-size / 2} ${-size / 2} ${size} ${size}`}
+      style={{ transform: `rotate(${rotation}deg)` }}
+      className="transition-transform duration-0"
+    >
+      {/* Inner circle */}
+      <circle r={innerRadius} fill={color} opacity={0.9} />
+      {/* Center hole */}
+      <circle r={size * 0.12} fill="#1a1d21" />
+      {/* Teeth */}
+      {teethPaths.map((d, i) => (
+        <path key={i} d={d} fill={color} />
+      ))}
+      {/* Highlight */}
+      <circle r={innerRadius * 0.6} fill="none" stroke="white" strokeWidth={2} opacity={0.2} />
+    </svg>
+  );
+});
 
 // Calculate how close the gears are to meshing (teeth aligned)
 function calculateMeshAccuracy(leftRotation: number, rightRotation: number): number {
@@ -116,8 +174,9 @@ export default function GearUp({ config, difficulty, onComplete }: GearUpProps) 
       setRightGearRotation((prev) => (prev + speed * delta) % 360);
 
       // Left gear spins counter-clockwise when engaged
+      // Normalize to 0-360 range to avoid negative accumulation
       if (leftGearEngaged) {
-        setLeftGearRotation((prev) => (prev - speed * delta) % 360);
+        setLeftGearRotation((prev) => ((prev - speed * delta) % 360 + 360) % 360);
       }
 
       animationRef.current = requestAnimationFrame(animate);
@@ -206,53 +265,6 @@ export default function GearUp({ config, difficulty, onComplete }: GearUpProps) 
     );
   }
 
-  // SVG Gear component
-  const Gear = ({ rotation, size, color, engaged }: { rotation: number; size: number; color: string; engaged?: boolean }) => {
-    const teeth = [];
-    const innerRadius = size * 0.35;
-    const outerRadius = size * 0.48;
-    const toothWidth = 0.4; // radians
-
-    for (let i = 0; i < TEETH_COUNT; i++) {
-      const angle = (i * 2 * Math.PI) / TEETH_COUNT;
-      const x1 = Math.cos(angle - toothWidth / 2) * innerRadius;
-      const y1 = Math.sin(angle - toothWidth / 2) * innerRadius;
-      const x2 = Math.cos(angle - toothWidth / 3) * outerRadius;
-      const y2 = Math.sin(angle - toothWidth / 3) * outerRadius;
-      const x3 = Math.cos(angle + toothWidth / 3) * outerRadius;
-      const y3 = Math.sin(angle + toothWidth / 3) * outerRadius;
-      const x4 = Math.cos(angle + toothWidth / 2) * innerRadius;
-      const y4 = Math.sin(angle + toothWidth / 2) * innerRadius;
-
-      teeth.push(
-        <path
-          key={i}
-          d={`M ${x1} ${y1} L ${x2} ${y2} L ${x3} ${y3} L ${x4} ${y4} Z`}
-          fill={color}
-        />
-      );
-    }
-
-    return (
-      <svg
-        width={size}
-        height={size}
-        viewBox={`${-size / 2} ${-size / 2} ${size} ${size}`}
-        style={{ transform: `rotate(${rotation}deg)` }}
-        className={`transition-transform ${engaged ? "duration-0" : "duration-0"}`}
-      >
-        {/* Inner circle */}
-        <circle r={innerRadius} fill={color} opacity={0.9} />
-        {/* Center hole */}
-        <circle r={size * 0.12} fill="#1a1d21" />
-        {/* Teeth */}
-        {teeth}
-        {/* Highlight */}
-        <circle r={innerRadius * 0.6} fill="none" stroke="white" strokeWidth={2} opacity={0.2} />
-      </svg>
-    );
-  };
-
   return (
     <div className="flex w-full max-w-md flex-col items-center">
       {/* Status bar */}
@@ -281,7 +293,6 @@ export default function GearUp({ config, difficulty, onComplete }: GearUpProps) 
             rotation={leftGearRotation}
             size={100}
             color={leftGearEngaged ? "#f97316" : "#6b7280"}
-            engaged={leftGearEngaged}
           />
           <span className="mt-2 text-xs text-white/40">Your Gear</span>
         </div>
