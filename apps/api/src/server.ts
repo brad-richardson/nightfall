@@ -1912,7 +1912,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       minigame_type: selectedMinigame,
       resource_type: getResourceTypeForBuilding(building),
       config: {
-        base_rounds: config.baseRounds + extraRounds,
+        base_rounds: Math.min(config.baseRounds + extraRounds, 7),
         max_score: config.maxScore,
         expected_duration_ms: config.expectedDurationMs,
       },
