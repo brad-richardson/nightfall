@@ -143,10 +143,21 @@ function HomePageContent({ regionId }: { regionId: string }) {
   const [overtureRelease, setOvertureRelease] = useState<string | null>(null);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isMountedRef = useRef(true);
+
+  // Track component mount state to prevent state updates after unmount
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // Poll for Overture release if unavailable
   const pollOvertureRelease = useCallback(async () => {
     const release = await fetchOvertureRelease(API_BASE_URL);
+    // Check if component is still mounted before updating state
+    if (!isMountedRef.current) return;
     if (release) {
       setOvertureRelease(release);
       // Stop polling once we have the release
