@@ -55,8 +55,12 @@ test.describe("Mobile sidebar", () => {
     const trigger = page.getByRole("button", { name: /region status/i });
     await trigger.click();
 
-    // Drawer content should be visible - look for Resource Pools heading
-    const resourcePoolsHeading = page.getByText(/resource pools/i).first();
+    // Wait for the drawer dialog to appear (Vaul drawer uses role="dialog")
+    const drawer = page.getByRole("dialog");
+    await expect(drawer).toBeVisible({ timeout: 10000 });
+
+    // Drawer content should be visible - look for Resource Pools text inside the drawer
+    const resourcePoolsHeading = drawer.getByText(/resource pools/i);
     await expect(resourcePoolsHeading).toBeVisible();
   });
 
@@ -69,8 +73,12 @@ test.describe("Mobile sidebar", () => {
     const trigger = page.getByRole("button", { name: /region status/i });
     await trigger.click();
 
-    // Find the drawer content container with safe area padding
-    const drawerContent = page.locator('[style*="calc(2rem + env(safe-area-inset-bottom))"]');
+    // Wait for the drawer to open
+    const drawer = page.getByRole("dialog");
+    await expect(drawer).toBeVisible({ timeout: 10000 });
+
+    // Find the drawer content container with safe area padding inside the drawer
+    const drawerContent = drawer.locator('[style*="calc(2rem + env(safe-area-inset-bottom))"]');
     await expect(drawerContent).toBeVisible();
   });
 
