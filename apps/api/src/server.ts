@@ -429,15 +429,25 @@ async function fetchOvertureLatest(): Promise<string | null> {
   return overtureLatestCache?.value ?? null;
 }
 
+/**
+ * Parse ALLOWED_ORIGINS config into an array of origins or true (allow all).
+ * Returns true if not specified or empty, otherwise returns filtered array.
+ */
+function parseAllowedOrigins(allowedOrigins: string | undefined): string[] | true {
+  if (!allowedOrigins) {
+    return true;
+  }
+  const origins = allowedOrigins.split(',').map(o => o.trim()).filter(o => o.length > 0);
+  return origins.length > 0 ? origins : true;
+}
+
 export function buildServer(options: ServerOptions = {}): FastifyInstance {
   const app = Fastify({ logger: resolveLogger(options.logger) });
   const config = getConfig();
   let sseClients = 0;
 
   // CORS: Use allowlist in production, allow all in development
-  const corsOrigin = config.ALLOWED_ORIGINS
-    ? config.ALLOWED_ORIGINS.split(',').map(o => o.trim())
-    : true; // Allow all origins in development when not specified
+  const corsOrigin = parseAllowedOrigins(config.ALLOWED_ORIGINS);
   app.register(cors, {
     origin: corsOrigin,
     credentials: true,
@@ -515,12 +525,9 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
 
     // Manually set CORS headers for SSE (hijacked responses bypass @fastify/cors)
     const origin = request.headers.origin;
-    const allowedOrigins = config.ALLOWED_ORIGINS
-      ? config.ALLOWED_ORIGINS.split(',').map(o => o.trim())
-      : null;
-
     if (origin) {
-      if (!allowedOrigins || allowedOrigins.includes(origin)) {
+      const isAllowed = corsOrigin === true || corsOrigin.includes(origin);
+      if (isAllowed) {
         reply.raw.setHeader("Access-Control-Allow-Origin", origin);
         reply.raw.setHeader("Access-Control-Allow-Credentials", "true");
       }
