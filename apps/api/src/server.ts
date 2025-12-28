@@ -1762,7 +1762,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     fresh_check: { maxScore: 1000, expectedDurationMs: 25000, baseRounds: 20 },
     gear_up: { maxScore: 1000, expectedDurationMs: 20000, baseRounds: 5 },
     patch_job: { maxScore: 1000, expectedDurationMs: 25000, baseRounds: 3 },
-    power_up: { maxScore: 1000, expectedDurationMs: 20000, baseRounds: 1 },
+    power_up: { maxScore: 1000, expectedDurationMs: 20000, baseRounds: 3 },
     salvage_run: { maxScore: 1000, expectedDurationMs: 20000, baseRounds: 10 },
   };
 
