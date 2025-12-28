@@ -12,6 +12,8 @@ const PHASE_OPTIONS: Phase[] = ["dawn", "day", "dusk", "night"];
 
 export function AdminConsole() {
   const [isOpen, setIsOpen] = useState(false);
+  const [adminSecret, setAdminSecret] = useState("");
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const region = useStore((s) => s.region);
   const cycle = useStore((s) => s.cycle);
   const setRegion = useStore((s) => s.setRegion);
@@ -29,6 +31,12 @@ export function AdminConsole() {
   const [demoEnabled, setDemoEnabled] = useState(false);
   const [tickMultiplier, setTickMultiplier] = useState("1");
   const [cycleSpeed, setCycleSpeedState] = useState("1");
+
+  // Helper to get auth headers
+  const getAuthHeaders = useCallback(() => ({
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${adminSecret}`,
+  }), [adminSecret]);
 
   const handleResourceChange = (type: ResourceType, value: string) => {
     setResourceEdits((prev) => ({ ...prev, [type]: value }));
@@ -55,7 +63,7 @@ export function AdminConsole() {
     try {
       const response = await fetch("/api/admin/set-resources", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           region_id: region.region_id,
           ...updates,
@@ -81,13 +89,13 @@ export function AdminConsole() {
     } catch {
       toast.error("Failed to update resources");
     }
-  }, [resourceEdits, region.region_id, setRegion]);
+  }, [resourceEdits, region.region_id, setRegion, getAuthHeaders]);
 
   const fillResources = useCallback(async (amount: number) => {
     try {
       const response = await fetch("/api/admin/set-resources", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           region_id: region.region_id,
           food: amount,
@@ -114,7 +122,7 @@ export function AdminConsole() {
     } catch {
       toast.error("Failed to update resources");
     }
-  }, [region.region_id, setRegion]);
+  }, [region.region_id, setRegion, getAuthHeaders]);
 
   const toggleDemoMode = useCallback(async () => {
     const newEnabled = !demoEnabled;
@@ -122,7 +130,7 @@ export function AdminConsole() {
     try {
       const response = await fetch("/api/admin/demo-mode", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           enabled: newEnabled,
           tick_multiplier: parseFloat(tickMultiplier) || 1,
@@ -141,7 +149,7 @@ export function AdminConsole() {
     } catch {
       toast.error("Failed to toggle demo mode");
     }
-  }, [demoEnabled, tickMultiplier, cycleSpeed]);
+  }, [demoEnabled, tickMultiplier, cycleSpeed, getAuthHeaders]);
 
   const triggerReset = useCallback(async () => {
     if (!confirm("Are you sure you want to trigger a world reset? This will reset all game state.")) {
@@ -151,7 +159,7 @@ export function AdminConsole() {
     try {
       const response = await fetch("/api/admin/reset", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(),
       });
 
       const data = await response.json();
@@ -164,13 +172,13 @@ export function AdminConsole() {
     } catch {
       toast.error("Failed to trigger reset");
     }
-  }, []);
+  }, [getAuthHeaders]);
 
   const setPhase = useCallback(async (phase: Phase) => {
     try {
       const response = await fetch("/api/admin/set-phase", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ phase }),
       });
 
@@ -185,13 +193,13 @@ export function AdminConsole() {
     } catch {
       toast.error("Failed to set phase");
     }
-  }, [setCycle]);
+  }, [setCycle, getAuthHeaders]);
 
   const damageAllRoads = useCallback(async (healthValue: number) => {
     try {
       const response = await fetch("/api/admin/set-road-health", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           region_id: region.region_id,
           health: healthValue,
@@ -208,13 +216,13 @@ export function AdminConsole() {
     } catch {
       toast.error("Failed to update road health");
     }
-  }, [region.region_id]);
+  }, [region.region_id, getAuthHeaders]);
 
   const spreadRust = useCallback(async (level: number) => {
     try {
       const response = await fetch("/api/admin/set-rust", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           region_id: region.region_id,
           rust_level: level,
@@ -231,7 +239,36 @@ export function AdminConsole() {
     } catch {
       toast.error("Failed to update rust");
     }
-  }, [region.region_id]);
+  }, [region.region_id, getAuthHeaders]);
+
+  const handleLogin = useCallback(async () => {
+    // Test the secret by making a simple admin call
+    try {
+      const response = await fetch("/api/admin/demo-mode", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${adminSecret}`,
+        },
+        body: JSON.stringify({ enabled: false }),
+      });
+
+      if (response.status === 401) {
+        toast.error("Invalid admin secret");
+        return;
+      }
+
+      setIsAuthenticated(true);
+      toast.success("Authenticated");
+    } catch {
+      toast.error("Failed to authenticate");
+    }
+  }, [adminSecret]);
+
+  const handleLogout = useCallback(() => {
+    setAdminSecret("");
+    setIsAuthenticated(false);
+  }, []);
 
   if (!isOpen) {
     return (
@@ -247,6 +284,47 @@ export function AdminConsole() {
     );
   }
 
+  // Login screen
+  if (!isAuthenticated) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div className="relative w-full max-w-md rounded-2xl border border-white/20 bg-[rgba(12,16,20,0.95)] p-6 shadow-2xl">
+          <button
+            onClick={() => setIsOpen(false)}
+            className="absolute right-4 top-4 text-white/60 transition-colors hover:text-white"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-6 w-6">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+
+          <h2 className="mb-6 font-[family-name:var(--font-display)] text-2xl text-white">Admin Login</h2>
+
+          <div className="mb-4">
+            <label className="mb-2 block text-sm text-white/60">Admin Secret</label>
+            <input
+              type="password"
+              value={adminSecret}
+              onChange={(e) => setAdminSecret(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+              placeholder="Enter admin secret"
+              className="w-full rounded-lg border border-white/20 bg-white/10 px-4 py-3 text-white placeholder-white/40 focus:border-amber-500 focus:outline-none"
+              autoFocus
+            />
+          </div>
+
+          <button
+            onClick={handleLogin}
+            disabled={!adminSecret}
+            className="w-full rounded-lg bg-amber-600 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Authenticate
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/20 bg-[rgba(12,16,20,0.95)] p-6 shadow-2xl">
@@ -259,7 +337,15 @@ export function AdminConsole() {
           </svg>
         </button>
 
-        <h2 className="mb-6 font-[family-name:var(--font-display)] text-2xl text-white">Admin Console</h2>
+        <div className="mb-6 flex items-center justify-between">
+          <h2 className="font-[family-name:var(--font-display)] text-2xl text-white">Admin Console</h2>
+          <button
+            onClick={handleLogout}
+            className="text-sm text-white/60 transition-colors hover:text-white"
+          >
+            Logout
+          </button>
+        </div>
 
         {/* Current State Display */}
         <div className="mb-6 rounded-xl bg-white/5 p-4">
