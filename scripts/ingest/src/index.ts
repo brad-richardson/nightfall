@@ -1104,6 +1104,14 @@ async function ingestRoadGraph(
 ) {
   console.log("--- Starting Road Graph Ingest ---");
 
+  // Get the set of road IDs that exist in Postgres (after pruning)
+  const validRoadsResult = await pgPool.query<{ gers_id: string }>(
+    `SELECT gers_id FROM world_features WHERE region_id = $1 AND feature_type = 'road'`,
+    [region.regionId]
+  );
+  const validRoadIds = new Set(validRoadsResult.rows.map(r => r.gers_id));
+  console.log(`Found ${validRoadIds.size} valid roads in database`);
+
   const segmentsPath = resolveOverturePath(dataDir, { theme: "transportation", type: "segment" });
   const classFilter = ROAD_CLASS_FILTER.map((roadClass) => `'${roadClass}'`).join(", ");
 
@@ -1125,12 +1133,16 @@ async function ingestRoadGraph(
       class IN (${classFilter})
   `);
 
-  console.log(`Found ${segmentsWithConnectors.length} segments with connectors`);
+  console.log(`DuckDB returned ${segmentsWithConnectors.length} segments`);
+
+  // Filter to only segments that exist in Postgres (after pruning)
+  const validSegments = segmentsWithConnectors.filter(s => validRoadIds.has(s.id));
+  console.log(`Filtered to ${validSegments.length} segments that exist in database`);
 
   // Extract unique connectors with their positions
   const connectorMap = new Map<string, { lng: number; lat: number }>();
 
-  for (const segment of segmentsWithConnectors) {
+  for (const segment of validSegments) {
     // connectors_json is already parsed by DuckDB's JSON output
     const connectors = segment.connectors_json;
     if (!Array.isArray(connectors) || connectors.length === 0) continue;
@@ -1205,7 +1217,7 @@ async function ingestRoadGraph(
       h3Index: string;
     }> = [];
 
-    for (const segment of segmentsWithConnectors) {
+    for (const segment of validSegments) {
       const connectors = segment.connectors_json;
       if (!Array.isArray(connectors)) continue;
 
