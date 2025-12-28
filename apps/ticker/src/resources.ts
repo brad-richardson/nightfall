@@ -193,6 +193,7 @@ export async function enqueueResourceTransfers(
 
   // Step 1: Query buildings with resource outputs and coordinates
   // Only include buildings that were activated within the last N minutes
+  // Also join with production_boosts to apply minigame boost multipliers
   const buildingsResult = await pool.query<BuildingOutput>(
     `
     WITH feature_rust AS (
@@ -214,24 +215,30 @@ export async function enqueueResourceTransfers(
         AND fs.last_activated_at > now() - ($2 || ' minutes')::interval
       GROUP BY wf.gers_id, wf.region_id, wf.generates_food, wf.generates_equipment, wf.generates_energy, wf.generates_materials
     ),
+    active_boosts AS (
+      SELECT building_gers_id, multiplier
+      FROM production_boosts
+      WHERE expires_at > now()
+    ),
     building_outputs AS (
       SELECT
         fr.gers_id AS source_gers_id,
         fr.region_id,
         fr.h3_index,
         GREATEST(0, FLOOR(
-          CASE WHEN fr.generates_food THEN (1 - fr.rust_level) * $1 ELSE 0 END
+          CASE WHEN fr.generates_food THEN (1 - fr.rust_level) * $1 * COALESCE(ab.multiplier, 1) ELSE 0 END
         ))::int AS food_amount,
         GREATEST(0, FLOOR(
-          CASE WHEN fr.generates_equipment THEN (1 - fr.rust_level) * $1 ELSE 0 END
+          CASE WHEN fr.generates_equipment THEN (1 - fr.rust_level) * $1 * COALESCE(ab.multiplier, 1) ELSE 0 END
         ))::int AS equipment_amount,
         GREATEST(0, FLOOR(
-          CASE WHEN fr.generates_energy THEN (1 - fr.rust_level) * $1 ELSE 0 END
+          CASE WHEN fr.generates_energy THEN (1 - fr.rust_level) * $1 * COALESCE(ab.multiplier, 1) ELSE 0 END
         ))::int AS energy_amount,
         GREATEST(0, FLOOR(
-          CASE WHEN fr.generates_materials THEN (1 - fr.rust_level) * $1 ELSE 0 END
+          CASE WHEN fr.generates_materials THEN (1 - fr.rust_level) * $1 * COALESCE(ab.multiplier, 1) ELSE 0 END
         ))::int AS materials_amount
       FROM feature_rust AS fr
+      LEFT JOIN active_boosts AS ab ON ab.building_gers_id = fr.gers_id
     ),
     hub_lookup AS (
       SELECT

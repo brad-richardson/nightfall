@@ -119,6 +119,53 @@ export type AuthState = {
 // Track user's votes: taskId -> weight (1 or -1)
 export type UserVotes = Record<string, number>;
 
+// Minigame types
+export type MinigameType = "kitchen_rush" | "fresh_check" | "gear_up" | "patch_job" | "power_up" | "salvage_run";
+export type ResourceType = "food" | "equipment" | "energy" | "materials";
+
+export type MinigameDifficulty = {
+  speed_mult: number;
+  window_mult: number;
+  extra_rounds: number;
+  rust_level: number;
+  phase: Phase;
+};
+
+export type MinigameSession = {
+  session_id: string;
+  building_gers_id: string;
+  building_name: string;
+  minigame_type: MinigameType;
+  resource_type: ResourceType;
+  config: {
+    base_rounds: number;
+    max_score: number;
+    expected_duration_ms: number;
+  };
+  difficulty: MinigameDifficulty;
+  started_at: number;
+};
+
+export type MinigameResult = {
+  score: number;
+  performance: number;
+  multiplier: number;
+  duration_ms: number;
+  expires_at: string;
+};
+
+export type BuildingBoost = {
+  building_gers_id: string;
+  multiplier: number;
+  expires_at: string;
+  minigame_type: MinigameType;
+};
+
+export type MinigameCooldown = {
+  building_gers_id: string;
+  available_at: string;
+};
+
 type State = {
   region: Region;
   features: Feature[];
@@ -129,6 +176,11 @@ type State = {
   auth: AuthState;
   feedItems: FeedItem[];
   userVotes: UserVotes;
+  // Minigame state
+  activeMinigame: MinigameSession | null;
+  minigameResult: MinigameResult | null;
+  buildingBoosts: Record<string, BuildingBoost>;
+  minigameCooldowns: Record<string, MinigameCooldown>;
 };
 
 type Actions = {
@@ -140,6 +192,14 @@ type Actions = {
   addFeedItem: (item: FeedItem) => void;
   setUserVote: (taskId: string, weight: number) => void;
   clearUserVote: (taskId: string) => void;
+  // Minigame actions
+  startMinigame: (session: MinigameSession) => void;
+  completeMinigame: (result: MinigameResult) => void;
+  abandonMinigame: () => void;
+  setMinigameResult: (result: MinigameResult | null) => void;
+  addBuildingBoost: (boost: BuildingBoost) => void;
+  removeBuildingBoost: (buildingGersId: string) => void;
+  setCooldown: (cooldown: MinigameCooldown) => void;
 };
 
 export const useStore = create<State & Actions>()(
@@ -178,6 +238,11 @@ export const useStore = create<State & Actions>()(
       auth: { clientId: "", token: "" },
       feedItems: [],
       userVotes: {},
+      // Minigame initial state
+      activeMinigame: null,
+      minigameResult: null,
+      buildingBoosts: {},
+      minigameCooldowns: {},
 
       setRegion: (updater) =>
         set((state) => ({
@@ -209,7 +274,26 @@ export const useStore = create<State & Actions>()(
           const { [taskId]: _removed, ...rest } = state.userVotes;
           void _removed; // Silence unused variable warning
           return { userVotes: rest };
-        })
+        }),
+      // Minigame actions
+      startMinigame: (session) => set({ activeMinigame: session, minigameResult: null }),
+      completeMinigame: (result) => set({ activeMinigame: null, minigameResult: result }),
+      abandonMinigame: () => set({ activeMinigame: null, minigameResult: null }),
+      setMinigameResult: (result) => set({ minigameResult: result }),
+      addBuildingBoost: (boost) =>
+        set((state) => ({
+          buildingBoosts: { ...state.buildingBoosts, [boost.building_gers_id]: boost }
+        })),
+      removeBuildingBoost: (buildingGersId) =>
+        set((state) => {
+          const { [buildingGersId]: _removed, ...rest } = state.buildingBoosts;
+          void _removed;
+          return { buildingBoosts: rest };
+        }),
+      setCooldown: (cooldown) =>
+        set((state) => ({
+          minigameCooldowns: { ...state.minigameCooldowns, [cooldown.building_gers_id]: cooldown }
+        }))
     }),
     {
       name: "nightfall-auth",

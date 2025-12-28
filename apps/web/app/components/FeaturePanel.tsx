@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Utensils, Wrench, Zap, Package, X } from "lucide-react";
+import { Utensils, Wrench, Zap, Package, X, Rocket, Clock } from "lucide-react";
 import { toast } from "sonner";
 import { useStore, type UserVotes } from "../store";
 import type { ResourceType } from "@nightfall/config";
@@ -24,6 +24,7 @@ type Task = {
 type FeaturePanelProps = {
   onContribute: (sourceGersId: string, resourceType: ResourceType, amount: number) => void;
   onVote: (taskId: string, weight: number) => Promise<void>;
+  onBoostProduction: (buildingGersId: string, buildingName: string) => void;
   activeTasks: Task[];
   canContribute: boolean;
   userVotes: UserVotes;
@@ -32,13 +33,15 @@ type FeaturePanelProps = {
 const PANEL_WIDTH = 320;
 const PADDING = 16;
 
-export default function FeaturePanel({ onContribute, onVote, activeTasks, canContribute, userVotes }: FeaturePanelProps) {
+export default function FeaturePanel({ onContribute, onVote, onBoostProduction, activeTasks, canContribute, userVotes }: FeaturePanelProps) {
   const [selected, setSelected] = useState<SelectedFeature | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [panelPos, setPanelPos] = useState({ x: 0, y: 0 });
   const panelRef = useRef<HTMLDivElement>(null);
   const features = useStore((state) => state.features);
+  const minigameCooldowns = useStore((state) => state.minigameCooldowns);
+  const buildingBoosts = useStore((state) => state.buildingBoosts);
 
   useEffect(() => {
     const handleSelection = (e: Event) => {
@@ -185,6 +188,62 @@ export default function FeaturePanel({ onContribute, onVote, activeTasks, canCon
 
           {selected.type === 'building' && (
             <div className="space-y-4">
+              {/* Boost Production Button */}
+              {hasAnyResource && (() => {
+                const cooldown = minigameCooldowns[selected.gers_id];
+                const boost = buildingBoosts[selected.gers_id];
+                const now = Date.now();
+                const cooldownActive = cooldown && new Date(cooldown.available_at).getTime() > now;
+                const boostActive = boost && new Date(boost.expires_at).getTime() > now;
+                const cooldownRemaining = cooldownActive
+                  ? Math.ceil((new Date(cooldown.available_at).getTime() - now) / 1000 / 60)
+                  : 0;
+                const boostRemaining = boostActive
+                  ? Math.ceil((new Date(boost.expires_at).getTime() - now) / 1000 / 60)
+                  : 0;
+
+                return (
+                  <div className="mb-2">
+                    {boostActive ? (
+                      <div className="rounded-2xl bg-gradient-to-r from-[color:var(--night-teal)]/20 to-transparent border border-[color:var(--night-teal)]/30 p-4">
+                        <div className="flex items-center gap-3">
+                          <Rocket className="h-5 w-5 text-[color:var(--night-teal)]" />
+                          <div className="flex-1">
+                            <p className="text-sm font-medium text-white">
+                              {boost.multiplier}× Boost Active
+                            </p>
+                            <p className="text-xs text-white/50">
+                              {boostRemaining}m remaining
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ) : cooldownActive ? (
+                      <button
+                        disabled
+                        className="flex w-full items-center justify-center gap-2 rounded-2xl bg-white/5 p-3 text-white/40 cursor-not-allowed"
+                      >
+                        <Clock className="h-4 w-4" />
+                        <span className="text-sm">Cooldown: {cooldownRemaining}m</span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => onBoostProduction(selected.gers_id, selectedDetails?.place_category || 'Building')}
+                        disabled={!canContribute}
+                        className={`flex w-full items-center justify-center gap-2 rounded-2xl p-3 transition-all ${
+                          canContribute
+                            ? "bg-gradient-to-r from-[color:var(--night-teal)] to-[#4ade80] text-white shadow-[0_4px_16px_rgba(45,212,191,0.3)] hover:brightness-110 active:scale-95"
+                            : "bg-white/10 text-white/40 cursor-not-allowed"
+                        }`}
+                      >
+                        <Rocket className="h-4 w-4" />
+                        <span className="text-sm font-semibold uppercase tracking-wider">Boost Production</span>
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
+
               <p className="text-xs leading-relaxed text-white/60">
                 Activate this building to send recurring convoys to the regional hub for the next 2 minutes.
               </p>
