@@ -7,7 +7,11 @@ import KitchenRush from "./KitchenRush";
 import PowerUp from "./PowerUp";
 import FreshCheck from "./FreshCheck";
 import GearUp from "./GearUp";
+import PatchJob from "./PatchJob";
 import MinigameResults from "./MinigameResults";
+
+// Minigame types that have been implemented
+const IMPLEMENTED_MINIGAMES = ["kitchen_rush", "power_up", "fresh_check", "gear_up", "patch_job"] as const;
 
 type MinigameOverlayProps = {
   onClose: () => void;
@@ -255,8 +259,15 @@ export default function MinigameOverlay({ onClose }: MinigameOverlayProps) {
                   onComplete={handleGameComplete}
                 />
               )}
-              {/* Other minigame types can be added here */}
-              {activeMinigame.minigame_type !== "kitchen_rush" && activeMinigame.minigame_type !== "power_up" && activeMinigame.minigame_type !== "fresh_check" && activeMinigame.minigame_type !== "gear_up" && (
+              {activeMinigame.minigame_type === "patch_job" && (
+                <PatchJob
+                  config={activeMinigame.config}
+                  difficulty={activeMinigame.difficulty}
+                  onComplete={handleGameComplete}
+                />
+              )}
+              {/* Fallback for unimplemented minigame types */}
+              {!IMPLEMENTED_MINIGAMES.includes(activeMinigame.minigame_type as typeof IMPLEMENTED_MINIGAMES[number]) && (
                 <div className="text-center text-white/60">
                   <p className="text-lg">Coming Soon</p>
                   <p className="mt-2 text-sm">
