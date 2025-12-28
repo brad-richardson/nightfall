@@ -16,6 +16,8 @@ type ResourceTrendTooltipProps = {
   isVisible: boolean;
   isLight: boolean;
   anchorRect?: DOMRect | null;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
 };
 
 /**
@@ -27,7 +29,9 @@ export function ResourceTrendTooltip({
   color,
   isVisible,
   isLight,
-  anchorRect
+  anchorRect,
+  onMouseEnter,
+  onMouseLeave
 }: ResourceTrendTooltipProps) {
   const [history, setHistory] = useState<HistoryPoint[]>([]);
   const [trend, setTrend] = useState(getResourceTrend(resourceType));
@@ -114,6 +118,8 @@ export function ResourceTrendTooltip({
         opacity: isVisible ? 1 : 0,
         transform: isVisible ? "translateY(0)" : "translateY(4px)"
       }}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
     >
       <div className="flex items-center gap-2">
         <span
@@ -218,6 +224,14 @@ export function useResourceTooltip() {
     setAnchorRect(null);
   }, []);
 
+  // Cancel any pending hide timeout (used when hovering tooltip)
+  const cancelHideTimeout = useCallback(() => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+  }, []);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -232,6 +246,7 @@ export function useResourceTooltip() {
     anchorRect,
     showTooltip,
     hideTooltip,
-    hideTooltipImmediate
+    hideTooltipImmediate,
+    cancelHideTimeout
   };
 }
