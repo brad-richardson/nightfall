@@ -129,11 +129,12 @@ export function PlayerTierBadgeCompact({ className = "" }: { className?: string 
   const progress = getTierProgress(playerScore.totalScore);
 
   return (
-    <button
-      type="button"
-      className={`group relative flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 px-2 py-1 text-white/80 backdrop-blur-sm transition-all hover:border-white/20 hover:bg-black/60 ${className}`}
+    <div
+      role="status"
+      tabIndex={0}
+      aria-label={`${config.label} tier: ${playerScore.totalScore.toLocaleString()} points${progress.nextTier ? `. ${progress.scoreToNext} points to ${PLAYER_TIERS[progress.nextTier].label}` : ""}`}
+      className={`group relative flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 px-2 py-1 text-white/80 backdrop-blur-sm transition-all hover:border-white/20 hover:bg-black/60 focus:border-white/20 focus:outline-none focus:ring-2 focus:ring-white/30 ${className}`}
       style={{ boxShadow: `0 0 8px ${config.color}30` }}
-      title={`${config.label}: ${playerScore.totalScore.toLocaleString()} points`}
     >
       <span className="text-sm">{config.badgeIcon}</span>
       <span
@@ -154,8 +155,8 @@ export function PlayerTierBadgeCompact({ className = "" }: { className?: string 
         </div>
       )}
 
-      {/* Tooltip on hover */}
-      <div className="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 rounded-lg border border-white/10 bg-black/90 p-3 text-left opacity-0 shadow-lg backdrop-blur-md transition-opacity group-hover:opacity-100">
+      {/* Tooltip on hover and focus */}
+      <div className="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 rounded-lg border border-white/10 bg-black/90 p-3 text-left opacity-0 shadow-lg backdrop-blur-md transition-opacity group-hover:opacity-100 group-focus:opacity-100">
         <div className="whitespace-nowrap text-xs font-semibold" style={{ color: config.color }}>
           {config.badgeIcon} {config.label}
         </div>
@@ -179,6 +180,6 @@ export function PlayerTierBadgeCompact({ className = "" }: { className?: string 
           )}
         </div>
       </div>
-    </button>
+    </div>
   );
 }

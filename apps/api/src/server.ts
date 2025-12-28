@@ -2496,7 +2496,8 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       ok: true,
       leaderboard: result.rows.map((row, index) => ({
         rank: index + 1,
-        clientId: row.client_id,
+        // Use truncated client_id suffix as anonymous identifier (privacy: don't expose full client_id)
+        playerId: row.client_id.slice(-8),
         displayName: row.display_name || `Player ${row.client_id.slice(-6)}`,
         score: Number(row.lifetime_contrib),
         homeRegionId: row.home_region_id,

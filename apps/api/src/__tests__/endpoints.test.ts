@@ -471,4 +471,122 @@ describe("api endpoints", () => {
 
     await app.close();
   });
+
+  describe("/api/leaderboard", () => {
+    it("returns leaderboard with players ordered by score", async () => {
+      queryMock.mockImplementation((text: string) => {
+        if (text.includes("FROM players")) {
+          return Promise.resolve({
+            rows: [
+              {
+                client_id: "client-abc123",
+                display_name: "TopPlayer",
+                lifetime_contrib: 5000,
+                home_region_id: "region-1",
+                last_seen: "2025-01-01T12:00:00Z"
+              },
+              {
+                client_id: "client-def456",
+                display_name: null,
+                lifetime_contrib: 1000,
+                home_region_id: "region-2",
+                last_seen: "2025-01-01T11:00:00Z"
+              }
+            ]
+          });
+        }
+        return Promise.resolve({ rows: [] });
+      });
+
+      const app = buildServer();
+      const response = await app.inject({ method: "GET", url: "/api/leaderboard" });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers["cache-control"]).toBe("no-store");
+      const payload = response.json();
+      expect(payload.ok).toBe(true);
+      expect(payload.leaderboard).toHaveLength(2);
+      expect(payload.leaderboard[0].rank).toBe(1);
+      expect(payload.leaderboard[0].displayName).toBe("TopPlayer");
+      expect(payload.leaderboard[0].score).toBe(5000);
+      // Privacy: only truncated playerId is exposed (last 8 chars), not full clientId
+      expect(payload.leaderboard[0].playerId).toBe("t-abc123");
+      expect(payload.leaderboard[0].clientId).toBeUndefined();
+      expect(payload.leaderboard[1].rank).toBe(2);
+      // Fallback display name uses last 6 chars of client_id
+      expect(payload.leaderboard[1].displayName).toBe("Player def456");
+
+      await app.close();
+    });
+
+    it("respects limit parameter", async () => {
+      queryMock.mockImplementation((text: string, params: unknown[]) => {
+        if (text.includes("FROM players")) {
+          // Verify limit is passed correctly
+          expect(params[0]).toBe(10);
+          return Promise.resolve({
+            rows: [
+              {
+                client_id: "client-1",
+                display_name: "Player1",
+                lifetime_contrib: 100,
+                home_region_id: "region-1",
+                last_seen: "2025-01-01T12:00:00Z"
+              }
+            ]
+          });
+        }
+        return Promise.resolve({ rows: [] });
+      });
+
+      const app = buildServer();
+      const response = await app.inject({ method: "GET", url: "/api/leaderboard?limit=10" });
+
+      expect(response.statusCode).toBe(200);
+      const payload = response.json();
+      expect(payload.ok).toBe(true);
+
+      await app.close();
+    });
+
+    it("clamps limit to valid range", async () => {
+      queryMock.mockImplementation((text: string, params: unknown[]) => {
+        if (text.includes("FROM players")) {
+          // Max limit should be clamped to 100
+          expect(params[0]).toBe(100);
+          return Promise.resolve({ rows: [] });
+        }
+        return Promise.resolve({ rows: [] });
+      });
+
+      const app = buildServer();
+      const response = await app.inject({ method: "GET", url: "/api/leaderboard?limit=999" });
+
+      expect(response.statusCode).toBe(200);
+      const payload = response.json();
+      expect(payload.ok).toBe(true);
+      expect(payload.leaderboard).toHaveLength(0);
+
+      await app.close();
+    });
+
+    it("returns empty leaderboard when no players", async () => {
+      queryMock.mockImplementation((text: string) => {
+        if (text.includes("FROM players")) {
+          return Promise.resolve({ rows: [] });
+        }
+        return Promise.resolve({ rows: [] });
+      });
+
+      const app = buildServer();
+      const response = await app.inject({ method: "GET", url: "/api/leaderboard" });
+
+      expect(response.statusCode).toBe(200);
+      const payload = response.json();
+      expect(payload.ok).toBe(true);
+      expect(payload.leaderboard).toHaveLength(0);
+
+      await app.close();
+    });
+  });
 });

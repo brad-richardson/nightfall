@@ -667,9 +667,12 @@ export default function Dashboard({
           // Toggling off - clear the vote (they clicked same button again)
           clearUserVote(taskId);
         } else {
+          // Award score only for genuinely new votes (not changing existing votes)
+          const isNewVote = currentVote === undefined;
+          if (isNewVote) {
+            addVoteScore(SCORE_ACTIONS.voteSubmitted);
+          }
           setUserVote(taskId, weight);
-          // Award score for voting (only for new votes, not toggles)
-          addVoteScore(SCORE_ACTIONS.voteSubmitted);
         }
 
         // Show feedback toast

@@ -168,6 +168,10 @@ export type MinigameCooldown = {
 };
 
 // Player score tracking
+// SECURITY NOTE: Scores are currently stored client-side only (localStorage).
+// This means scores can be manipulated by users and are not synchronized across devices.
+// Tier bonuses should NOT be applied server-side until score tracking is moved to the database.
+// See TODO.md for planned server-side score implementation.
 export type PlayerScore = {
   totalScore: number;
   contributionScore: number; // Score from resource contributions
