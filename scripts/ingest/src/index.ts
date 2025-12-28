@@ -1,6 +1,6 @@
 import { spawn } from "child_process";
 import { Pool, type PoolClient } from "pg";
-import { cellToBoundary, cellToLatLng, latLngToCell, polygonToCells } from "h3-js";
+import { cellToBoundary, cellToLatLng, latLngToCell, polygonToCells, cellsToMultiPolygon } from "h3-js";
 import * as dotenv from "dotenv";
 import path from "path";
 import fs from "fs";
@@ -461,23 +461,31 @@ function datasetExists(dataDir: string, dataset: OvertureDataset) {
   return getDatasetCandidates(dataDir, dataset).some((candidate) => fs.existsSync(candidate));
 }
 
-export function buildRoadsQuery(roadsPath: string, region: RegionConfig) {
+export function buildRoadsQuery(roadsPath: string, region: RegionConfig, hexCoverageWkt?: string) {
   const classFilter = ROAD_CLASS_FILTER.map((roadClass) => `'${roadClass}'`).join(", ");
+
+  // If hex coverage WKT is provided, filter to roads completely contained within the hex polygon
+  // This ensures roads don't extend past the fog of war boundary
+  const containmentFilter = hexCoverageWkt
+    ? `AND ST_Contains(ST_GeomFromText('${hexCoverageWkt}'), geometry)`
+    : "";
+
   return `
-      CREATE OR REPLACE TABLE roads_raw AS 
-      SELECT 
+      CREATE OR REPLACE TABLE roads_raw AS
+      SELECT
         id,
         bbox,
         subtype,
         class
       FROM read_parquet('${roadsPath}')
-      WHERE 
-        bbox.xmin > ${region.bbox.xmin} AND 
-        bbox.xmax < ${region.bbox.xmax} AND 
-        bbox.ymin > ${region.bbox.ymin} AND 
+      WHERE
+        bbox.xmin > ${region.bbox.xmin} AND
+        bbox.xmax < ${region.bbox.xmax} AND
+        bbox.ymin > ${region.bbox.ymin} AND
         bbox.ymax < ${region.bbox.ymax} AND
         subtype = 'road' AND
         class IN (${classFilter})
+        ${containmentFilter}
     `;
 }
 
@@ -584,13 +592,8 @@ function bboxToCells(bbox: Bbox, resolution: number) {
 
 function buildHexWkt(h3Index: string) {
   const boundary = cellToBoundary(h3Index);
-  const coords = boundary.map((point) => {
-    if (Array.isArray(point)) {
-      const [lat, lon] = point;
-      return [lat, lon];
-    }
-    return [point.lat, point.lng];
-  });
+  // cellToBoundary returns [[lat, lng], ...] format
+  const coords = boundary.map((point) => [point[0], point[1]]);
 
   if (coords.length === 0) {
     return null;
@@ -599,6 +602,74 @@ function buildHexWkt(h3Index: string) {
   const ring = [...coords, coords[0]];
   const wkt = ring.map(([lat, lon]) => `${lon} ${lat}`).join(", ");
   return `POLYGON((${wkt}))`;
+}
+
+/**
+ * Generates all H3 hexes that fill a region bbox and returns them along with
+ * a WKT polygon representing their combined coverage area.
+ *
+ * This is used to filter features to only those completely contained within
+ * the hex coverage polygon (avoiding the "jagged edge" fog of war issue).
+ */
+export function generateHexCoverageFromBbox(bbox: Bbox, resolution: number): {
+  hexes: string[];
+  coverageWkt: string;
+} {
+  // Create a ring from the bbox (lat/lng order for h3-js)
+  const ring: Array<[number, number]> = [
+    [bbox.ymin, bbox.xmin],
+    [bbox.ymin, bbox.xmax],
+    [bbox.ymax, bbox.xmax],
+    [bbox.ymax, bbox.xmin],
+    [bbox.ymin, bbox.xmin]
+  ];
+
+  // Get all H3 cells that fill this polygon
+  const hexes = polygonToCells([ring], resolution);
+
+  if (hexes.length === 0) {
+    // Fallback to bbox as WKT if no hexes
+    const wkt = `POLYGON((${bbox.xmin} ${bbox.ymin}, ${bbox.xmax} ${bbox.ymin}, ${bbox.xmax} ${bbox.ymax}, ${bbox.xmin} ${bbox.ymax}, ${bbox.xmin} ${bbox.ymin}))`;
+    return { hexes: [], coverageWkt: wkt };
+  }
+
+  // Get the combined polygon from all hex cells
+  // cellsToMultiPolygon returns [[[lat, lng], ...], ...] for each polygon
+  const multiPolygon = cellsToMultiPolygon(hexes);
+
+  if (multiPolygon.length === 0) {
+    const wkt = `POLYGON((${bbox.xmin} ${bbox.ymin}, ${bbox.xmax} ${bbox.ymin}, ${bbox.xmax} ${bbox.ymax}, ${bbox.xmin} ${bbox.ymax}, ${bbox.xmin} ${bbox.ymin}))`;
+    return { hexes, coverageWkt: wkt };
+  }
+
+  // Convert to WKT - handle MultiPolygon or single Polygon
+  if (multiPolygon.length === 1) {
+    // Single polygon with possible holes
+    const rings = multiPolygon[0].map((ring) => {
+      // Each ring is [[lat, lng], ...], convert to "lng lat" WKT format
+      // Ensure ring is closed (first coord equals last coord)
+      const closedRing = ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1]
+        ? ring
+        : [...ring, ring[0]];
+      const coords = closedRing.map(([lat, lng]) => `${lng} ${lat}`).join(", ");
+      return `(${coords})`;
+    });
+    return { hexes, coverageWkt: `POLYGON(${rings.join(", ")})` };
+  } else {
+    // Multiple polygons
+    const polygons = multiPolygon.map((polygon) => {
+      const rings = polygon.map((ring) => {
+        // Ensure ring is closed (first coord equals last coord)
+        const closedRing = ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1]
+          ? ring
+          : [...ring, ring[0]];
+        const coords = closedRing.map(([lat, lng]) => `${lng} ${lat}`).join(", ");
+        return `(${coords})`;
+      });
+      return `(${rings.join(", ")})`;
+    });
+    return { hexes, coverageWkt: `MULTIPOLYGON(${polygons.join(", ")})` };
+  }
 }
 
 async function computeLandRatios(
@@ -1506,26 +1577,34 @@ async function ingestBuildings(
   centerLat: number,
   centerLon: number,
   dataDir: string,
-  regionHexes: Set<string>
+  regionHexes: Set<string>,
+  hexCoverageWkt?: string
 ) {
   console.log("--- Starting Building Ingest ---");
 
   const buildingsPath = resolveOverturePath(dataDir, { theme: "buildings", type: "building" });
   const placesPath = resolveOverturePath(dataDir, { theme: "places", type: "place" });
-  
+
+  // If hex coverage WKT is provided, filter buildings completely contained within the hex polygon
+  // This ensures buildings don't extend past the fog of war boundary
+  const containmentFilter = hexCoverageWkt
+    ? `AND ST_Contains(ST_GeomFromText('${hexCoverageWkt}'), geometry)`
+    : "";
+
   // 1. Get Buildings
   await runDuckDB(`
-    CREATE OR REPLACE TABLE buildings_raw AS 
-    SELECT 
+    CREATE OR REPLACE TABLE buildings_raw AS
+    SELECT
       id,
       geometry,
       bbox
     FROM read_parquet('${buildingsPath}')
-    WHERE 
-      bbox.xmin > ${region.bbox.xmin} AND 
-      bbox.xmax < ${region.bbox.xmax} AND 
-      bbox.ymin > ${region.bbox.ymin} AND 
+    WHERE
+      bbox.xmin > ${region.bbox.xmin} AND
+      bbox.xmax < ${region.bbox.xmax} AND
+      bbox.ymin > ${region.bbox.ymin} AND
       bbox.ymax < ${region.bbox.ymax}
+      ${containmentFilter}
   `);
 
   // 2. Get Places (for joining)
@@ -1685,7 +1764,7 @@ async function ingestBuildings(
 
 async function main() {
   const pgPool = new Pool(DB_CONFIG);
-  
+
   try {
     await pgPool.query("SELECT 1");
     console.log("Connected to Postgres.");
@@ -1693,12 +1772,22 @@ async function main() {
     const region = getRegionConfig();
     const dataDir = await runOvertureDownload(region, { clean: hasFlag("--clean") });
 
+    // Generate hex coverage polygon upfront
+    // This ensures features are only included if completely contained within the hex area,
+    // avoiding "jagged edge" artifacts at fog of war boundaries
+    console.log("--- Generating Hex Coverage Polygon ---");
+    const { hexes: coverageHexes, coverageWkt: hexCoverageWkt } = generateHexCoverageFromBbox(
+      region.bbox,
+      H3_RESOLUTION
+    );
+    console.log(`Generated ${coverageHexes.length} hexes for coverage polygon`);
+
     // 1. Ingest Roads
     console.log("--- Starting Road Ingest ---");
 
     const roadsPath = resolveOverturePath(dataDir, { theme: "transportation", type: "segment" });
-    
-    await runDuckDB(buildRoadsQuery(roadsPath, region));
+
+    await runDuckDB(buildRoadsQuery(roadsPath, region, hexCoverageWkt));
     
     const roads = await runDuckDB(`
       SELECT 
@@ -1714,15 +1803,16 @@ async function main() {
     console.log(`Processing ${roads.length} roads...`);
 
     const client = await pgPool.connect();
-    
-    // Create region entry
-    const bboxPoly = `POLYGON((${region.bbox.xmin} ${region.bbox.ymin}, ${region.bbox.xmin} ${region.bbox.ymax}, ${region.bbox.xmax} ${region.bbox.ymax}, ${region.bbox.xmax} ${region.bbox.ymin}, ${region.bbox.xmin} ${region.bbox.ymin}))`;
-    
+
+    // Create region entry using the hex coverage polygon as the boundary
+    // This ensures the fog of war mask matches the actual hex coverage area
     await client.query(`
       INSERT INTO regions (region_id, name, boundary, center, distance_from_center)
       VALUES ($1, $2, ST_GeomFromText($3, 4326), ST_Centroid(ST_GeomFromText($3, 4326)), 0)
-      ON CONFLICT (region_id) DO NOTHING
-    `, [region.regionId, region.regionName, bboxPoly]);
+      ON CONFLICT (region_id) DO UPDATE SET
+        boundary = ST_GeomFromText($3, 4326),
+        center = ST_Centroid(ST_GeomFromText($3, 4326))
+    `, [region.regionId, region.regionName, hexCoverageWkt]);
     
     const centerLon = (region.bbox.xmin + region.bbox.xmax) / 2;
     const centerLat = (region.bbox.ymin + region.bbox.ymax) / 2;
@@ -1830,7 +1920,7 @@ async function main() {
     console.log(`\nSuccess! Inserted ${count} roads.`);
     
     // 2. Ingest Buildings
-    await ingestBuildings(pgPool, region, centerLat, centerLon, dataDir, regionHexes);
+    await ingestBuildings(pgPool, region, centerLat, centerLon, dataDir, regionHexes, hexCoverageWkt);
 
     const pruneClient = await pgPool.connect();
     try {

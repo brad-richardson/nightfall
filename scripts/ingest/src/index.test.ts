@@ -13,7 +13,8 @@ import {
   ROAD_CLASS_FILTER,
   REGION_CONFIGS,
   shouldSeedDemo,
-  interpolateLineString
+  interpolateLineString,
+  generateHexCoverageFromBbox
 } from "./index.js";
 
 const region = {
@@ -76,6 +77,21 @@ describe("ingest roads query", () => {
       "residential",
       "service"
     ]);
+  });
+
+  it("includes ST_Contains filter when hexCoverageWkt is provided", () => {
+    const hexWkt = "POLYGON((-68.2 44.3, -68.1 44.3, -68.1 44.4, -68.2 44.4, -68.2 44.3))";
+    const query = buildRoadsQuery("/tmp/overture/roads", region, hexWkt);
+
+    expect(query).toContain("ST_Contains");
+    expect(query).toContain("ST_GeomFromText");
+    expect(query).toContain(hexWkt);
+  });
+
+  it("omits ST_Contains filter when hexCoverageWkt is not provided", () => {
+    const query = buildRoadsQuery("/tmp/overture/roads", region);
+
+    expect(query).not.toContain("ST_Contains");
   });
 });
 
@@ -432,5 +448,94 @@ describe("interpolateLineString", () => {
     const result = interpolateLineString(coords, 0.5);
     expect(result[0]).toBeCloseTo(20);
     expect(result[1]).toBeCloseTo(0);
+  });
+});
+
+describe("generateHexCoverageFromBbox", () => {
+  // Bar Harbor area bbox for realistic testing
+  const barHarborBbox = {
+    xmin: -68.22,
+    ymin: 44.37,
+    xmax: -68.18,
+    ymax: 44.41
+  };
+
+  it("generates hexes for a valid bbox", () => {
+    const result = generateHexCoverageFromBbox(barHarborBbox, H3_RESOLUTION);
+
+    expect(result.hexes.length).toBeGreaterThan(0);
+    expect(result.coverageWkt).toBeTruthy();
+  });
+
+  it("returns WKT in correct format (POLYGON or MULTIPOLYGON)", () => {
+    const result = generateHexCoverageFromBbox(barHarborBbox, H3_RESOLUTION);
+
+    expect(
+      result.coverageWkt.startsWith("POLYGON(") ||
+      result.coverageWkt.startsWith("MULTIPOLYGON(")
+    ).toBe(true);
+  });
+
+  it("returns WKT with lng lat coordinate order", () => {
+    const result = generateHexCoverageFromBbox(barHarborBbox, H3_RESOLUTION);
+
+    // Extract first coordinate pair from WKT
+    const match = result.coverageWkt.match(/\(\((-?\d+\.?\d*)\s+(-?\d+\.?\d*)/);
+    expect(match).not.toBeNull();
+
+    if (match) {
+      const lng = parseFloat(match[1]);
+      const lat = parseFloat(match[2]);
+
+      // Longitude should be in bbox range (roughly -68.xx for Bar Harbor)
+      expect(lng).toBeGreaterThan(-69);
+      expect(lng).toBeLessThan(-68);
+
+      // Latitude should be in bbox range (roughly 44.xx for Bar Harbor)
+      expect(lat).toBeGreaterThan(44);
+      expect(lat).toBeLessThan(45);
+    }
+  });
+
+  it("returns closed rings (first coord equals last coord)", () => {
+    const result = generateHexCoverageFromBbox(barHarborBbox, H3_RESOLUTION);
+
+    // Extract rings from WKT - find content between (( and ))
+    const ringMatches = result.coverageWkt.match(/\(\(([^)]+)\)\)/g);
+    expect(ringMatches).not.toBeNull();
+
+    if (ringMatches) {
+      for (const ringMatch of ringMatches) {
+        // Extract coordinates from the ring
+        const coordsStr = ringMatch.replace(/^\(\(/, "").replace(/\)\)$/, "");
+        const coords = coordsStr.split(",").map(c => c.trim());
+
+        expect(coords.length).toBeGreaterThan(3); // At least 4 points for a closed ring
+        expect(coords[0]).toBe(coords[coords.length - 1]); // Ring is closed
+      }
+    }
+  });
+
+  it("returns fallback bbox WKT when no hexes generated", () => {
+    // Very small bbox that might not generate any hexes
+    const tinyBbox = {
+      xmin: 0,
+      ymin: 0,
+      xmax: 0.0001,
+      ymax: 0.0001
+    };
+
+    const result = generateHexCoverageFromBbox(tinyBbox, H3_RESOLUTION);
+
+    // Should still return a valid polygon (the fallback bbox)
+    expect(result.coverageWkt).toContain("POLYGON");
+  });
+
+  it("generates consistent hex coverage for same bbox", () => {
+    const result1 = generateHexCoverageFromBbox(barHarborBbox, H3_RESOLUTION);
+    const result2 = generateHexCoverageFromBbox(barHarborBbox, H3_RESOLUTION);
+
+    expect(result1.hexes).toEqual(result2.hexes);
+    expect(result1.coverageWkt).toBe(result2.coverageWkt);
   });
 });
