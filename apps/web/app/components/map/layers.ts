@@ -405,15 +405,24 @@ export function getInteractionLayers(): maplibregl.LayerSpecification[] {
   ];
 }
 
-export function getAllInitialLayers(): maplibregl.LayerSpecification[] {
-  return [
-    ...getBaseLayers(),
-    ...getRoadLayers(),
-    ...getGameStateLayers(),
-    ...getTaskHighlightLayers(),
-    ...getRepairAndCompletionLayers(),
-    ...getInteractionLayers()
+export function getAllInitialLayers(hasOvertureSources = true): maplibregl.LayerSpecification[] {
+  // Always include background layer
+  const layers: maplibregl.LayerSpecification[] = [
+    { id: "background", type: "background", paint: { "background-color": COLORS.background } }
   ];
+
+  // Only include layers that depend on Overture sources when they're available
+  if (hasOvertureSources) {
+    // Add Overture-dependent base layers (skip background, it's already added)
+    layers.push(...getBaseLayers().filter(l => l.id !== "background"));
+    layers.push(...getRoadLayers());
+    layers.push(...getGameStateLayers());
+    layers.push(...getTaskHighlightLayers());
+    layers.push(...getRepairAndCompletionLayers());
+    layers.push(...getInteractionLayers());
+  }
+
+  return layers;
 }
 
 // Dynamic layers added after map load

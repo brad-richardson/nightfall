@@ -82,12 +82,13 @@ export default function DemoMap({
   const featuresRef = useRef(features);
   const tasksRef = useRef(tasks);
   const resourcePackagesRef = useRef(resourcePackages);
+  const hasOvertureSources = !!pmtilesRelease;
   // Initialize with empty Maps - will be updated via useEffect after memos are computed
   const featuresByGersIdRef = useRef<Map<string, typeof features[0]>>(new Map());
   const tasksByGersIdRef = useRef<Map<string, typeof tasks[0]>>(new Map());
 
   const pmtilesBase = useMemo(
-    () => `https://d3c1b7bog2u1nn.cloudfront.net/${pmtilesRelease}`,
+    () => pmtilesRelease ? `https://d3c1b7bog2u1nn.cloudfront.net/${pmtilesRelease}` : null,
     [pmtilesRelease]
   );
 
@@ -253,30 +254,34 @@ export default function DemoMap({
     }
     const maxBounds = getMaxBoundsFromBoundary(boundary);
 
+    // Build sources - only include Overture sources when pmtilesBase is available
+    const sources: maplibregl.StyleSpecification["sources"] = {};
+    if (pmtilesBase) {
+      sources.overture_base = {
+        type: "vector",
+        url: `pmtiles://${pmtilesBase}/base.pmtiles`,
+        attribution: "Overture Maps"
+      };
+      sources.overture_transportation = {
+        type: "vector",
+        url: `pmtiles://${pmtilesBase}/transportation.pmtiles`,
+        attribution: "Overture Maps"
+      };
+      sources.overture_buildings = {
+        type: "vector",
+        url: `pmtiles://${pmtilesBase}/buildings.pmtiles`,
+        attribution: "Overture Maps"
+      };
+    }
+
     const mapInstance = new maplibregl.Map({
       container: mapContainer.current,
       maxBounds,
       style: {
         version: 8,
         name: "Nightfall Hex Dystopian",
-        sources: {
-          overture_base: {
-            type: "vector",
-            url: `pmtiles://${pmtilesBase}/base.pmtiles`,
-            attribution: "Overture Maps"
-          },
-          overture_transportation: {
-            type: "vector",
-            url: `pmtiles://${pmtilesBase}/transportation.pmtiles`,
-            attribution: "Overture Maps"
-          },
-          overture_buildings: {
-            type: "vector",
-            url: `pmtiles://${pmtilesBase}/buildings.pmtiles`,
-            attribution: "Overture Maps"
-          }
-        },
-        layers: getAllInitialLayers()
+        sources,
+        layers: getAllInitialLayers(!!pmtilesBase)
       },
       center: [centerLon, centerLat],
       zoom: 14,
@@ -327,8 +332,11 @@ export default function DemoMap({
       });
 
       const hexLayers = getHexLayers();
-      map.current?.addLayer(hexLayers.fill as maplibregl.AddLayerObject, "game-roads-healthy-glow");
-      map.current?.addLayer(hexLayers.outline as maplibregl.AddLayerObject, "game-roads-healthy-glow");
+      // When overture sources are available, add hex layers below road layers
+      // Otherwise, add them without a "before" reference
+      const beforeLayer = pmtilesBase ? "game-roads-healthy-glow" : undefined;
+      map.current?.addLayer(hexLayers.fill as maplibregl.AddLayerObject, beforeLayer);
+      map.current?.addLayer(hexLayers.outline as maplibregl.AddLayerObject, beforeLayer);
 
       // Add crews source and layers
       map.current?.addSource("game-crews", {
@@ -397,51 +405,61 @@ export default function DemoMap({
 
     // Click handler
     mapInstance.on("click", (e) => {
-      const clickedFeatures = mapInstance.queryRenderedFeatures(e.point, {
-        layers: [
+      // Only query overture layers if sources are available
+      const queryLayers = pmtilesBase
+        ? [
           "game-roads-healthy", "game-roads-warning", "game-roads-degraded",
           "roads-low", "roads-mid", "roads-high", "roads-routes", "buildings"
         ]
-      });
+        : [];
+      const clickedFeatures = queryLayers.length > 0
+        ? mapInstance.queryRenderedFeatures(e.point, { layers: queryLayers })
+        : [];
 
       if (clickedFeatures && clickedFeatures.length > 0) {
         const feature = clickedFeatures[0];
         const gersId = feature.properties?.id;
         const type = feature.layer.id.includes("buildings") ? "building" : "road";
 
-        mapInstance.setFilter("game-feature-selection", ["==", ["get", "id"], gersId]);
-        mapInstance.setFilter("game-feature-selection-glow", ["==", ["get", "id"], gersId]);
+        if (pmtilesBase) {
+          mapInstance.setFilter("game-feature-selection", ["==", ["get", "id"], gersId]);
+          mapInstance.setFilter("game-feature-selection-glow", ["==", ["get", "id"], gersId]);
+        }
 
         window.dispatchEvent(new CustomEvent("nightfall:feature_selected", {
           detail: { gers_id: gersId, type, position: { x: e.point.x, y: e.point.y } }
         }));
       } else {
-        mapInstance.setFilter("game-feature-selection", ["==", ["get", "id"], "none"]);
-        mapInstance.setFilter("game-feature-selection-glow", ["==", ["get", "id"], "none"]);
+        if (pmtilesBase) {
+          mapInstance.setFilter("game-feature-selection", ["==", ["get", "id"], "none"]);
+          mapInstance.setFilter("game-feature-selection-glow", ["==", ["get", "id"], "none"]);
+        }
         window.dispatchEvent(new CustomEvent("nightfall:feature_selected", { detail: null }));
       }
     });
 
-    // Hover handlers
-    const interactiveLayers = [
-      "game-roads-healthy", "game-roads-warning", "game-roads-degraded",
-      "roads-low", "roads-mid", "roads-high", "roads-routes"
-    ];
+    // Hover handlers - only set up when overture layers are available
+    if (pmtilesBase) {
+      const interactiveLayers = [
+        "game-roads-healthy", "game-roads-warning", "game-roads-degraded",
+        "roads-low", "roads-mid", "roads-high", "roads-routes"
+      ];
 
-    interactiveLayers.forEach(layer => {
-      mapInstance.on("mousemove", layer, (e) => {
-        const id = e.features?.[0]?.properties?.id;
-        if (id) {
-          mapInstance.setFilter("game-feature-hover", ["==", ["get", "id"], id]);
-          mapInstance.getCanvas().style.cursor = "pointer";
-        }
-      });
+      interactiveLayers.forEach(layer => {
+        mapInstance.on("mousemove", layer, (e) => {
+          const id = e.features?.[0]?.properties?.id;
+          if (id) {
+            mapInstance.setFilter("game-feature-hover", ["==", ["get", "id"], id]);
+            mapInstance.getCanvas().style.cursor = "pointer";
+          }
+        });
 
-      mapInstance.on("mouseleave", layer, () => {
-        mapInstance.setFilter("game-feature-hover", ["==", ["get", "id"], ""]);
-        mapInstance.getCanvas().style.cursor = "";
+        mapInstance.on("mouseleave", layer, () => {
+          mapInstance.setFilter("game-feature-hover", ["==", ["get", "id"], ""]);
+          mapInstance.getCanvas().style.cursor = "";
+        });
       });
-    });
+    }
 
     return () => {
       mapInstance.remove();
@@ -457,11 +475,14 @@ export default function DemoMap({
     if (!isLoaded || !map.current) return;
 
     const mapInstance = map.current;
-    const tooltipLayers = [
-      "game-roads-healthy", "game-roads-warning", "game-roads-degraded",
-      "roads-low", "roads-mid", "roads-high", "roads-routes",
-      "buildings", "buildings-food", "buildings-equipment", "buildings-energy", "buildings-materials", "buildings-hub", "game-hex-fill"
-    ];
+    // Only include overture-dependent layers when sources are available
+    const tooltipLayers = hasOvertureSources
+      ? [
+        "game-roads-healthy", "game-roads-warning", "game-roads-degraded",
+        "roads-low", "roads-mid", "roads-high", "roads-routes",
+        "buildings", "buildings-food", "buildings-equipment", "buildings-energy", "buildings-materials", "buildings-hub", "game-hex-fill"
+      ]
+      : ["game-hex-fill"];
 
     const buildTooltipData = (
       feature: maplibregl.MapGeoJSONFeature,
@@ -555,11 +576,11 @@ export default function DemoMap({
       mapInstance.getCanvas().removeEventListener("mouseleave", clearTooltip);
       clearTooltip();
     };
-  }, [isLoaded, isMobile]);
+  }, [isLoaded, isMobile, hasOvertureSources]);
 
   // Sync health data to vector tile features using pre-computed filter IDs
   useEffect(() => {
-    if (!isLoaded || !map.current) return;
+    if (!isLoaded || !map.current || !hasOvertureSources) return;
 
     const { healthyIds, degradedIds, foodIds, equipmentIds, energyIds, materialIds, hubIds } = featureFilterIds;
     const warningIds: string[] = []; // Warning state not used
@@ -581,7 +602,7 @@ export default function DemoMap({
     map.current.setFilter("buildings-materials", makeIdFilter(materialIds) as maplibregl.FilterSpecification);
     map.current.setFilter("buildings-hub", makeIdFilter(hubIds) as maplibregl.FilterSpecification);
     map.current.setFilter("buildings-hub-glow", makeIdFilter(hubIds) as maplibregl.FilterSpecification);
-  }, [featureFilterIds, isLoaded]);
+  }, [featureFilterIds, isLoaded, hasOvertureSources]);
 
   // Sync all hub markers
   useEffect(() => {
@@ -889,9 +910,11 @@ export default function DemoMap({
         duration: 1500
       });
 
-      // Also select the feature
-      map.current.setFilter("game-feature-selection", ["==", ["get", "id"], gersId]);
-      map.current.setFilter("game-feature-selection-glow", ["==", ["get", "id"], gersId]);
+      // Also select the feature (only when overture layers are available)
+      if (hasOvertureSources) {
+        map.current.setFilter("game-feature-selection", ["==", ["get", "id"], gersId]);
+        map.current.setFilter("game-feature-selection-glow", ["==", ["get", "id"], gersId]);
+      }
 
       window.dispatchEvent(new CustomEvent("nightfall:feature_selected", {
         detail: { gers_id: gersId, type: "road" }
@@ -946,7 +969,7 @@ export default function DemoMap({
       const customEvent = e as CustomEvent<{ gers_id: string }>;
       const gersId = customEvent.detail.gers_id;
 
-      if (!map.current || !isLoaded) return;
+      if (!map.current || !isLoaded || !hasOvertureSources) return;
 
       const baseFilter: maplibregl.FilterSpecification = ["all",
         ["==", ["get", "subtype"], "road"],
@@ -986,11 +1009,11 @@ export default function DemoMap({
         fadeIntervalRef.current = null;
       }
     };
-  }, [isLoaded]);
+  }, [isLoaded, hasOvertureSources]);
 
   // Highlight queued/pending task roads
   useEffect(() => {
-    if (!isLoaded || !map.current) return;
+    if (!isLoaded || !map.current || !hasOvertureSources) return;
 
     const taskFilter: maplibregl.FilterSpecification = ["all",
       ["==", ["get", "subtype"], "road"],
@@ -999,11 +1022,11 @@ export default function DemoMap({
 
     map.current.setFilter("game-roads-task-highlight-glow", taskFilter);
     map.current.setFilter("game-roads-task-highlight-dash", taskFilter);
-  }, [queuedTaskRoadIds, isLoaded]);
+  }, [queuedTaskRoadIds, isLoaded, hasOvertureSources]);
 
   // Animate repair pulse
   useEffect(() => {
-    if (!isLoaded || !map.current) return;
+    if (!isLoaded || !map.current || !hasOvertureSources) return;
 
     const baseFilter: maplibregl.FilterSpecification = ["all",
       ["==", ["get", "subtype"], "road"],
@@ -1028,7 +1051,7 @@ export default function DemoMap({
     }
 
     return () => animationManager.stop('repair-pulse');
-  }, [repairingRoadIds, isLoaded, animationManager]);
+  }, [repairingRoadIds, isLoaded, animationManager, hasOvertureSources]);
 
   // Rust opacity transitions
   useEffect(() => {

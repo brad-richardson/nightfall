@@ -93,7 +93,7 @@ export type DemoMapProps = {
     phase_progress: number;
     next_phase: Phase;
   };
-  pmtilesRelease: string;
+  pmtilesRelease: string | null;
   children?: React.ReactNode;
   className?: string;
 };

@@ -18,6 +18,7 @@ import { formatNumber } from "../lib/formatters";
 import { ResourcePoolsPanel } from "./sidebar/ResourcePoolsPanel";
 import { RegionHealthPanel } from "./sidebar/RegionHealthPanel";
 import { OnboardingOverlay } from "./OnboardingOverlay";
+import { ConnectionStatus } from "./ConnectionStatus";
 import { recordResourceValues, clearResourceHistory } from "../lib/resourceHistory";
 import { MinigameOverlay } from "./minigames";
 import { Navigation } from "lucide-react";
@@ -57,7 +58,7 @@ type DashboardProps = {
   availableRegions: { region_id: string; name: string }[];
   isDemoMode: boolean;
   apiBaseUrl: string;
-  pmtilesRelease: string;
+  pmtilesRelease: string | null;
 };
 
 function formatTime(seconds: number) {
@@ -865,6 +866,7 @@ export default function Dashboard({
                     DEMO MODE
                   </span>
                 )}
+                <ConnectionStatus isMapDataUnavailable={!pmtilesRelease} />
               </p>
               <div className="mt-3 flex flex-wrap items-center gap-4">
                 <h1 className="font-display text-3xl text-white sm:text-4xl">
