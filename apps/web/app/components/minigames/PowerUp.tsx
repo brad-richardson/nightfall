@@ -246,7 +246,7 @@ export default function PowerUp({ config, difficulty, onComplete }: PowerUpProps
       <div className="mb-6 h-12 text-center">
         {phase === "charging" && (
           <p className="animate-pulse text-lg font-medium text-[#facc15]">
-            Tap or press SPACE to lock power!
+            Tap to lock power!
           </p>
         )}
         {phase === "result" && lastResult && (
