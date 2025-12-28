@@ -57,7 +57,7 @@ export function AdminConsole() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET || "dev-secret"}`,
+          Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET || "dev-admin-secret-do-not-use-in-prod"}`,
         },
         body: JSON.stringify({
           region_id: region.region_id,
@@ -92,7 +92,7 @@ export function AdminConsole() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET || "dev-secret"}`,
+          Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET || "dev-admin-secret-do-not-use-in-prod"}`,
         },
         body: JSON.stringify({
           region_id: region.region_id,
@@ -130,7 +130,7 @@ export function AdminConsole() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET || "dev-secret"}`,
+          Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET || "dev-admin-secret-do-not-use-in-prod"}`,
         },
         body: JSON.stringify({
           enabled: newEnabled,
@@ -162,7 +162,7 @@ export function AdminConsole() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET || "dev-secret"}`,
+          Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET || "dev-admin-secret-do-not-use-in-prod"}`,
         },
       });
 
@@ -184,7 +184,7 @@ export function AdminConsole() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET || "dev-secret"}`,
+          Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET || "dev-admin-secret-do-not-use-in-prod"}`,
         },
         body: JSON.stringify({ phase }),
       });
@@ -208,7 +208,7 @@ export function AdminConsole() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET || "dev-secret"}`,
+          Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET || "dev-admin-secret-do-not-use-in-prod"}`,
         },
         body: JSON.stringify({
           region_id: region.region_id,
@@ -234,7 +234,7 @@ export function AdminConsole() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET || "dev-secret"}`,
+          Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET || "dev-admin-secret-do-not-use-in-prod"}`,
         },
         body: JSON.stringify({
           region_id: region.region_id,
