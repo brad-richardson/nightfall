@@ -89,12 +89,12 @@ function ResourceTicker({ deltas }: { deltas: ResourceDelta[] }) {
               className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2 text-[11px] text-white/80 animate-[fade-in_400ms_ease]"
             >
               <div className="flex items-center gap-2">
-                <span className={`h-6 w-6 rounded-lg bg-gradient-to-br ${item.delta > 0 ? "from-[color:var(--night-teal)]/70 to-[color:var(--night-glow)]/60" : "from-red-500/60 to-orange-400/50"} text-xs font-bold text-white shadow-[0_0_12px_rgba(0,0,0,0.35)] flex items-center justify-center`}>
-                  {item.delta > 0 ? "+" : "−"}
+                <span className={`h-6 w-6 rounded-lg bg-gradient-to-br ${item.source === "In transit" ? "from-amber-500/60 to-yellow-400/50" : item.delta > 0 ? "from-[color:var(--night-teal)]/70 to-[color:var(--night-glow)]/60" : "from-red-500/60 to-orange-400/50"} text-xs font-bold text-white shadow-[0_0_12px_rgba(0,0,0,0.35)] flex items-center justify-center`}>
+                  {item.source === "In transit" ? "→" : item.delta > 0 ? "+" : "−"}
                 </span>
                 <div className="leading-tight">
                   <div className="font-semibold">
-                    {RESOURCE_LABELS[item.type]} {item.delta > 0 ? "added" : "spent"} {Math.abs(Math.round(item.delta))}
+                    {RESOURCE_LABELS[item.type]} {item.source === "In transit" ? "departing" : item.delta > 0 ? "added" : "spent"} {Math.abs(Math.round(item.delta))}
                   </div>
                   <div className="text-[10px] uppercase tracking-[0.2em] text-white/40">{item.source}</div>
                 </div>
@@ -458,11 +458,11 @@ export default function Dashboard({
       }
       // Dispatch for map animation
       window.dispatchEvent(new CustomEvent("nightfall:resource_transfer", { detail: transfer }));
-      // Add to resource deltas for the ticker
+      // Add to resource deltas for the ticker (negative since resources are in transit)
       pending.resourceDeltas.push({
         type: transfer.resource_type,
-        delta: transfer.amount,
-        source: "Transfer departing",
+        delta: -transfer.amount,
+        source: "In transit",
         ts: Date.now()
       });
       pending.dirty = true;
