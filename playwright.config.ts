@@ -23,7 +23,7 @@ export default defineConfig({
     },
     {
       name: "mobile-safari",
-      use: { ...devices["iPhone 14 Pro"] }
+      use: { ...devices["iPhone 15 Pro"] }
     }
   ]
 });
