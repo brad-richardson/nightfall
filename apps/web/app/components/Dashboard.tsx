@@ -245,7 +245,7 @@ export default function Dashboard({
   const pendingUpdatesRef = useRef<{
     cycle: Partial<CycleState> | null;
     hexUpdates: Map<string, { h3_index: string; rust_level: number }>;
-    regionUpdate: { pool_food: number; pool_equipment: number; pool_energy: number; pool_materials: number; rust_avg?: number | null; health_avg?: number | null } | null;
+    regionUpdate: { pool_food: number; pool_equipment: number; pool_energy: number; pool_materials: number; rust_avg?: number | null; health_avg?: number | null; score?: number | null } | null;
     featureUpdates: Map<string, { health: number; status: string }>;
     taskUpdates: Map<string, { task_id: string; status: string; priority_score: number; vote_score?: number; cost_food?: number; cost_equipment?: number; cost_energy?: number; cost_materials?: number; duration_s?: number; repair_amount?: number; task_type?: string; target_gers_id?: string; region_id?: string }>;
     resourceDeltas: ResourceDelta[];
@@ -370,7 +370,8 @@ export default function Dashboard({
           stats: {
             ...prev.stats,
             rust_avg: update.rust_avg ?? prev.stats.rust_avg,
-            health_avg: update.health_avg ?? prev.stats.health_avg
+            health_avg: update.health_avg ?? prev.stats.health_avg,
+            score: update.score ?? prev.stats.score
           }
         }));
         // Record resource values for trendline history
@@ -471,6 +472,7 @@ export default function Dashboard({
           pool_materials: number;
           rust_avg?: number | null;
           health_avg?: number | null;
+          score?: number | null;
         }[];
       };
 
@@ -788,6 +790,7 @@ export default function Dashboard({
 
   const healthPercent = region.stats.health_avg;
   const rustPercent = region.stats.rust_avg * 100;
+  const cityScore = region.stats.score;
 
   const SidebarContent = ({ resourceFeed }: { resourceFeed: ResourceDelta[] }) => (
     <>
@@ -959,6 +962,7 @@ export default function Dashboard({
                 className="map-overlay-ring"
                 healthPercent={healthPercent}
                 rustLevel={rustPercent}
+                score={cityScore}
               />
               <div className="mt-3 grid w-full grid-cols-2 gap-3 text-xs">
                 <div className="rounded-xl bg-white/5 px-2 py-2 text-center">

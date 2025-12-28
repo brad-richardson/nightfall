@@ -143,3 +143,18 @@ export const REGION_CONFIGS: Record<string, RegionConfig> = {
     bbox: BAR_HARBOR_DEMO_BBOX
   }
 };
+
+/**
+ * Calculate city resilience score from health and rust levels.
+ * Score = health × (1 - rust), so high rust directly reduces score.
+ * Range: 0-100
+ *
+ * @param healthAvg - Average road health (0-100), null treated as 0
+ * @param rustAvg - Average rust level (0-1), null treated as 0
+ * @returns Integer score from 0-100
+ */
+export function calculateCityScore(healthAvg: number | null, rustAvg: number | null): number {
+  const health = Math.max(0, Math.min(100, healthAvg ?? 0));
+  const rust = Math.max(0, Math.min(1, rustAvg ?? 0));
+  return Math.round(health * (1 - rust));
+}

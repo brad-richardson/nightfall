@@ -9,7 +9,7 @@ import { closePool, getPool } from "./db";
 import { loadCycleState, loadCycleSummary } from "./cycle";
 import { createDbEventStream } from "./event-stream";
 import type { EventStream } from "./event-stream";
-import { ROAD_CLASSES, DEGRADED_HEALTH_THRESHOLD } from "@nightfall/config";
+import { ROAD_CLASSES, DEGRADED_HEALTH_THRESHOLD, calculateCityScore } from "@nightfall/config";
 import {
   type Graph,
   type ConnectorCoords,
@@ -693,11 +693,24 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
 
     const now = new Date();
 
+    // Calculate score for each region and city-wide aggregate
+    const regionsWithScore = regionResult.rows.map((r) => ({
+      ...r,
+      score: calculateCityScore(r.health_avg, r.rust_avg)
+    }));
+
+    // City-wide score: weighted average by region, or simple average
+    const totalHealth = regionResult.rows.reduce((sum, r) => sum + (r.health_avg ?? 0), 0);
+    const totalRust = regionResult.rows.reduce((sum, r) => sum + (r.rust_avg ?? 0), 0);
+    const regionCount = regionResult.rows.length || 1;
+    const cityScore = calculateCityScore(totalHealth / regionCount, totalRust / regionCount);
+
     return {
       world_version: Number((lastReset as { version?: string | number }).version ?? 1),
       last_reset: (lastReset as { ts?: string }).ts ?? now.toISOString(),
       next_reset: getNextReset(now),
       demo_mode: Boolean((demoMode as { enabled?: boolean }).enabled ?? false),
+      city_score: cityScore,
       cycle: {
         phase: cycle.phase,
         phase_progress: cycle.phase_progress,
@@ -705,7 +718,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         next_phase: cycle.next_phase,
         next_phase_in_seconds: cycle.next_phase_in_seconds
       },
-      regions: regionResult.rows
+      regions: regionsWithScore
     };
   });
 

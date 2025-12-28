@@ -21,6 +21,7 @@ import { runLamplighter } from "./lamplighter";
 import { checkAndPerformReset } from "./reset";
 import { cleanupOldData } from "./cleanup";
 import { attachPoolErrorHandler } from "./pool";
+import { calculateCityScore } from "@nightfall/config";
 
 const intervalMs = Number(process.env.TICK_INTERVAL_MS ?? 10_000);
 const lockId = Number(process.env.TICK_LOCK_ID ?? 424242);
@@ -42,12 +43,13 @@ type RegionSnapshot = {
   pool_materials: number;
   rust_avg: number | null;
   health_avg: number | null;
+  score: number;
 };
 
 async function fetchRegionSnapshots(client: PoolLike, regionIds: string[]): Promise<RegionSnapshot[]> {
   if (regionIds.length === 0) return [];
 
-  const result = await client.query<RegionSnapshot>(
+  const result = await client.query<Omit<RegionSnapshot, "score">>(
     `
     SELECT
       r.region_id,
@@ -71,7 +73,11 @@ async function fetchRegionSnapshots(client: PoolLike, regionIds: string[]): Prom
     [regionIds]
   );
 
-  return result.rows;
+  // Calculate score for each region
+  return result.rows.map((row) => ({
+    ...row,
+    score: calculateCityScore(row.health_avg, row.rust_avg)
+  }));
 }
 
 type HexUpdate = { h3_index: string; rust_level: number };

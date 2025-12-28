@@ -96,6 +96,7 @@ export type Region = {
     degraded_roads: number;
     rust_avg: number;
     health_avg: number;
+    score: number;
   };
 };
 
@@ -221,7 +222,8 @@ export const useStore = create<State & Actions>()(
           healthy_roads: 0,
           degraded_roads: 0,
           rust_avg: 0,
-          health_avg: 0
+          health_avg: 0,
+          score: 0
         }
       },
       features: [],

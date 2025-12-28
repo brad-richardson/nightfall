@@ -6,7 +6,8 @@ export default defineConfig({
     include: [
       "apps/api/src/**/*.test.ts",
       "apps/ticker/src/**/*.test.ts",
-      "scripts/ingest/src/**/*.test.ts"
+      "scripts/ingest/src/**/*.test.ts",
+      "packages/config/src/**/*.test.ts"
     ],
     // Exclude integration tests from default run (they require the test DB)
     exclude: ["**/*.integration.test.ts", "**/node_modules/**"],
