@@ -73,10 +73,19 @@ export default function DemoMap({
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [crewPaths, setCrewPaths] = useState<CrewPath[]>([]);
+  const [arrivalParticles, setArrivalParticles] = useState<{
+    id: string;
+    x: number;
+    y: number;
+    amount: number;
+    resourceType: string;
+    createdAt: number;
+  }[]>([]);
 
   const animationManager = useMemo(() => new AnimationManager(60), []);
   const breathePhaseRef = useRef(0);
   const hoverTimeoutRef = useRef<number | null>(null);
+  const completedPackageIds = useRef<Set<string>>(new Set());
   const tooltipDismissRef = useRef<number | null>(null);
   const fadeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const featuresRef = useRef(features);
@@ -1204,6 +1213,7 @@ export default function DemoMap({
       for (const pkg of resourcePackages) {
         let position: [number, number] | null = null;
         let rawProgress: number;
+        let finalPosition: [number, number] | null = null;
 
         // Use waypoint-based animation if available (server-provided with timestamps)
         if (pkg.waypoints && pkg.waypoints.length > 0) {
@@ -1211,6 +1221,22 @@ export default function DemoMap({
           const firstTime = Date.parse(pkg.waypoints[0].arrive_at);
           const lastTime = Date.parse(pkg.waypoints[pkg.waypoints.length - 1].arrive_at);
           rawProgress = Math.max(0, Math.min(1, (now - firstTime) / (lastTime - firstTime)));
+          finalPosition = pkg.waypoints[pkg.waypoints.length - 1].coord;
+
+          // Spawn particle when package first completes
+          if (rawProgress >= 1 && !completedPackageIds.current.has(pkg.id)) {
+            completedPackageIds.current.add(pkg.id);
+            const screenPoint = mapInstance.project(finalPosition);
+            const amount = Math.round(100 * (pkg.boostMultiplier ?? 1));
+            setArrivalParticles(prev => [...prev, {
+              id: pkg.id,
+              x: screenPoint.x,
+              y: screenPoint.y,
+              amount,
+              resourceType: pkg.type,
+              createdAt: now
+            }]);
+          }
 
           // Remove completed packages after 2 second grace period for fade-out
           if (rawProgress >= 1 && now > lastTime + 2000) continue;
@@ -1221,6 +1247,22 @@ export default function DemoMap({
           // Fallback to uniform progress-based animation
           const elapsed = now - pkg.startTime;
           rawProgress = Math.max(0, Math.min(1, elapsed / pkg.duration));
+          finalPosition = pkg.path[pkg.path.length - 1] as [number, number];
+
+          // Spawn particle when package first completes
+          if (rawProgress >= 1 && !completedPackageIds.current.has(pkg.id)) {
+            completedPackageIds.current.add(pkg.id);
+            const screenPoint = mapInstance.project(finalPosition);
+            const amount = Math.round(100 * (pkg.boostMultiplier ?? 1));
+            setArrivalParticles(prev => [...prev, {
+              id: pkg.id,
+              x: screenPoint.x,
+              y: screenPoint.y,
+              amount,
+              resourceType: pkg.type,
+              createdAt: now
+            }]);
+          }
 
           if (rawProgress >= 1) continue;
 
@@ -1306,6 +1348,22 @@ export default function DemoMap({
     return () => animationManager.stopAll();
   }, [animationManager]);
 
+  // Cleanup old arrival particles after animation completes
+  useEffect(() => {
+    if (arrivalParticles.length === 0) return;
+    const timer = setInterval(() => {
+      const now = Date.now();
+      setArrivalParticles(prev => prev.filter(p => now - p.createdAt < 1500));
+      // Also clean up completed package IDs to prevent memory leak
+      completedPackageIds.current.forEach(id => {
+        if (!resourcePackages.some(pkg => pkg.id === id)) {
+          completedPackageIds.current.delete(id);
+        }
+      });
+    }, 500);
+    return () => clearInterval(timer);
+  }, [arrivalParticles.length, resourcePackages]);
+
   const isTransitioning = cycle.phase_progress > 0.9;
   const transitionOpacity = prefersReducedMotion ? 0 : isTransitioning ? 0.15 : 0;
   const transitionGradient = getTransitionGradient(cycle.phase, cycle.next_phase);
@@ -1334,6 +1392,31 @@ export default function DemoMap({
           }}
         />
         <MapTooltip tooltip={tooltipData} containerSize={mapSize} />
+        {/* Arrival particle text animations */}
+        {arrivalParticles.map(particle => {
+          const color = {
+            food: "#4ade80",
+            equipment: "#f97316",
+            energy: "#facc15",
+            materials: "#818cf8"
+          }[particle.resourceType] || "#ffffff";
+
+          return (
+            <div
+              key={particle.id}
+              className="pointer-events-none absolute z-40 font-bold text-sm whitespace-nowrap animate-[float-up_1.5s_ease-out_forwards]"
+              style={{
+                left: particle.x,
+                top: particle.y,
+                transform: "translate(-50%, -100%)",
+                color,
+                textShadow: `0 0 8px ${color}, 0 2px 4px rgba(0,0,0,0.5)`
+              }}
+            >
+              +{particle.amount} {particle.resourceType}
+            </div>
+          );
+        })}
         {children ? (
           <div className="pointer-events-none absolute inset-0 z-30">{children}</div>
         ) : null}

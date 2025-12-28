@@ -244,71 +244,95 @@ export default function FeaturePanel({ onContribute, onVote, onBoostProduction, 
                 );
               })()}
 
-              <p className="text-xs leading-relaxed text-white/60">
-                Activate this building to send recurring convoys to the regional hub for the next 2 minutes.
-              </p>
-              <div className="grid grid-cols-2 gap-3">
-                {canGenerateFood && (
-                  <button
-                    onClick={() => handleContributeClick("food", 100)}
-                    disabled={contributionDisabled}
-                    className={`flex flex-col items-center rounded-2xl p-3 transition-all ${
-                      contributionDisabled
-                        ? "bg-white/5 text-white/30 cursor-not-allowed opacity-50"
-                        : "bg-white/5 hover:bg-white/10 active:scale-95"
-                    }`}
-                  >
-                    <Utensils className="mb-2 h-5 w-5 text-[#4ade80]" />
-                    <span className="text-[10px] font-bold uppercase text-white/40">Food</span>
-                    <span className="text-xs font-bold">Start Convoy</span>
-                  </button>
-                )}
-                {canGenerateEquipment && (
-                  <button
-                    onClick={() => handleContributeClick("equipment", 100)}
-                    disabled={contributionDisabled}
-                    className={`flex flex-col items-center rounded-2xl p-3 transition-all ${
-                      contributionDisabled
-                        ? "bg-white/5 text-white/30 cursor-not-allowed opacity-50"
-                        : "bg-white/5 hover:bg-white/10 active:scale-95"
-                    }`}
-                  >
-                    <Wrench className="mb-2 h-5 w-5 text-[#f97316]" />
-                    <span className="text-[10px] font-bold uppercase text-white/40">Equipment</span>
-                    <span className="text-xs font-bold">Start Convoy</span>
-                  </button>
-                )}
-                {canGenerateEnergy && (
-                  <button
-                    onClick={() => handleContributeClick("energy", 100)}
-                    disabled={contributionDisabled}
-                    className={`flex flex-col items-center rounded-2xl p-3 transition-all ${
-                      contributionDisabled
-                        ? "bg-white/5 text-white/30 cursor-not-allowed opacity-50"
-                        : "bg-white/5 hover:bg-white/10 active:scale-95"
-                    }`}
-                  >
-                    <Zap className="mb-2 h-5 w-5 text-[#facc15]" />
-                    <span className="text-[10px] font-bold uppercase text-white/40">Energy</span>
-                    <span className="text-xs font-bold">Start Convoy</span>
-                  </button>
-                )}
-                {canGenerateMaterials && (
-                  <button
-                    onClick={() => handleContributeClick("materials", 100)}
-                    disabled={contributionDisabled}
-                    className={`flex flex-col items-center rounded-2xl p-3 transition-all ${
-                      contributionDisabled
-                        ? "bg-white/5 text-white/30 cursor-not-allowed opacity-50"
-                        : "bg-white/5 hover:bg-white/10 active:scale-95"
-                    }`}
-                  >
-                    <Package className="mb-2 h-5 w-5 text-[#818cf8]" />
-                    <span className="text-[10px] font-bold uppercase text-white/40">Materials</span>
-                    <span className="text-xs font-bold">Start Convoy</span>
-                  </button>
-                )}
-              </div>
+              {(() => {
+                const boost = selected ? buildingBoosts[selected.gers_id] : null;
+                const now = Date.now();
+                const boostActive = boost && new Date(boost.expires_at).getTime() > now;
+                const multiplier = boostActive ? boost.multiplier : 1;
+                const expectedGain = Math.round(100 * multiplier);
+                const tooltipText = boostActive
+                  ? `+${expectedGain} per convoy (${multiplier}× boost active)`
+                  : "+100 per convoy";
+
+                return (
+                  <>
+                    <p className="text-xs leading-relaxed text-white/60">
+                      Activate this building to send recurring convoys to the regional hub for the next 2 minutes.
+                      {boostActive && (
+                        <span className="ml-1 text-[color:var(--night-teal)]">
+                          ({multiplier}× boost = +{expectedGain} per convoy)
+                        </span>
+                      )}
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {canGenerateFood && (
+                        <button
+                          onClick={() => handleContributeClick("food", 100)}
+                          disabled={contributionDisabled}
+                          title={tooltipText}
+                          className={`flex flex-col items-center rounded-2xl p-3 transition-all ${
+                            contributionDisabled
+                              ? "bg-white/5 text-white/30 cursor-not-allowed opacity-50"
+                              : "bg-white/5 hover:bg-white/10 active:scale-95"
+                          }`}
+                        >
+                          <Utensils className="mb-2 h-5 w-5 text-[#4ade80]" />
+                          <span className="text-[10px] font-bold uppercase text-white/40">Food</span>
+                          <span className="text-xs font-bold">{boostActive ? `+${expectedGain}` : "Start Convoy"}</span>
+                        </button>
+                      )}
+                      {canGenerateEquipment && (
+                        <button
+                          onClick={() => handleContributeClick("equipment", 100)}
+                          disabled={contributionDisabled}
+                          title={tooltipText}
+                          className={`flex flex-col items-center rounded-2xl p-3 transition-all ${
+                            contributionDisabled
+                              ? "bg-white/5 text-white/30 cursor-not-allowed opacity-50"
+                              : "bg-white/5 hover:bg-white/10 active:scale-95"
+                          }`}
+                        >
+                          <Wrench className="mb-2 h-5 w-5 text-[#f97316]" />
+                          <span className="text-[10px] font-bold uppercase text-white/40">Equipment</span>
+                          <span className="text-xs font-bold">{boostActive ? `+${expectedGain}` : "Start Convoy"}</span>
+                        </button>
+                      )}
+                      {canGenerateEnergy && (
+                        <button
+                          onClick={() => handleContributeClick("energy", 100)}
+                          disabled={contributionDisabled}
+                          title={tooltipText}
+                          className={`flex flex-col items-center rounded-2xl p-3 transition-all ${
+                            contributionDisabled
+                              ? "bg-white/5 text-white/30 cursor-not-allowed opacity-50"
+                              : "bg-white/5 hover:bg-white/10 active:scale-95"
+                          }`}
+                        >
+                          <Zap className="mb-2 h-5 w-5 text-[#facc15]" />
+                          <span className="text-[10px] font-bold uppercase text-white/40">Energy</span>
+                          <span className="text-xs font-bold">{boostActive ? `+${expectedGain}` : "Start Convoy"}</span>
+                        </button>
+                      )}
+                      {canGenerateMaterials && (
+                        <button
+                          onClick={() => handleContributeClick("materials", 100)}
+                          disabled={contributionDisabled}
+                          title={tooltipText}
+                          className={`flex flex-col items-center rounded-2xl p-3 transition-all ${
+                            contributionDisabled
+                              ? "bg-white/5 text-white/30 cursor-not-allowed opacity-50"
+                              : "bg-white/5 hover:bg-white/10 active:scale-95"
+                          }`}
+                        >
+                          <Package className="mb-2 h-5 w-5 text-[#818cf8]" />
+                          <span className="text-[10px] font-bold uppercase text-white/40">Materials</span>
+                          <span className="text-xs font-bold">{boostActive ? `+${expectedGain}` : "Start Convoy"}</span>
+                        </button>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
               <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 h-4">
                 {isSubmitting
                   ? "Sending..."

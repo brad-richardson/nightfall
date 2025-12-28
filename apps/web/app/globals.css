@@ -359,3 +359,15 @@ body {
 .animate-score-pop {
   animation: score-pop 0.3s ease-out;
 }
+
+/* Resource convoy arrival particle animation */
+@keyframes float-up {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, -100%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -100%) translateY(-60px) scale(1.2);
+  }
+}
