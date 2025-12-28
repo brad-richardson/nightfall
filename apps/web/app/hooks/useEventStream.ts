@@ -7,6 +7,10 @@ export type EventPayload = {
   data: unknown;
 };
 
+// Threshold for considering SSE connection stale (no events received)
+// Exported so Dashboard can use the same value for polling fallback
+export const SSE_STALE_THRESHOLD_MS = 30000;
+
 export function useEventStream(
   baseUrl: string,
   onEvent: (payload: EventPayload) => void
@@ -15,17 +19,30 @@ export function useEventStream(
   const eventSourceRef = useRef<EventSource | null>(null);
   const retryTimeoutRef = useRef<number | null>(null);
   const retryCountRef = useRef(0);
+  const lastEventTimeRef = useRef<number>(Date.now());
   onEventRef.current = onEvent;
 
   useEffect(() => {
     let active = true;
     const maxRetries = 10;
+
     const clearRetryTimeout = () => {
       if (retryTimeoutRef.current !== null) {
         window.clearTimeout(retryTimeoutRef.current);
         retryTimeoutRef.current = null;
       }
     };
+
+    function reconnect(reason: string) {
+      if (!active) return;
+      console.debug("[SSE] Reconnecting:", reason);
+      clearRetryTimeout();
+      eventSourceRef.current?.close();
+      eventSourceRef.current = null;
+      // Reset retry count for visibility-triggered reconnects
+      retryCountRef.current = 0;
+      connect();
+    }
 
     function connect() {
       if (!active) return;
@@ -45,6 +62,8 @@ export function useEventStream(
 
       handlers.forEach((eventName) => {
         eventSource?.addEventListener(eventName, (e: MessageEvent) => {
+          // Track last event time to detect stale connections
+          lastEventTimeRef.current = Date.now();
           let data = {};
           try {
             data = JSON.parse(e.data);
@@ -72,17 +91,54 @@ export function useEventStream(
       eventSource.onopen = () => {
         if (!active || eventSourceRef.current !== eventSource) return;
         retryCountRef.current = 0;
+        lastEventTimeRef.current = Date.now();
         onEventRef.current({ event: "connected", data: {} });
       };
     }
 
+    // Handle page visibility changes - critical for mobile
+    // When the page becomes visible after being hidden, the SSE connection
+    // may have been silently dropped by the mobile browser
+    const handleVisibilityChange = () => {
+      if (!active) return;
+
+      if (document.visibilityState === "visible") {
+        const timeSinceLastEvent = Date.now() - lastEventTimeRef.current;
+        const isConnectionMissing = !eventSourceRef.current;
+        const isConnectionStale = timeSinceLastEvent > SSE_STALE_THRESHOLD_MS;
+
+        if (isConnectionMissing || isConnectionStale) {
+          reconnect(isConnectionMissing ? "connection missing after visibility change" : "connection stale after visibility change");
+          // Emit reconnected event so Dashboard can refresh state
+          onEventRef.current({ event: "reconnected", data: { reason: "visibility_change" } });
+        }
+      }
+    };
+
+    // Handle online/offline events - mobile networks are unreliable
+    const handleOnline = () => {
+      if (!active) return;
+      console.debug("[SSE] Network came online");
+      const isConnectionMissing = !eventSourceRef.current;
+      if (isConnectionMissing) {
+        reconnect("network came online");
+        onEventRef.current({ event: "reconnected", data: { reason: "network_online" } });
+      }
+    };
+
     connect();
+
+    // Add visibility change listener for mobile background/foreground
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("online", handleOnline);
 
     return () => {
       active = false;
       clearRetryTimeout();
       eventSourceRef.current?.close();
       eventSourceRef.current = null;
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("online", handleOnline);
     };
   }, [baseUrl]);
 }

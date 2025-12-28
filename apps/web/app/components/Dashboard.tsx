@@ -10,7 +10,7 @@ import FeaturePanel from "./FeaturePanel";
 import MobileSidebar from "./MobileSidebar";
 import RegionalHealthRing from "./RegionalHealthRing";
 import { MapOverlay } from "./MapOverlay";
-import { useEventStream, type EventPayload } from "../hooks/useEventStream";
+import { useEventStream, SSE_STALE_THRESHOLD_MS, type EventPayload } from "../hooks/useEventStream";
 import { useStore, type Region, type Feature, type Hex, type CycleState } from "../store";
 import { BAR_HARBOR_DEMO_BBOX, DEGRADED_HEALTH_THRESHOLD, calculateCityScore, SCORE_ACTIONS } from "@nightfall/config";
 import { fetchWithRetry } from "../lib/retry";
@@ -307,6 +307,9 @@ export default function Dashboard({
     return () => clearTimeout(timer);
   }, []);
 
+  // Track spawned transfer IDs to prevent duplicate convoy animations
+  const spawnedTransferIdsRef = useRef<Set<string>>(new Set());
+
   // Spawn initial resource transfers that are already in-transit
   useEffect(() => {
     if (!initialRegion.resource_transfers) return;
@@ -316,6 +319,8 @@ export default function Dashboard({
       const arriveAt = Date.parse(transfer.arrive_at);
       // Only spawn transfers that haven't arrived yet
       if (!Number.isNaN(arriveAt) && arriveAt > now) {
+        // Track to prevent duplicates from SSE or polling
+        spawnedTransferIdsRef.current.add(transfer.transfer_id);
         const payload: ResourceTransferPayload = {
           transfer_id: transfer.transfer_id,
           region_id: initialRegion.region_id,
@@ -466,10 +471,122 @@ export default function Dashboard({
     regionRef.current = region;
   }, [region]);
 
+  // Track last SSE event time to detect stale connections
+  const lastSseEventRef = useRef<number>(Date.now());
+  const isRefreshingRef = useRef<boolean>(false);
+  const POLL_INTERVAL_MS = 15000; // Check every 15 seconds
+
+  // Refresh region state - used as fallback when SSE is stale
+  const refreshRegionState = useCallback(async () => {
+    // Prevent concurrent refreshes
+    if (isRefreshingRef.current) {
+      console.debug("[Dashboard] Refresh already in progress, skipping");
+      return;
+    }
+    isRefreshingRef.current = true;
+
+    try {
+      const res = await fetchWithRetry(
+        `${apiBaseUrl}/api/region/${regionRef.current.region_id}`,
+        { cache: "no-store" },
+        FETCH_RETRY_OPTIONS
+      );
+      if (!res.ok) {
+        console.error("[Dashboard] Failed to refresh region state:", res.status);
+        return;
+      }
+      const data = await res.json();
+
+      // Update store with fresh data
+      setRegion((prev) => ({
+        ...prev,
+        pool_food: data.pool_food,
+        pool_equipment: data.pool_equipment,
+        pool_energy: data.pool_energy,
+        pool_materials: data.pool_materials,
+        stats: data.stats ?? prev.stats,
+        tasks: data.tasks ?? prev.tasks,
+        crews: data.crews ?? prev.crews,
+        resource_transfers: data.resource_transfers ?? []
+      }));
+
+      if (data.features) {
+        setFeatures(data.features);
+      }
+      if (data.hexes) {
+        setHexes(data.hexes);
+      }
+
+      // Spawn any in-transit resource transfers that we might have missed
+      // Track spawned IDs to prevent duplicates across multiple refreshes
+      if (data.resource_transfers) {
+        const now = Date.now();
+        for (const transfer of data.resource_transfers) {
+          const arriveAt = Date.parse(transfer.arrive_at);
+          // Only spawn if not already spawned and hasn't arrived yet
+          if (!spawnedTransferIdsRef.current.has(transfer.transfer_id) &&
+              !Number.isNaN(arriveAt) && arriveAt > now) {
+            spawnedTransferIdsRef.current.add(transfer.transfer_id);
+            window.dispatchEvent(new CustomEvent("nightfall:resource_transfer", {
+              detail: {
+                transfer_id: transfer.transfer_id,
+                region_id: data.region_id,
+                source_gers_id: transfer.source_gers_id,
+                hub_gers_id: transfer.hub_gers_id,
+                resource_type: transfer.resource_type,
+                amount: transfer.amount,
+                depart_at: transfer.depart_at,
+                arrive_at: transfer.arrive_at,
+                path_waypoints: transfer.path_waypoints
+              }
+            }));
+          }
+        }
+        // Clean up old transfer IDs that are no longer in-transit
+        const activeIds = new Set(data.resource_transfers.map((t: { transfer_id: string }) => t.transfer_id));
+        for (const id of spawnedTransferIdsRef.current) {
+          if (!activeIds.has(id)) {
+            spawnedTransferIdsRef.current.delete(id);
+          }
+        }
+      }
+
+      console.debug("[Dashboard] Region state refreshed via polling fallback");
+    } catch (err) {
+      console.error("[Dashboard] Error refreshing region state:", err);
+    } finally {
+      isRefreshingRef.current = false;
+    }
+  }, [apiBaseUrl, setRegion, setFeatures, setHexes]);
+
+  // Periodic fallback: poll for state if SSE appears stale
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const timeSinceLastEvent = Date.now() - lastSseEventRef.current;
+      if (timeSinceLastEvent > SSE_STALE_THRESHOLD_MS) {
+        console.debug("[Dashboard] SSE stale, polling for state");
+        refreshRegionState();
+      }
+    }, POLL_INTERVAL_MS);
+
+    return () => clearInterval(interval);
+  }, [refreshRegionState]);
+
   const handleEvent = useCallback((payload: EventPayload) => {
     const pending = pendingUpdatesRef.current;
 
+    // Track SSE activity for stale detection (skip synthetic events)
+    if (payload.event !== "connected" && payload.event !== "reconnected") {
+      lastSseEventRef.current = Date.now();
+    }
+
     switch (payload.event) {
+    case "reconnected":
+      // SSE reconnected after visibility change or network recovery
+      // Refresh the region state to ensure we have latest data
+      console.debug("[SSE] Reconnected, refreshing state");
+      refreshRegionState();
+      break;
     case "phase_change":
       pending.cycle = payload.data as Partial<CycleState>;
       pending.dirty = true;
@@ -535,6 +652,8 @@ export default function Dashboard({
       if (transfer.region_id !== regionRef.current.region_id) {
         break;
       }
+      // Track spawned transfer to prevent duplicates from polling refresh
+      spawnedTransferIdsRef.current.add(transfer.transfer_id);
       // Dispatch for map animation
       window.dispatchEvent(new CustomEvent("nightfall:resource_transfer", { detail: transfer }));
       // Add to resource deltas for the ticker (negative since resources are in transit)
@@ -630,7 +749,7 @@ export default function Dashboard({
       break;
     }
     }
-  }, []);
+  }, [refreshRegionState]);
 
   useEventStream(apiBaseUrl, handleEvent);
 
