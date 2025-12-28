@@ -7,6 +7,10 @@ export type EventPayload = {
   data: unknown;
 };
 
+// Threshold for considering SSE connection stale (no events received)
+// Exported so Dashboard can use the same value for polling fallback
+export const SSE_STALE_THRESHOLD_MS = 30000;
+
 export function useEventStream(
   baseUrl: string,
   onEvent: (payload: EventPayload) => void
@@ -16,15 +20,11 @@ export function useEventStream(
   const retryTimeoutRef = useRef<number | null>(null);
   const retryCountRef = useRef(0);
   const lastEventTimeRef = useRef<number>(Date.now());
-  const connectionCheckIntervalRef = useRef<number | null>(null);
   onEventRef.current = onEvent;
 
   useEffect(() => {
     let active = true;
     const maxRetries = 10;
-    // Maximum time without events before we consider the connection stale (45 seconds)
-    // The ticker sends world_delta every ~10 seconds, so 45s means we missed several
-    const CONNECTION_STALE_THRESHOLD_MS = 45000;
 
     const clearRetryTimeout = () => {
       if (retryTimeoutRef.current !== null) {
@@ -33,18 +33,10 @@ export function useEventStream(
       }
     };
 
-    const clearConnectionCheck = () => {
-      if (connectionCheckIntervalRef.current !== null) {
-        window.clearInterval(connectionCheckIntervalRef.current);
-        connectionCheckIntervalRef.current = null;
-      }
-    };
-
     function reconnect(reason: string) {
       if (!active) return;
       console.debug("[SSE] Reconnecting:", reason);
       clearRetryTimeout();
-      clearConnectionCheck();
       eventSourceRef.current?.close();
       eventSourceRef.current = null;
       // Reset retry count for visibility-triggered reconnects
@@ -87,7 +79,6 @@ export function useEventStream(
         console.error("SSE error", err);
         eventSource.close();
         eventSourceRef.current = null;
-        clearConnectionCheck();
 
         if (retryCountRef.current < maxRetries) {
           retryCountRef.current += 1;
@@ -102,16 +93,6 @@ export function useEventStream(
         retryCountRef.current = 0;
         lastEventTimeRef.current = Date.now();
         onEventRef.current({ event: "connected", data: {} });
-
-        // Start periodic check for stale connections
-        // This catches cases where the connection appears open but isn't receiving data
-        clearConnectionCheck();
-        connectionCheckIntervalRef.current = window.setInterval(() => {
-          const timeSinceLastEvent = Date.now() - lastEventTimeRef.current;
-          if (timeSinceLastEvent > CONNECTION_STALE_THRESHOLD_MS) {
-            reconnect("connection stale - no events received");
-          }
-        }, 15000); // Check every 15 seconds
       };
     }
 
@@ -124,7 +105,7 @@ export function useEventStream(
       if (document.visibilityState === "visible") {
         const timeSinceLastEvent = Date.now() - lastEventTimeRef.current;
         const isConnectionMissing = !eventSourceRef.current;
-        const isConnectionStale = timeSinceLastEvent > CONNECTION_STALE_THRESHOLD_MS;
+        const isConnectionStale = timeSinceLastEvent > SSE_STALE_THRESHOLD_MS;
 
         if (isConnectionMissing || isConnectionStale) {
           reconnect(isConnectionMissing ? "connection missing after visibility change" : "connection stale after visibility change");
@@ -154,7 +135,6 @@ export function useEventStream(
     return () => {
       active = false;
       clearRetryTimeout();
-      clearConnectionCheck();
       eventSourceRef.current?.close();
       eventSourceRef.current = null;
       document.removeEventListener("visibilitychange", handleVisibilityChange);
