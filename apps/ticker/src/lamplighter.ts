@@ -245,10 +245,17 @@ async function processRegion(
         await shareRegionalActivity(client, region, phase);
         result.activities++;
         break;
-      case "contribute":
-        await contributeToRegion(client, region, phase);
-        result.contributions++;
+      case "contribute": {
+        const contributed = await contributeToRegion(client, region, phase);
+        if (contributed) {
+          result.contributions++;
+        } else {
+          // No buildings available to activate, fall back to activity
+          await shareRegionalActivity(client, region, phase);
+          result.activities++;
+        }
         break;
+      }
       case "vote":
         if (tasks.length > 0) {
           await voteOnRegionTask(client, tasks);
@@ -392,38 +399,80 @@ async function shareRegionalActivity(
   });
 }
 
+/**
+ * Activates buildings in a region so they generate resources via the standard
+ * resource transfer system. This reuses the same mechanism players use when
+ * contributing, ensuring consistent behavior and proper convoy animations.
+ *
+ * Returns true if a building was activated, false otherwise.
+ */
 async function contributeToRegion(
   client: PoolLike,
   region: RegionState,
   phase: PhaseName
-): Promise<void> {
-  // Contribution scales with phase (more during day, less at night)
-  const phaseMultiplier =
-    phase === "day" ? 1.4 :
-      phase === "dawn" ? 1.2 :
-        phase === "dusk" ? 0.9 :
-          0.6; // night
+): Promise<boolean> {
+  // How many buildings to activate scales with phase (more during day)
+  const buildingsToActivate =
+    phase === "day" ? 3 :
+      phase === "dawn" ? 2 :
+        phase === "dusk" ? 2 :
+          1; // night
 
-  // Base contributions with minimum thresholds to ensure meaningful amounts
-  const MIN_FOOD = 8;
-  const MIN_EQUIPMENT = 4;
-  const MIN_ENERGY = 4;
-  const MIN_MATERIALS = 8;
-
-  const food = Math.max(MIN_FOOD, Math.floor((Math.random() * 20 + 10) * phaseMultiplier));
-  const equipment = Math.max(MIN_EQUIPMENT, Math.floor((Math.random() * 15 + 5) * phaseMultiplier));
-  const energy = Math.max(MIN_ENERGY, Math.floor((Math.random() * 15 + 5) * phaseMultiplier));
-  const materials = Math.max(MIN_MATERIALS, Math.floor((Math.random() * 20 + 10) * phaseMultiplier));
-
-  await client.query(
-    `UPDATE regions SET
-      pool_food = pool_food + $1,
-      pool_equipment = pool_equipment + $2,
-      pool_energy = pool_energy + $3,
-      pool_materials = pool_materials + $4
-    WHERE region_id = $5`,
-    [food, equipment, energy, materials, region.region_id]
+  // Find random buildings in this region that generate resources and aren't already activated
+  // Prioritize buildings that haven't been activated recently
+  const buildingResult = await client.query<{
+    gers_id: string;
+    name: string | null;
+    generates_food: boolean;
+    generates_equipment: boolean;
+    generates_energy: boolean;
+    generates_materials: boolean;
+  }>(
+    `SELECT
+      wf.gers_id,
+      wf.name,
+      COALESCE(wf.generates_food, false) AS generates_food,
+      COALESCE(wf.generates_equipment, false) AS generates_equipment,
+      COALESCE(wf.generates_energy, false) AS generates_energy,
+      COALESCE(wf.generates_materials, false) AS generates_materials
+    FROM world_features AS wf
+    LEFT JOIN feature_state AS fs ON fs.gers_id = wf.gers_id
+    WHERE wf.region_id = $1
+      AND wf.feature_type = 'building'
+      AND (
+        wf.generates_food = true OR
+        wf.generates_equipment = true OR
+        wf.generates_energy = true OR
+        wf.generates_materials = true
+      )
+      AND (fs.last_activated_at IS NULL OR fs.last_activated_at < now() - interval '2 minutes')
+    ORDER BY random()
+    LIMIT $2`,
+    [region.region_id, buildingsToActivate]
   );
+
+  if (buildingResult.rows.length === 0) {
+    return false;
+  }
+
+  // Activate the buildings - this will trigger resource generation in the next tick
+  const buildingIds = buildingResult.rows.map(b => b.gers_id);
+  await client.query(
+    `INSERT INTO feature_state (gers_id, last_activated_at)
+     SELECT unnest($1::text[]), now()
+     ON CONFLICT (gers_id) DO UPDATE SET last_activated_at = now()`,
+    [buildingIds]
+  );
+
+  // Determine the message based on what resources will be generated
+  const resourceTypes: string[] = [];
+  for (const building of buildingResult.rows) {
+    if (building.generates_food) resourceTypes.push("food");
+    if (building.generates_equipment) resourceTypes.push("equipment");
+    if (building.generates_energy) resourceTypes.push("energy");
+    if (building.generates_materials) resourceTypes.push("materials");
+  }
+  const uniqueResources = [...new Set(resourceTypes)];
 
   // Sometimes it's the Lamplighter, sometimes it's workers
   const isLamplighter = phase === "night" || Math.random() < 0.2;
@@ -435,8 +484,12 @@ async function contributeToRegion(
     event_type: isLamplighter ? "lamplighter_contribute" : "contribute",
     region_id: region.region_id,
     message: isLamplighter ? `🏮 ${message}` : message,
+    resources: uniqueResources,
+    buildings_activated: buildingResult.rows.length,
     ts: new Date().toISOString(),
   });
+
+  return true;
 }
 
 async function voteOnRegionTask(
