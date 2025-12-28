@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import { useStore } from "../../store";
 import KitchenRush from "./KitchenRush";
 import PowerUp from "./PowerUp";
+import FreshCheck from "./FreshCheck";
 import MinigameResults from "./MinigameResults";
 
 type MinigameOverlayProps = {
@@ -239,8 +240,15 @@ export default function MinigameOverlay({ onClose }: MinigameOverlayProps) {
                   onComplete={handleGameComplete}
                 />
               )}
+              {activeMinigame.minigame_type === "fresh_check" && (
+                <FreshCheck
+                  config={activeMinigame.config}
+                  difficulty={activeMinigame.difficulty}
+                  onComplete={handleGameComplete}
+                />
+              )}
               {/* Other minigame types can be added here */}
-              {activeMinigame.minigame_type !== "kitchen_rush" && activeMinigame.minigame_type !== "power_up" && (
+              {activeMinigame.minigame_type !== "kitchen_rush" && activeMinigame.minigame_type !== "power_up" && activeMinigame.minigame_type !== "fresh_check" && (
                 <div className="text-center text-white/60">
                   <p className="text-lg">Coming Soon</p>
                   <p className="mt-2 text-sm">
