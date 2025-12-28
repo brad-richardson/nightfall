@@ -717,8 +717,14 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       status: string;
       active_task_id: string | null;
       busy_until: string | null;
+      current_lng: number | null;
+      current_lat: number | null;
+      waypoints: unknown;
+      path_started_at: string | null;
     }>(
-      "SELECT crew_id, status, active_task_id, busy_until FROM crews WHERE region_id = $1",
+      `SELECT crew_id, status, active_task_id, busy_until,
+              current_lng, current_lat, waypoints, path_started_at::text
+       FROM crews WHERE region_id = $1`,
       [regionId]
     );
 

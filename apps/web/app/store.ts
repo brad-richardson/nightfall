@@ -47,11 +47,20 @@ export type Task = {
   region_id?: string;
 };
 
+export type PathWaypoint = {
+  coord: [number, number];
+  arrive_at: string;
+};
+
 export type Crew = {
   crew_id: string;
   status: string;
   active_task_id: string | null;
   busy_until: string | null;
+  current_lng?: number | null;
+  current_lat?: number | null;
+  waypoints?: PathWaypoint[] | null;
+  path_started_at?: string | null;
 };
 
 export type Boundary =
