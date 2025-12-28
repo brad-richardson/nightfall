@@ -67,6 +67,17 @@ export type Boundary =
   | { type: "Polygon"; coordinates: number[][][] }
   | { type: "MultiPolygon"; coordinates: number[][][][] };
 
+export type ResourceTransfer = {
+  transfer_id: string;
+  source_gers_id: string | null;
+  hub_gers_id: string | null;
+  resource_type: string;
+  amount: number;
+  depart_at: string;
+  arrive_at: string;
+  path_waypoints?: PathWaypoint[] | null;
+};
+
 export type Region = {
   region_id: string;
   name: string;
@@ -78,6 +89,7 @@ export type Region = {
   focus_h3_index?: string | null;
   crews: Crew[];
   tasks: Task[];
+  resource_transfers?: ResourceTransfer[];
   stats: {
     total_roads: number;
     healthy_roads: number;

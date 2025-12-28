@@ -1,12 +1,22 @@
 import type { Graph, GraphEdge, PathResult, Point, ConnectorCoords } from "./types.js";
+import { DEGRADED_HEALTH_THRESHOLD } from "@nightfall/config";
+
+/**
+ * Calculate health-based slowdown multiplier.
+ * - Roads above degraded threshold (healthy): max 3x slowdown
+ * - Roads below threshold (degraded/repairable): max 2x slowdown
+ */
+export function healthSlowdownMultiplier(health: number): number {
+  const baseMultiplier = 100 / Math.max(1, health);
+  const maxMultiplier = health < DEGRADED_HEALTH_THRESHOLD ? 2 : 3;
+  return Math.min(maxMultiplier, baseMultiplier);
+}
 
 /**
  * Calculate edge weight with health-based penalty.
- * 100% health = 1x time, 50% = 2x, 25% = 4x, etc.
  */
 export function edgeWeight(lengthMeters: number, health: number): number {
-  const healthMultiplier = 100 / Math.max(1, health);
-  return lengthMeters * healthMultiplier;
+  return lengthMeters * healthSlowdownMultiplier(health);
 }
 
 /**
@@ -193,7 +203,7 @@ export function buildWaypoints(
     if (i < pathResult.segmentLengths.length) {
       const lengthMeters = pathResult.segmentLengths[i];
       const health = pathResult.segmentHealths[i];
-      const healthMultiplier = 100 / Math.max(1, health);
+      const healthMultiplier = healthSlowdownMultiplier(health);
       const segmentTimeMs = ((lengthMeters * healthMultiplier) / speedMps) * 1000;
       currentTimeMs += segmentTimeMs;
     }

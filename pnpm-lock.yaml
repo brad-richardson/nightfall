@@ -211,6 +211,10 @@ importers:
         version: 5.9.3
 
   packages/pathfinding:
+    dependencies:
+      '@nightfall/config':
+        specifier: workspace:*
+        version: link:../config
     devDependencies:
       typescript:
         specifier: ^5.4.5

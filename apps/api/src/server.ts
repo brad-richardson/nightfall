@@ -790,6 +790,24 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     // Get focus hex (most degraded roads) with caching
     const focusHex = await getFocusHex(regionId);
 
+    // Get in-transit resource transfers for animation
+    const transfersResult = await pool.query<{
+      transfer_id: string;
+      source_gers_id: string | null;
+      hub_gers_id: string | null;
+      resource_type: string;
+      amount: number;
+      depart_at: string;
+      arrive_at: string;
+      path_waypoints: unknown;
+    }>(
+      `SELECT transfer_id, source_gers_id, hub_gers_id, resource_type,
+              amount, depart_at::text, arrive_at::text, path_waypoints
+       FROM resource_transfers
+       WHERE region_id = $1 AND status = 'in_transit'`,
+      [regionId]
+    );
+
     return {
       region_id: region.region_id,
       name: region.name,
@@ -801,6 +819,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       focus_h3_index: focusHex,
       crews: crewsResult.rows,
       tasks: tasksResult.rows,
+      resource_transfers: transfersResult.rows,
       stats: {
         total_roads: Number(statsResult.rows[0]?.total_roads ?? 0),
         healthy_roads: Number(statsResult.rows[0]?.healthy_roads ?? 0),
@@ -919,7 +938,9 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
           wf.generates_materials IS TRUE OR
           LOWER(COALESCE(wf.place_category, '')) LIKE ANY($${materialsIdx})
         ) AS generates_materials,
-        COALESCE(wf.is_hub, FALSE) AS is_hub
+        EXISTS (
+          SELECT 1 FROM hex_cells hc WHERE hc.hub_building_gers_id = wf.gers_id
+        ) AS is_hub
       FROM world_features AS wf
       LEFT JOIN feature_state AS fs ON fs.gers_id = wf.gers_id
       WHERE wf.bbox_xmin <= $3

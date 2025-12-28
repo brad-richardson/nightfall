@@ -322,16 +322,15 @@ export async function enqueueResourceTransfers(
             // Build waypoints with per-segment timing
             waypoints = buildWaypoints(pathResult, graphData.coords, departAt, RESOURCE_TRAVEL_MPS);
 
-            // Calculate travel time from waypoints
+            // Calculate travel time from waypoints - don't clamp since waypoints have real timestamps
             if (waypoints.length > 1) {
               const lastWaypoint = waypoints[waypoints.length - 1];
               travelSeconds = (Date.parse(lastWaypoint.arrive_at) - departAt) / 1000;
+              // Only apply minimum, not maximum - waypoint timing is authoritative
+              travelSeconds = Math.max(RESOURCE_TRAVEL_MIN_S, travelSeconds);
             } else {
               travelSeconds = RESOURCE_TRAVEL_MIN_S;
             }
-
-            // Clamp to min/max
-            travelSeconds = Math.max(RESOURCE_TRAVEL_MIN_S, Math.min(RESOURCE_TRAVEL_MAX_S, travelSeconds));
           } else {
             // No path found, fallback to direct distance
             travelSeconds = calculateFallbackTravelTime(building);
@@ -345,19 +344,31 @@ export async function enqueueResourceTransfers(
         travelSeconds = calculateFallbackTravelTime(building);
       }
 
-      // Create transfers for each resource type
-      const resourceTypes: Array<{ type: string; amount: number }> = [];
-      if (building.food_amount > 0) resourceTypes.push({ type: "food", amount: building.food_amount });
-      if (building.equipment_amount > 0) resourceTypes.push({ type: "equipment", amount: building.equipment_amount });
-      if (building.energy_amount > 0) resourceTypes.push({ type: "energy", amount: building.energy_amount });
-      if (building.materials_amount > 0) resourceTypes.push({ type: "materials", amount: building.materials_amount });
+      // Create ONE transfer per building - pick primary resource type by priority
+      // (buildings typically specialize in one resource anyway)
+      let resourceType: string | null = null;
+      let amount = 0;
 
-      for (const { type, amount } of resourceTypes) {
+      if (building.food_amount > 0) {
+        resourceType = "food";
+        amount = building.food_amount;
+      } else if (building.equipment_amount > 0) {
+        resourceType = "equipment";
+        amount = building.equipment_amount;
+      } else if (building.energy_amount > 0) {
+        resourceType = "energy";
+        amount = building.energy_amount;
+      } else if (building.materials_amount > 0) {
+        resourceType = "materials";
+        amount = building.materials_amount;
+      }
+
+      if (resourceType && amount > 0) {
         transfers.push({
           region_id: building.region_id,
           source_gers_id: building.source_gers_id,
           hub_gers_id: building.hub_gers_id,
-          resource_type: type,
+          resource_type: resourceType,
           amount,
           waypoints,
           travel_seconds: travelSeconds,
@@ -407,6 +418,7 @@ export async function enqueueResourceTransfers(
         path_waypoints
       )
       VALUES ${placeholders.join(", ")}
+      ON CONFLICT DO NOTHING
       RETURNING
         transfer_id,
         region_id,

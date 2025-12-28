@@ -19,6 +19,9 @@
   "scripts": {
     "build": "tsc"
   },
+  "dependencies": {
+    "@nightfall/config": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "^5.4.5"
   }

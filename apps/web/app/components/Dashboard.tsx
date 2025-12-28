@@ -30,6 +30,11 @@ type ResourceDelta = {
   ts: number;
 };
 
+type PathWaypoint = {
+  coord: [number, number];
+  arrive_at: string;
+};
+
 type ResourceTransferPayload = {
   transfer_id: string;
   region_id: string;
@@ -39,6 +44,7 @@ type ResourceTransferPayload = {
   amount: number;
   depart_at: string;
   arrive_at: string;
+  path_waypoints?: PathWaypoint[] | null;
 };
 
 type DashboardProps = {
@@ -227,6 +233,32 @@ export default function Dashboard({
       pool_energy: initialRegion.pool_energy,
       pool_materials: initialRegion.pool_materials
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Spawn initial resource transfers that are already in-transit
+  useEffect(() => {
+    if (!initialRegion.resource_transfers) return;
+
+    const now = Date.now();
+    for (const transfer of initialRegion.resource_transfers) {
+      const arriveAt = Date.parse(transfer.arrive_at);
+      // Only spawn transfers that haven't arrived yet
+      if (!Number.isNaN(arriveAt) && arriveAt > now) {
+        const payload: ResourceTransferPayload = {
+          transfer_id: transfer.transfer_id,
+          region_id: initialRegion.region_id,
+          source_gers_id: transfer.source_gers_id,
+          hub_gers_id: transfer.hub_gers_id,
+          resource_type: transfer.resource_type as ResourceType,
+          amount: transfer.amount,
+          depart_at: transfer.depart_at,
+          arrive_at: transfer.arrive_at,
+          path_waypoints: transfer.path_waypoints
+        };
+        window.dispatchEvent(new CustomEvent("nightfall:resource_transfer", { detail: payload }));
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
