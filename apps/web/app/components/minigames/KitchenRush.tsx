@@ -91,8 +91,9 @@ export default function KitchenRush({ config, difficulty, onComplete }: KitchenR
       const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
       return () => clearTimeout(timer);
     } else {
-      // Start the game
-      startNewRound([]);
+      // Start with one station pre-selected; startNewRound adds another for a 2-item sequence
+      const firstStation = Math.floor(Math.random() * STATIONS.length);
+      startNewRound([firstStation]);
     }
   }, [countdown, phase, startNewRound]);
 
@@ -239,21 +240,21 @@ export default function KitchenRush({ config, difficulty, onComplete }: KitchenR
         })}
       </div>
 
-      {/* Input progress indicator */}
-      {phase === "input" && sequence.length > 0 && (
-        <div className="mt-6 flex gap-2">
-          {sequence.map((_, idx) => (
-            <div
-              key={idx}
-              className={`h-3 w-3 rounded-full transition-all ${
-                idx < playerInput.length
-                  ? "bg-[color:var(--night-teal)]"
-                  : "bg-white/20"
-              }`}
-            />
-          ))}
-        </div>
-      )}
+      {/* Input progress indicator - always rendered to preserve height */}
+      <div className={`mt-6 flex min-h-[12px] gap-2 transition-opacity ${
+        phase === "input" && sequence.length > 0 ? "opacity-100" : "opacity-0"
+      }`}>
+        {sequence.map((_, idx) => (
+          <div
+            key={idx}
+            className={`h-3 w-3 rounded-full transition-all ${
+              idx < playerInput.length
+                ? "bg-[color:var(--night-teal)]"
+                : "bg-white/20"
+            }`}
+          />
+        ))}
+      </div>
 
       {/* Difficulty indicators */}
       {difficulty.phase === "night" && (

@@ -17,6 +17,7 @@ export default function MinigameResults({
   onDismiss,
 }: MinigameResultsProps) {
   const [showDetails, setShowDetails] = useState(false);
+  const [canDismiss, setCanDismiss] = useState(false);
 
   const resourceColors: Record<string, string> = {
     food: "#4ade80",
@@ -58,8 +59,13 @@ export default function MinigameResults({
 
   // Animate details in after initial reveal
   useEffect(() => {
-    const timer = setTimeout(() => setShowDetails(true), 400);
-    return () => clearTimeout(timer);
+    const detailsTimer = setTimeout(() => setShowDetails(true), 400);
+    // Allow dismiss after 2 seconds to give user time to see results
+    const dismissTimer = setTimeout(() => setCanDismiss(true), 2000);
+    return () => {
+      clearTimeout(detailsTimer);
+      clearTimeout(dismissTimer);
+    };
   }, []);
 
   return (
@@ -203,15 +209,18 @@ export default function MinigameResults({
       {/* Back button */}
       <button
         onClick={onDismiss}
-        className={`mt-6 rounded-xl px-8 py-3 text-sm font-semibold uppercase tracking-wider text-white transition-all duration-500 hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[#0f1216] ${
+        disabled={!canDismiss}
+        className={`mt-6 rounded-xl px-8 py-3 text-sm font-semibold uppercase tracking-wider text-white transition-all duration-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[#0f1216] ${
           showDetails ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0"
+        } ${
+          canDismiss ? "hover:brightness-110" : "cursor-not-allowed opacity-50"
         } ${
           isWin
             ? "bg-[color:var(--night-teal)] shadow-[0_4px_16px_rgba(45,212,191,0.3)] focus:ring-[color:var(--night-teal)]"
             : "bg-white/10 shadow-none focus:ring-white/30"
         }`}
       >
-        Back to Map
+        {canDismiss ? "Back to Map" : "..."}
       </button>
     </div>
   );

@@ -48,6 +48,7 @@ import {
   normalizePercent,
   makeIdFilter
 } from "./map/utils";
+import { useStore } from "../store";
 
 export default function DemoMap({
   boundary,
@@ -146,6 +147,15 @@ export default function DemoMap({
     () => new Set(crewPaths.map((path) => path.crew_id)),
     [crewPaths]
   );
+
+  // Get building boosts from store and compute active boost IDs
+  const buildingBoosts = useStore((state) => state.buildingBoosts);
+  const activeBoostedBuildingIds = useMemo(() => {
+    const now = Date.now();
+    return Object.values(buildingBoosts)
+      .filter((boost) => new Date(boost.expires_at).getTime() > now)
+      .map((boost) => boost.building_gers_id);
+  }, [buildingBoosts]);
 
   // ID-indexed Maps for O(1) lookups instead of O(n) array.find()
   const featuresByGersId = useMemo(() => {
@@ -603,6 +613,15 @@ export default function DemoMap({
     map.current.setFilter("buildings-hub", makeIdFilter(hubIds) as maplibregl.FilterSpecification);
     map.current.setFilter("buildings-hub-glow", makeIdFilter(hubIds) as maplibregl.FilterSpecification);
   }, [featureFilterIds, isLoaded, hasOvertureSources]);
+
+  // Sync boosted building highlight layers
+  useEffect(() => {
+    if (!isLoaded || !map.current || !hasOvertureSources) return;
+
+    const boostFilter = makeIdFilter(activeBoostedBuildingIds);
+    map.current.setFilter("buildings-boost-glow", boostFilter as maplibregl.FilterSpecification);
+    map.current.setFilter("buildings-boost-outline", boostFilter as maplibregl.FilterSpecification);
+  }, [activeBoostedBuildingIds, isLoaded, hasOvertureSources]);
 
   // Sync all hub markers
   useEffect(() => {

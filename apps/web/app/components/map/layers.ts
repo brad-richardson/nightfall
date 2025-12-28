@@ -116,6 +116,29 @@ export function getBaseLayers(): maplibregl.LayerSpecification[] {
       }
     },
     {
+      id: "buildings-boost-glow",
+      source: "overture_buildings",
+      "source-layer": "building",
+      type: "fill",
+      filter: ["==", ["get", "id"], "none"],
+      paint: {
+        "fill-color": "#facc15",
+        "fill-opacity": 0.4
+      }
+    },
+    {
+      id: "buildings-boost-outline",
+      source: "overture_buildings",
+      "source-layer": "building",
+      type: "line",
+      filter: ["==", ["get", "id"], "none"],
+      paint: {
+        "line-color": "#facc15",
+        "line-width": 2,
+        "line-opacity": 0.9
+      }
+    },
+    {
       id: "buildings-hub-glow",
       source: "overture_buildings",
       "source-layer": "building",
