@@ -858,7 +858,7 @@ export default function Dashboard({
         focusH3Index={region.focus_h3_index}
         cycle={cycle}
         pmtilesRelease={pmtilesRelease}
-        className="h-screen w-full rounded-none border-0 shadow-none"
+        className="h-full w-full rounded-none border-0 shadow-none"
       >
         <div className="pointer-events-none absolute inset-0">
           {cycle.phase === "dusk" && (
@@ -887,7 +887,7 @@ export default function Dashboard({
               aria-label="Expand header"
               className={`flex items-center gap-3 rounded-full border border-white/10 bg-[#0f1216]/80 px-4 py-2 text-white shadow-lg backdrop-blur-md transition-all duration-300 lg:hidden ${isHeaderCollapsed ? "opacity-100" : "absolute opacity-0 pointer-events-none"}`}
             >
-              <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-white/60">Console</span>
+              <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-white/60">Nightfall Console</span>
               <span className="text-white/30">|</span>
               <span className="font-display text-sm">{region.name}</span>
               {isDemoMode && (
