@@ -3,8 +3,6 @@ import type { PoolLike } from "./ticker";
 import type { PhaseMultipliers } from "./multipliers";
 import {
   type Point,
-  type PathResult,
-  type ConnectorCoords,
   findPath,
   findNearestConnector,
   haversineDistanceMeters,
