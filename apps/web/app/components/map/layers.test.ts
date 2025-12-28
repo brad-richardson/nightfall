@@ -7,14 +7,14 @@ describe("crew layers", () => {
 
     expect(layers).toHaveLength(3);
 
-    // Glow layer for working crews
-    expect(layers[0].id).toBe("game-crews-glow");
+    // Shadow layer under badge
+    expect(layers[0].id).toBe("game-crews-shadow");
     expect(layers[0].type).toBe("circle");
-    expect(layers[0].filter).toEqual(["==", ["get", "status"], "working"]);
 
-    // Status ring layer
-    expect(layers[1].id).toBe("game-crews-ring");
+    // Working pulse layer (only shows when working)
+    expect(layers[1].id).toBe("game-crews-working-pulse");
     expect(layers[1].type).toBe("circle");
+    expect(layers[1].filter).toEqual(["==", ["get", "status"], "working"]);
 
     // Icon layer
     expect(layers[2].id).toBe("game-crews-icon");
@@ -31,8 +31,8 @@ describe("crew layers", () => {
     expect(layers[0].id).toBe("game-crew-path-line");
     expect(layers[0].type).toBe("line");
 
-    // Moving crew ring
-    expect(layers[1].id).toBe("game-crew-path-ring");
+    // Shadow under moving crew badge
+    expect(layers[1].id).toBe("game-crew-path-shadow");
     expect(layers[1].type).toBe("circle");
 
     // Moving crew icon
@@ -41,11 +41,12 @@ describe("crew layers", () => {
     expect((layers[2] as { layout?: { "icon-image"?: string } }).layout?.["icon-image"]).toBe("construction-vehicle");
   });
 
-  it("crew icon layer supports rotation via bearing", () => {
+  it("crew icon layer does not rotate (badge stays upright)", () => {
     const layers = getCrewLayers();
     const iconLayer = layers[2];
 
     const layout = (iconLayer as { layout?: { "icon-rotate"?: unknown } }).layout;
-    expect(layout?.["icon-rotate"]).toEqual(["coalesce", ["get", "bearing"], 0]);
+    // No rotation specified - badge stays upright
+    expect(layout?.["icon-rotate"]).toBeUndefined();
   });
 });
