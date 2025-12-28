@@ -871,7 +871,7 @@ export default function Dashboard({
   const stableBoundary = useMemo(() => region.boundary, [region.boundary]);
 
   return (
-    <div className={`relative h-screen overflow-hidden transition-all duration-[2500ms] ease-in-out ${phaseGlow[cycle.phase]}`}>
+    <div className={`relative h-dvh overflow-hidden transition-all duration-[2500ms] ease-in-out ${phaseGlow[cycle.phase]}`}>
       <DemoMap
         boundary={stableBoundary}
         features={features}
@@ -1022,7 +1022,7 @@ export default function Dashboard({
             </MapPanel>
           </MapOverlay>
 
-          <MapOverlay position="bottom-left" className="!bottom-12 z-40">
+          <MapOverlay position="bottom-left" className="z-40 !bottom-[calc(64px+env(safe-area-inset-bottom))] lg:!bottom-12">
             <details className="group relative">
               <summary className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-full border border-white/10 bg-black/40 text-xs font-semibold uppercase tracking-widest text-white/70 shadow-[0_8px_20px_rgba(0,0,0,0.4)] backdrop-blur-sm transition hover:border-white/30 hover:text-white [&::-webkit-details-marker]:hidden">
                 i
