@@ -1,0 +1,58 @@
+import { test, expect } from "@playwright/test";
+
+test.describe("Resource Convoy Animation", () => {
+  test("convoy appears on map when resource transfer event is dispatched", async ({ page }) => {
+    await page.goto("/");
+
+    // Wait for map canvas to be visible
+    const mapCanvas = page.locator("canvas.maplibregl-canvas");
+    await expect(mapCanvas).toBeVisible({ timeout: 10000 });
+
+    // Wait for the map to be fully ready (isLoaded state set)
+    await page.waitForFunction(
+      () => (window as any).__MAP_READY__ === true,
+      { timeout: 15000 }
+    );
+
+    // Small delay for React to re-render with updated isLoaded state
+    await page.waitForTimeout(100);
+
+    // Dispatch a resource transfer event with future timestamps
+    const result = await page.evaluate(() => {
+      const now = Date.now();
+      const transfer = {
+        transfer_id: "test-convoy-" + now,
+        region_id: "bar_harbor_me_usa_demo",
+        source_gers_id: null,
+        hub_gers_id: null,
+        resource_type: "materials",
+        amount: 100,
+        depart_at: new Date(now).toISOString(),
+        arrive_at: new Date(now + 5000).toISOString(),
+        path_waypoints: [
+          { coord: [-68.21, 44.39], arrive_at: new Date(now).toISOString() },
+          { coord: [-68.22, 44.38], arrive_at: new Date(now + 2500).toISOString() },
+          { coord: [-68.23, 44.37], arrive_at: new Date(now + 5000).toISOString() }
+        ]
+      };
+      window.dispatchEvent(new CustomEvent("nightfall:resource_transfer", { detail: transfer }));
+      return { transferId: transfer.transfer_id };
+    });
+
+    // Wait for animation frame to process
+    await page.waitForTimeout(500);
+
+    // Check if the GeoJSON source has convoy features
+    const featureCount = await page.evaluate(() => {
+      const map = (window as any).__MAP_INSTANCE__;
+      if (!map) return -1;
+      const source = map.getSource("game-resource-packages");
+      if (!source) return -2;
+      const data = source._data;
+      const features = data?.geojson?.features || data?.features || [];
+      return features.length;
+    });
+
+    expect(featureCount).toBeGreaterThan(0);
+  });
+});

@@ -282,6 +282,11 @@ export default function DemoMap({
     });
     map.current = mapInstance;
 
+    // Expose for testing
+    if (typeof window !== "undefined") {
+      (window as unknown as { __MAP_INSTANCE__: maplibregl.Map }).__MAP_INSTANCE__ = mapInstance;
+    }
+
     mapInstance.on("load", () => {
       // Add boundary mask
       if (boundary) {
@@ -381,6 +386,10 @@ export default function DemoMap({
       }
 
       setIsLoaded(true);
+      // Expose ready state for testing
+      if (typeof window !== "undefined") {
+        (window as unknown as { __MAP_READY__: boolean }).__MAP_READY__ = true;
+      }
       map.current?.resize();
     });
 
@@ -1134,13 +1143,16 @@ export default function DemoMap({
 
         // Use waypoint-based animation if available (server-provided with timestamps)
         if (pkg.waypoints && pkg.waypoints.length > 0) {
-          position = interpolateWaypoints(pkg.waypoints, now);
-          if (!position) continue; // Animation complete
-
           // Calculate progress from waypoint timestamps
           const firstTime = Date.parse(pkg.waypoints[0].arrive_at);
           const lastTime = Date.parse(pkg.waypoints[pkg.waypoints.length - 1].arrive_at);
           rawProgress = Math.max(0, Math.min(1, (now - firstTime) / (lastTime - firstTime)));
+
+          // Remove completed packages after 2 second grace period for fade-out
+          if (rawProgress >= 1 && now > lastTime + 2000) continue;
+
+          position = interpolateWaypoints(pkg.waypoints, now);
+          if (!position) continue;
         } else {
           // Fallback to uniform progress-based animation
           const elapsed = now - pkg.startTime;

@@ -235,8 +235,9 @@ export function interpolateWaypoints(waypoints: PathWaypoint[], now: number): Po
   // Before start
   if (now < firstTime) return waypoints[0].coord;
 
-  // After end
-  if (now >= lastTime) return null;
+  // After end - return final position for fade-out grace period
+  // The animation loop handles removal based on progress
+  if (now >= lastTime) return waypoints[waypoints.length - 1].coord;
 
   // Find which segment we're in based on current time
   for (let i = 0; i < waypoints.length - 1; i++) {
