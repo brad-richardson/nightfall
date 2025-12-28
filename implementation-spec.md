@@ -310,8 +310,9 @@ Buildings passively generate resources each tick, but players can **temporarily 
 - **Trigger**: Player clicks a resource-generating building → clicks "Boost Production"
 - **UI**: Opens an **immersive overlay** (80% viewport, centered, dimmed background)
 - **Duration**: 10-30 seconds depending on minigame
-- **Reward**: Temporary production multiplier (2-3×) for that building, duration based on performance
+- **Reward**: Temporary production multiplier (1.5-3×) for that building, duration based on performance
 - **Cooldown**: Per-building cooldown (e.g., 5 minutes) before player can boost again
+- **Constraint**: Only one active boost per building at a time (new boost replaces existing)
 
 ### Minigame Roster
 
@@ -326,12 +327,28 @@ Six minigames, themed to the four resource types:
 | **Energy** | Power Up | Rhythm/Control | Tap to spin generator, maintain RPM in sweet spot |
 | **Materials** | Salvage Run | Timing Windows | Hit action button when oscillating marker is in clean zone |
 
+### Resource Type Mapping
+
+Buildings have boolean flags indicating which resource they generate (see Section 2 and migration `20251227000001`):
+
+| Schema Column | Resource Type | Minigames |
+|---------------|---------------|-----------|
+| `generates_food` | Food | Kitchen Rush, Fresh Check |
+| `generates_equipment` | Equipment | Gear Up, Patch Job |
+| `generates_energy` | Energy | Power Up |
+| `generates_materials` | Materials | Salvage Run |
+
+Buildings may generate multiple resource types. When boosted, select the primary type (first true flag in order: food → equipment → energy → materials).
+
 ### Minigame Selection
 
 When a player boosts a building:
-1. Determine building's resource type (food, equipment, energy, materials)
+1. Determine building's resource type from `generates_*` flags (see mapping above)
 2. Randomly select from available minigames for that type
-3. Apply night difficulty modifier if applicable
+3. Calculate difficulty modifiers:
+   - **Night phase**: Apply night difficulty scaling
+   - **High rust area** (hex rust_level > 0.5): Apply additional +10% speed, -10% timing windows
+4. Return minigame config with combined difficulty parameters
 
 ### Overlay UI Specification
 
@@ -600,7 +617,7 @@ After minigame completion:
 ### Database Schema Addition
 
 ```sql
--- Track active production boosts
+-- Track active production boosts (one per building at a time)
 CREATE TABLE production_boosts (
   boost_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   building_gers_id TEXT NOT NULL REFERENCES world_features(gers_id),
@@ -610,11 +627,16 @@ CREATE TABLE production_boosts (
   expires_at TIMESTAMPTZ NOT NULL,
   minigame_type TEXT NOT NULL,
   score INT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- Server-side anti-cheat fields
+  session_id UUID NOT NULL,  -- Links to minigame_sessions for validation
+  CONSTRAINT one_active_boost_per_building UNIQUE (building_gers_id)
 );
 
-CREATE INDEX production_boosts_building_idx ON production_boosts(building_gers_id);
-CREATE INDEX production_boosts_expires_idx ON production_boosts(expires_at);
+CREATE INDEX production_boosts_building_expires_idx
+  ON production_boosts(building_gers_id, expires_at);
+CREATE INDEX production_boosts_expires_idx
+  ON production_boosts(expires_at) WHERE expires_at > now();
 
 -- Track cooldowns per player per building
 CREATE TABLE minigame_cooldowns (
@@ -623,41 +645,89 @@ CREATE TABLE minigame_cooldowns (
   available_at TIMESTAMPTZ NOT NULL,
   PRIMARY KEY (client_id, building_gers_id)
 );
+
+CREATE INDEX minigame_cooldowns_available_idx
+  ON minigame_cooldowns(client_id, available_at);
+
+-- Server-side minigame sessions for anti-cheat validation
+CREATE TABLE minigame_sessions (
+  session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id TEXT NOT NULL,
+  building_gers_id TEXT NOT NULL REFERENCES world_features(gers_id),
+  minigame_type TEXT NOT NULL,
+  difficulty JSONB NOT NULL,  -- { speed_mult, window_mult, ... }
+  started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  max_possible_score INT NOT NULL,  -- Server-calculated maximum
+  expected_duration_ms INT NOT NULL,  -- Expected range for this minigame
+  completed_at TIMESTAMPTZ,
+  status TEXT NOT NULL DEFAULT 'active'  -- active, completed, abandoned
+);
+
+CREATE INDEX minigame_sessions_client_idx ON minigame_sessions(client_id, status);
 ```
+
+### Security Considerations
+
+**Client Identity**: The `client_id` in requests should be validated against an authenticated session, not blindly trusted from the request body. Implementation should:
+1. Use HTTP-only session cookies or JWT tokens
+2. Derive `client_id` from the validated session on the server
+3. Never accept `client_id` directly from untrusted client input for authorization decisions
+
+**Anti-Cheat Strategy**: Minigame scores are validated server-side:
+1. `/api/minigame/start` creates a `minigame_sessions` record with server timestamp and max possible score
+2. `/api/minigame/complete` validates:
+   - Session exists and is active
+   - Duration is within expected range (not impossibly fast)
+   - Score does not exceed `max_possible_score`
+   - Session hasn't already been completed
+3. Suspicious patterns (consistently perfect scores, inhuman reaction times) can be flagged for review
 
 ### API Additions
 
 ```
 POST /api/minigame/start
-  Request:  { client_id: string, building_gers_id: string }
+  Request:  { building_gers_id: string }
+  Headers:  Cookie (session) or Authorization (JWT)
   Response: {
     ok: boolean,
+    session_id: string (UUID),  -- Required for /complete
     minigame_type: string,
     config: { ... minigame-specific params ... },
-    difficulty: { speed_mult, window_mult, ... }
+    difficulty: { speed_mult, window_mult, rust_level, phase },
+    max_possible_score: number
   }
+  - Derives client_id from authenticated session
   - Validates cooldown
   - Selects minigame based on building resource type
-  - Returns config adjusted for current phase
+  - Creates minigame_session record
+  - Returns config adjusted for current phase and rust level
 
 POST /api/minigame/complete
   Request:  {
-    client_id: string,
-    building_gers_id: string,
-    minigame_type: string,
+    session_id: string (UUID),
     score: number,
-    max_score: number,
     duration_ms: number
   }
+  Headers:  Cookie (session) or Authorization (JWT)
   Response: {
     ok: boolean,
     reward: { multiplier, duration_ms },
     new_cooldown_at: string (ISO)
   }
-  - Validates score is plausible (anti-cheat: score/time ratio)
-  - Creates production_boost record
+  - Derives client_id from authenticated session
+  - Validates session_id belongs to this client
+  - Validates score <= max_possible_score
+  - Validates duration is plausible (not faster than minimum)
+  - Creates/replaces production_boost record (UPSERT on building_gers_id)
   - Sets cooldown
-  - Emits SSE event for building boost visual
+  - Emits SSE event: building_boost
+
+POST /api/minigame/abandon
+  Request:  { session_id: string (UUID) }
+  Headers:  Cookie (session) or Authorization (JWT)
+  Response: { ok: boolean }
+  - Marks session as abandoned
+  - No cooldown penalty for abandonment
 ```
 
 ### Ticker Integration
@@ -1003,12 +1073,19 @@ def weekly_reset():
     
     # Reset region pools to starting values
     UPDATE regions
-    SET pool_labor = 1000,
+    SET pool_food = 1000,
+        pool_equipment = 1000,
+        pool_energy = 1000,
         pool_materials = 1000,
         updated_at = now()
-    
+
     # Clear all queued/active tasks
     DELETE FROM tasks WHERE status IN ('queued', 'active')
+
+    # Clear minigame state (boosts, cooldowns, sessions)
+    DELETE FROM production_boosts
+    DELETE FROM minigame_cooldowns
+    DELETE FROM minigame_sessions
     
     # Reset crews
     UPDATE crews SET status = 'idle', active_task_id = NULL, busy_until = NULL
@@ -1154,6 +1231,8 @@ GET /api/stream (SSE)
     - feed_item: { event_type, region_id, message, ts }
     - reset_warning: { minutes_until_reset }
     - reset: { world_version }
+    - building_boost: { building_gers_id, multiplier, expires_at, client_id }
+    - building_boost_expired: { building_gers_id }
 ```
 
 ### Admin / Demo
