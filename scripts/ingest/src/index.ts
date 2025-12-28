@@ -822,6 +822,50 @@ async function updateLandRatios(
   }
 }
 
+async function pruneNonLandFeatures(pgPool: Pool, regionId: string) {
+  const client = await pgPool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Remove feature-hex associations where hex has no land (land_ratio = 0)
+    const removedAssociations = await client.query(
+      `
+      DELETE FROM world_feature_hex_cells wfhc
+      USING hex_cells h
+      WHERE wfhc.h3_index = h.h3_index
+        AND h.region_id = $1
+        AND h.land_ratio = 0
+      RETURNING wfhc.gers_id
+      `,
+      [regionId]
+    );
+    console.log(`Removed ${removedAssociations.rowCount} feature-hex associations for non-land hexes`);
+
+    // Remove features (roads) that no longer have any hex associations
+    const orphanedFeatures = await client.query(
+      `
+      DELETE FROM world_features wf
+      WHERE wf.region_id = $1
+        AND wf.feature_type = 'road'
+        AND NOT EXISTS (
+          SELECT 1 FROM world_feature_hex_cells wfhc
+          WHERE wfhc.gers_id = wf.gers_id
+        )
+      RETURNING wf.gers_id
+      `,
+      [regionId]
+    );
+    console.log(`Removed ${orphanedFeatures.rowCount} road features with no land hex associations`);
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function assignHubBuildings(pgPool: Pool, region: RegionConfig) {
   console.log("--- Assigning Hub Buildings ---");
   const client = await pgPool.connect();
@@ -1704,6 +1748,9 @@ async function main() {
 
     console.log("--- Land Ratio Update ---");
     await updateLandRatios(pgPool, region, dataDir, regionHexes);
+
+    console.log("--- Pruning Non-Land Features ---");
+    await pruneNonLandFeatures(pgPool, region.regionId);
 
     // Assign hub buildings per hex
     await assignHubBuildings(pgPool, region);
