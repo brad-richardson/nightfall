@@ -14,7 +14,7 @@ Nightfall is a persistent city-scale infrastructure sim built as a monorepo with
 
 - **Never expose secrets via `NEXT_PUBLIC_`** — Environment variables prefixed with `NEXT_PUBLIC_` are bundled into client JavaScript. Admin secrets, API keys, and database credentials must only be used server-side.
 - **Validate admin endpoints** — All `/api/admin/*` routes must verify `ADMIN_SECRET` header.
-- **Sanitize user inputs** — Watch for SQL injection in raw queries and XSS in rendered content.
+- **Sanitize user inputs** — Flag raw SQL queries without parameterization and unescaped user content in rendered output.
 
 ### Resource Constraints
 
@@ -26,7 +26,7 @@ This application runs on a very small machine with limited CPU and memory:
 
 ### React & Frontend Patterns
 
-- **Race conditions in hooks** — Async operations in useEffect must track mounted state to prevent updates on unmounted components
+- **Async cleanup in effects** — Async operations in useEffect must track mounted state to prevent updates on unmounted components
 - **Missing dependencies** — useEffect, useCallback, and useMemo must include all referenced variables in dependency arrays
 - **Cleanup functions** — Effects with subscriptions, timers, or event listeners need proper cleanup
 - **Accessibility** — Interactive elements need keyboard support (onKeyDown handlers) and ARIA attributes
