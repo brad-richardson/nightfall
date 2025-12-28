@@ -1743,7 +1743,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
 
   // Max possible scores by minigame type (for anti-cheat)
   const MINIGAME_CONFIG: Record<string, { maxScore: number; expectedDurationMs: number; baseRounds: number }> = {
-    kitchen_rush: { maxScore: 1000, expectedDurationMs: 30000, baseRounds: 10 },
+    kitchen_rush: { maxScore: 1000, expectedDurationMs: 30000, baseRounds: 6 },
     fresh_check: { maxScore: 1000, expectedDurationMs: 25000, baseRounds: 20 },
     gear_up: { maxScore: 1000, expectedDurationMs: 20000, baseRounds: 5 },
     patch_job: { maxScore: 1000, expectedDurationMs: 25000, baseRounds: 3 },
