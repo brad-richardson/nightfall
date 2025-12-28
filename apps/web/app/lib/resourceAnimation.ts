@@ -126,15 +126,32 @@ export function buildResourcePath(
 }
 
 /**
- * Interpolate position along a path based on progress (0-1)
+ * Cached path data for efficient interpolation
  */
-export function interpolatePath(path: Point[], progress: number): Point {
-  if (path.length === 0) return [0, 0];
-  if (path.length === 1) return path[0];
-  if (progress <= 0) return path[0];
-  if (progress >= 1) return path[path.length - 1];
+export type CachedPath = {
+  path: Point[];
+  segmentLengths: number[];
+  totalLength: number;
+};
 
-  // Calculate total path length
+// LRU cache for path segment data - uses Map insertion order for LRU tracking
+const pathCache = new Map<Point[], CachedPath>();
+const MAX_PATH_CACHE_SIZE = 100;
+
+/**
+ * Get or compute cached path data (segment lengths and total length)
+ * Uses LRU eviction: accessed entries are moved to end, oldest entries evicted first
+ */
+function getCachedPathData(path: Point[]): CachedPath {
+  const cached = pathCache.get(path);
+  if (cached) {
+    // Move to end for LRU tracking (delete + re-insert)
+    pathCache.delete(path);
+    pathCache.set(path, cached);
+    return cached;
+  }
+
+  // Compute segment lengths
   let totalLength = 0;
   const segmentLengths: number[] = [];
   for (let i = 0; i < path.length - 1; i++) {
@@ -142,6 +159,38 @@ export function interpolatePath(path: Point[], progress: number): Point {
     segmentLengths.push(len);
     totalLength += len;
   }
+
+  const data: CachedPath = { path, segmentLengths, totalLength };
+
+  // LRU eviction: remove oldest (first) entry when at capacity
+  if (pathCache.size >= MAX_PATH_CACHE_SIZE) {
+    const firstKey = pathCache.keys().next().value;
+    if (firstKey) pathCache.delete(firstKey);
+  }
+
+  pathCache.set(path, data);
+  return data;
+}
+
+/**
+ * Clear the path cache (useful when paths are updated)
+ */
+export function clearPathCache(): void {
+  pathCache.clear();
+}
+
+/**
+ * Interpolate position along a path based on progress (0-1)
+ * Uses cached segment lengths to avoid recalculating on every frame
+ */
+export function interpolatePath(path: Point[], progress: number): Point {
+  if (path.length === 0) return [0, 0];
+  if (path.length === 1) return path[0];
+  if (progress <= 0) return path[0];
+  if (progress >= 1) return path[path.length - 1];
+
+  // Get cached segment data
+  const { segmentLengths, totalLength } = getCachedPathData(path);
 
   // Find target distance
   const targetDist = progress * totalLength;

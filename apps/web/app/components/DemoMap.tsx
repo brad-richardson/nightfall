@@ -81,6 +81,9 @@ export default function DemoMap({
   const fadeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const featuresRef = useRef(features);
   const tasksRef = useRef(tasks);
+  // Initialize with empty Maps - will be updated via useEffect after memos are computed
+  const featuresByGersIdRef = useRef<Map<string, typeof features[0]>>(new Map());
+  const tasksByGersIdRef = useRef<Map<string, typeof tasks[0]>>(new Map());
 
   const pmtilesBase = useMemo(
     () => `https://d3c1b7bog2u1nn.cloudfront.net/${pmtilesRelease}`,
@@ -105,10 +108,71 @@ export default function DemoMap({
     [features]
   );
 
+  // Pre-compute all filter ID arrays once when features change
+  // This avoids O(n) filter array recreation on every render
+  const featureFilterIds = useMemo(() => {
+    const VISUAL_DEGRADED_THRESHOLD = 30;
+    const healthyIds: string[] = [];
+    const degradedIds: string[] = [];
+    const foodIds: string[] = [];
+    const equipmentIds: string[] = [];
+    const energyIds: string[] = [];
+    const materialIds: string[] = [];
+    const hubIds: string[] = [];
+
+    // Single pass through features to categorize all IDs
+    for (const f of features) {
+      if (f.feature_type === "road") {
+        if ((f.health ?? 100) > VISUAL_DEGRADED_THRESHOLD) {
+          healthyIds.push(f.gers_id);
+        } else {
+          degradedIds.push(f.gers_id);
+        }
+      } else if (f.feature_type === "building") {
+        if (f.generates_food) foodIds.push(f.gers_id);
+        if (f.generates_equipment) equipmentIds.push(f.gers_id);
+        if (f.generates_energy) energyIds.push(f.gers_id);
+        if (f.generates_materials) materialIds.push(f.gers_id);
+        if (f.is_hub) hubIds.push(f.gers_id);
+      }
+    }
+
+    return { healthyIds, degradedIds, foodIds, equipmentIds, energyIds, materialIds, hubIds };
+  }, [features]);
+
   const travelingCrewIds = useMemo(
     () => new Set(crewPaths.map((path) => path.crew_id)),
     [crewPaths]
   );
+
+  // ID-indexed Maps for O(1) lookups instead of O(n) array.find()
+  const featuresByGersId = useMemo(() => {
+    const map = new Map<string, typeof features[0]>();
+    for (const f of features) {
+      map.set(f.gers_id, f);
+    }
+    return map;
+  }, [features]);
+
+  // Note: The database enforces one active/queued task per target_gers_id via
+  // unique constraint, so this Map won't lose data in practice
+  const tasksByGersId = useMemo(() => {
+    const map = new Map<string, typeof tasks[0]>();
+    for (const t of tasks) {
+      if (t.target_gers_id) {
+        map.set(t.target_gers_id, t);
+      }
+    }
+    return map;
+  }, [tasks]);
+
+  const tasksById = useMemo(() => {
+    const map = new Map<string, typeof tasks[0]>();
+    for (const t of tasks) {
+      map.set(t.task_id, t);
+    }
+    return map;
+  }, [tasks]);
 
   // Media query effects
   useEffect(() => {
@@ -160,9 +224,11 @@ export default function DemoMap({
     setQueuedTaskRoadIds(Array.from(new Set(ids)));
   }, [tasks]);
 
-  // Keep refs updated
+  // Keep refs updated for use in event handlers
   useEffect(() => { featuresRef.current = features; }, [features]);
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
+  useEffect(() => { featuresByGersIdRef.current = featuresByGersId; }, [featuresByGersId]);
+  useEffect(() => { tasksByGersIdRef.current = tasksByGersId; }, [tasksByGersId]);
 
   // Map initialization
   useEffect(() => {
@@ -399,7 +465,8 @@ export default function DemoMap({
       }
 
       if (layerId.includes("buildings") || layerId.includes("building")) {
-        const match = gersId ? featuresRef.current.find((f) => f.gers_id === gersId) : null;
+        // Use Map lookup for O(1) instead of array.find() O(n)
+        const match = gersId ? featuresByGersIdRef.current.get(gersId) : undefined;
         return {
           type: "building",
           position: { x: point.x, y: point.y },
@@ -414,8 +481,9 @@ export default function DemoMap({
       }
 
       if (gersId) {
-        const match = featuresRef.current.find((f) => f.gers_id === gersId);
-        const taskMatch = tasksRef.current.find((t) => t.target_gers_id === gersId);
+        // Use Map lookups for O(1) instead of array.find() O(n)
+        const match = featuresByGersIdRef.current.get(gersId);
+        const taskMatch = tasksByGersIdRef.current.get(gersId);
         const status = taskMatch?.status ?? match?.status ?? "";
         return {
           type: "road",
@@ -478,36 +546,31 @@ export default function DemoMap({
     };
   }, [isLoaded, isMobile]);
 
-  // Sync health data to vector tile features
+  // Sync health data to vector tile features using pre-computed filter IDs
   useEffect(() => {
     if (!isLoaded || !map.current) return;
 
-    // Visual thresholds are separate from task spawn thresholds:
-    // - Tasks spawn at DEGRADED_HEALTH_THRESHOLD (70%)
-    // - Visual degradation shows at 30% when user action is more urgent
-    const VISUAL_DEGRADED_THRESHOLD = 30;
-    const healthyIds = features.filter(f => f.feature_type === "road" && (f.health ?? 100) > VISUAL_DEGRADED_THRESHOLD).map(f => f.gers_id);
+    const { healthyIds, degradedIds, foodIds, equipmentIds, energyIds, materialIds, hubIds } = featureFilterIds;
     const warningIds: string[] = []; // Warning state not used
-    const degradedIds = features.filter(f => f.feature_type === "road" && (f.health ?? 100) <= VISUAL_DEGRADED_THRESHOLD).map(f => f.gers_id);
-    const foodIds = features.filter(f => f.feature_type === "building" && f.generates_food).map(f => f.gers_id);
-    const equipmentIds = features.filter(f => f.feature_type === "building" && f.generates_equipment).map(f => f.gers_id);
-    const energyIds = features.filter(f => f.feature_type === "building" && f.generates_energy).map(f => f.gers_id);
-    const materialIds = features.filter(f => f.feature_type === "building" && f.generates_materials).map(f => f.gers_id);
-    const hubIds = features.filter(f => f.feature_type === "building" && f.is_hub).map(f => f.gers_id);
 
-    map.current.setFilter("game-roads-healthy", ["all", BASE_ROAD_FILTER, makeIdFilter(healthyIds)] as maplibregl.FilterSpecification);
-    map.current.setFilter("game-roads-healthy-glow", ["all", BASE_ROAD_FILTER, makeIdFilter(healthyIds)] as maplibregl.FilterSpecification);
-    map.current.setFilter("game-roads-warning", ["all", BASE_ROAD_FILTER, makeIdFilter(warningIds)] as maplibregl.FilterSpecification);
-    map.current.setFilter("game-roads-warning-glow", ["all", BASE_ROAD_FILTER, makeIdFilter(warningIds)] as maplibregl.FilterSpecification);
-    map.current.setFilter("game-roads-degraded", ["all", BASE_ROAD_FILTER, makeIdFilter(degradedIds)] as maplibregl.FilterSpecification);
-    map.current.setFilter("game-roads-degraded-glow", ["all", BASE_ROAD_FILTER, makeIdFilter(degradedIds)] as maplibregl.FilterSpecification);
+    // Pre-compute filters to avoid repeated makeIdFilter calls
+    const healthyFilter = makeIdFilter(healthyIds);
+    const warningFilter = makeIdFilter(warningIds);
+    const degradedFilter = makeIdFilter(degradedIds);
+
+    map.current.setFilter("game-roads-healthy", ["all", BASE_ROAD_FILTER, healthyFilter] as maplibregl.FilterSpecification);
+    map.current.setFilter("game-roads-healthy-glow", ["all", BASE_ROAD_FILTER, healthyFilter] as maplibregl.FilterSpecification);
+    map.current.setFilter("game-roads-warning", ["all", BASE_ROAD_FILTER, warningFilter] as maplibregl.FilterSpecification);
+    map.current.setFilter("game-roads-warning-glow", ["all", BASE_ROAD_FILTER, warningFilter] as maplibregl.FilterSpecification);
+    map.current.setFilter("game-roads-degraded", ["all", BASE_ROAD_FILTER, degradedFilter] as maplibregl.FilterSpecification);
+    map.current.setFilter("game-roads-degraded-glow", ["all", BASE_ROAD_FILTER, degradedFilter] as maplibregl.FilterSpecification);
     map.current.setFilter("buildings-food", makeIdFilter(foodIds) as maplibregl.FilterSpecification);
     map.current.setFilter("buildings-equipment", makeIdFilter(equipmentIds) as maplibregl.FilterSpecification);
     map.current.setFilter("buildings-energy", makeIdFilter(energyIds) as maplibregl.FilterSpecification);
     map.current.setFilter("buildings-materials", makeIdFilter(materialIds) as maplibregl.FilterSpecification);
     map.current.setFilter("buildings-hub", makeIdFilter(hubIds) as maplibregl.FilterSpecification);
     map.current.setFilter("buildings-hub-glow", makeIdFilter(hubIds) as maplibregl.FilterSpecification);
-  }, [features, isLoaded]);
+  }, [featureFilterIds, isLoaded]);
 
   // Sync all hub markers
   useEffect(() => {
@@ -598,10 +661,11 @@ export default function DemoMap({
         });
       } else if (crew.active_task_id) {
         // Fallback to client-side path building
-        const task = tasks.find((t) => t.task_id === crew.active_task_id);
+        // Use Map lookups for O(1) instead of array.find() O(n)
+        const task = tasksById.get(crew.active_task_id);
         if (!task?.target_gers_id) continue;
 
-        const targetFeature = features.find((f) => f.gers_id === task.target_gers_id);
+        const targetFeature = featuresByGersId.get(task.target_gers_id);
         const destination = targetFeature ? getFeatureCenter(targetFeature) : null;
         if (!destination) continue;
 
@@ -630,7 +694,7 @@ export default function DemoMap({
     }
 
     setCrewPaths(paths);
-  }, [crews, tasks, features, roadFeaturesForPath, fallbackCenter]);
+  }, [crews, tasksById, featuresByGersId, features, roadFeaturesForPath, fallbackCenter]);
 
   // Sync crews data - show idle and working crews at their positions
   useEffect(() => {
@@ -646,9 +710,10 @@ export default function DemoMap({
           coords = [crew.current_lng, crew.current_lat];
         } else if (crew.status === "working" && crew.active_task_id) {
           // Fallback: working crews at their task's road
-          const task = tasks.find(t => t.task_id === crew.active_task_id);
-          if (task) {
-            const feature = features.find(f => f.gers_id === task.target_gers_id);
+          // Use Map lookups for O(1) instead of array.find() O(n)
+          const task = tasksById.get(crew.active_task_id);
+          if (task?.target_gers_id) {
+            const feature = featuresByGersId.get(task.target_gers_id);
             if (feature) coords = getFeatureCenter(feature);
           }
         } else if (crew.status === "idle") {
@@ -674,7 +739,7 @@ export default function DemoMap({
     if (source) {
       source.setData({ type: "FeatureCollection", features: crewFeatures });
     }
-  }, [crews, tasks, features, isLoaded, travelingCrewIds, fallbackCenter]);
+  }, [crews, tasksById, featuresByGersId, features, isLoaded, travelingCrewIds, fallbackCenter]);
 
   // Sync crew path data
   useEffect(() => {
@@ -799,7 +864,8 @@ export default function DemoMap({
 
       if (!map.current || !isLoaded) return;
 
-      const feature = featuresRef.current.find((f) => f.gers_id === gersId);
+      // Use Map lookup for O(1) instead of array.find() O(n)
+      const feature = featuresByGersIdRef.current.get(gersId);
       if (!feature) return;
 
       const center = getFeatureCenter(feature);
@@ -970,12 +1036,13 @@ export default function DemoMap({
 
     if (Date.now() >= endTime) return;
 
+    // Use Map lookups for O(1) instead of array.find() O(n)
     const sourceFeature = transfer.source_gers_id
-      ? features.find((f) => f.gers_id === transfer.source_gers_id)
-      : null;
+      ? featuresByGersId.get(transfer.source_gers_id)
+      : undefined;
     const hubFeature = transfer.hub_gers_id
-      ? features.find((f) => f.gers_id === transfer.hub_gers_id)
-      : null;
+      ? featuresByGersId.get(transfer.hub_gers_id)
+      : undefined;
 
     const sourceCenter = sourceFeature ? getFeatureCenter(sourceFeature) : fallbackCenter;
     const hubCenter = hubFeature
@@ -1021,7 +1088,7 @@ export default function DemoMap({
         waypoints: waypoints && waypoints.length > 0 ? waypoints : null
       }];
     });
-  }, [features, fallbackCenter, isLoaded, roadFeaturesForPath]);
+  }, [featuresByGersId, features, fallbackCenter, isLoaded, roadFeaturesForPath]);
 
   // Listen for transfer events
   useEffect(() => {
@@ -1034,7 +1101,7 @@ export default function DemoMap({
     return () => window.removeEventListener("nightfall:resource_transfer", handleTransfer);
   }, [spawnResourceTransfer]);
 
-  // Animate resource packages
+  // Animate resource packages with throttled GeoJSON updates
   useEffect(() => {
     if (!isLoaded || !map.current || resourcePackages.length === 0) {
       animationManager.stop('resource-packages');
@@ -1047,9 +1114,15 @@ export default function DemoMap({
     }
 
     const mapInstance = map.current;
+    let frameCount = 0;
+    const GEOJSON_UPDATE_INTERVAL = 2; // Update GeoJSON every N frames (reduces 60fps to 30fps for source updates)
+    const TRAIL_SAMPLE_STEP = 0.05; // Coarser trail sampling (was 0.02 = 50 samples, now 20 samples)
 
     animationManager.start('resource-packages', () => {
       if (!mapInstance) return;
+
+      frameCount++;
+      const shouldUpdateSource = frameCount % GEOJSON_UPDATE_INTERVAL === 0;
 
       const now = Date.now();
       const activePackages: ResourcePackage[] = [];
@@ -1084,7 +1157,7 @@ export default function DemoMap({
         if (rawProgress < 0.1) opacity = rawProgress / 0.1;
         else if (rawProgress > 0.9) opacity = (1 - rawProgress) / 0.1;
 
-        // Build trail
+        // Build trail with coarser sampling for performance
         const trailCoords: [number, number][] = [];
         if (pkg.waypoints && pkg.waypoints.length > 0) {
           // For waypoint animation, include all waypoints up to current position
@@ -1098,9 +1171,9 @@ export default function DemoMap({
           }
           if (position) trailCoords.push(position);
         } else {
-          // For uniform animation, sample along the path
+          // For uniform animation, sample along the path with coarser step
           const easedProgress = easeInOutCubic(rawProgress);
-          for (let t = 0; t <= easedProgress; t += 0.02) {
+          for (let t = 0; t <= easedProgress; t += TRAIL_SAMPLE_STEP) {
             trailCoords.push(interpolatePath(pkg.path, t) as [number, number]);
           }
         }
@@ -1122,8 +1195,11 @@ export default function DemoMap({
         activePackages.push({ ...pkg, progress: rawProgress });
       }
 
-      const source = mapInstance.getSource("game-resource-packages") as maplibregl.GeoJSONSource;
-      if (source) source.setData({ type: "FeatureCollection", features: geoFeatures });
+      // Only update GeoJSON source every N frames to reduce overhead
+      if (shouldUpdateSource) {
+        const source = mapInstance.getSource("game-resource-packages") as maplibregl.GeoJSONSource;
+        if (source) source.setData({ type: "FeatureCollection", features: geoFeatures });
+      }
 
       if (activePackages.length !== resourcePackages.length) {
         setResourcePackages((prev) => {
