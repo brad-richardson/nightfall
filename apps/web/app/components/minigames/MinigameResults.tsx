@@ -60,8 +60,8 @@ export default function MinigameResults({
   // Animate details in after initial reveal
   useEffect(() => {
     const detailsTimer = setTimeout(() => setShowDetails(true), 400);
-    // Allow dismiss after 2 seconds to give user time to see results
-    const dismissTimer = setTimeout(() => setCanDismiss(true), 2000);
+    // Allow dismiss after 3.5 seconds to give user time to see results
+    const dismissTimer = setTimeout(() => setCanDismiss(true), 3500);
     return () => {
       clearTimeout(detailsTimer);
       clearTimeout(dismissTimer);
