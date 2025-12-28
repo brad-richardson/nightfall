@@ -259,7 +259,7 @@ export function calculateBuildingWeight(
   // Using sqrt scaling to compress extreme outliers while still differentiating sizes
   // Hash provides deterministic tiebreaker
   const baseWeight = hasMatchedCategory ? 1000 : 0;
-  const areaWeight = Math.min(Math.sqrt(area) * 8000, 800); // Sqrt scaling, cap at 800
+  const areaWeight = Math.min(Math.sqrt(area) * 4000, 800); // Sqrt scaling, cap at 800
   const hashTiebreaker = (hashString(gersId) % 100) / 100; // 0-1 range
   return baseWeight + areaWeight + hashTiebreaker;
 }
