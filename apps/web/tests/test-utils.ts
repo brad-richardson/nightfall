@@ -27,7 +27,8 @@ export const MOCK_REGION = {
     healthy_roads: 80,
     degraded_roads: 20,
     rust_avg: 0.2,
-    health_avg: 75
+    health_avg: 75,
+    score: 75
   }
 };
 
@@ -184,6 +185,22 @@ export async function setupApiMocks(page: Page) {
         "Connection": "keep-alive"
       },
       body: "event: connected\ndata: {}\n\n"
+    });
+  });
+
+  // Mock /api/hello endpoint (player registration)
+  await page.route("**/api/hello", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        token: "mock-token",
+        world_version: 1,
+        home_region_id: null,
+        regions: MOCK_WORLD.regions,
+        cycle: MOCK_WORLD.cycle
+      })
     });
   });
 }
