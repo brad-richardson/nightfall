@@ -822,27 +822,29 @@ async function updateLandRatios(
   }
 }
 
-async function pruneNonLandFeatures(pgPool: Pool, regionId: string) {
+async function pruneNonLandRoads(pgPool: Pool, regionId: string) {
   const client = await pgPool.connect();
   try {
     await client.query("BEGIN");
 
-    // Remove feature-hex associations where hex has no land (land_ratio = 0)
+    // Remove road-hex associations where hex has no land (land_ratio = 0)
     const removedAssociations = await client.query(
       `
       DELETE FROM world_feature_hex_cells wfhc
-      USING hex_cells h
+      USING hex_cells h, world_features wf
       WHERE wfhc.h3_index = h.h3_index
+        AND wfhc.gers_id = wf.gers_id
+        AND wf.feature_type = 'road'
         AND h.region_id = $1
         AND h.land_ratio = 0
       RETURNING wfhc.gers_id
       `,
       [regionId]
     );
-    console.log(`Removed ${removedAssociations.rowCount} feature-hex associations for non-land hexes`);
+    console.log(`Removed ${removedAssociations.rowCount} road-hex associations for non-land hexes`);
 
-    // Remove features (roads) that no longer have any hex associations
-    const orphanedFeatures = await client.query(
+    // Remove roads that no longer have any hex associations
+    const orphanedRoads = await client.query(
       `
       DELETE FROM world_features wf
       WHERE wf.region_id = $1
@@ -855,7 +857,7 @@ async function pruneNonLandFeatures(pgPool: Pool, regionId: string) {
       `,
       [regionId]
     );
-    console.log(`Removed ${orphanedFeatures.rowCount} road features with no land hex associations`);
+    console.log(`Removed ${orphanedRoads.rowCount} roads with no land hex associations`);
 
     await client.query("COMMIT");
   } catch (error) {
@@ -1749,8 +1751,8 @@ async function main() {
     console.log("--- Land Ratio Update ---");
     await updateLandRatios(pgPool, region, dataDir, regionHexes);
 
-    console.log("--- Pruning Non-Land Features ---");
-    await pruneNonLandFeatures(pgPool, region.regionId);
+    console.log("--- Pruning Non-Land Roads ---");
+    await pruneNonLandRoads(pgPool, region.regionId);
 
     // Assign hub buildings per hex
     await assignHubBuildings(pgPool, region);
