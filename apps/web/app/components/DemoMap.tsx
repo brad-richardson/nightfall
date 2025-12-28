@@ -1157,7 +1157,8 @@ export default function DemoMap({
         progress: 0,
         startTime,
         duration,
-        waypoints: waypoints && waypoints.length > 0 ? waypoints : null
+        waypoints: waypoints && waypoints.length > 0 ? waypoints : null,
+        boostMultiplier: transfer.boost_multiplier ?? null
       }];
     });
   }, [featuresByGersId, features, fallbackCenter, isLoaded, roadFeaturesForPath]);
@@ -1253,18 +1254,20 @@ export default function DemoMap({
           }
         }
 
+        const isBoosted = pkg.boostMultiplier != null && pkg.boostMultiplier > 1;
+
         if (trailCoords.length > 1) {
           geoFeatures.push({
             type: "Feature" as const,
             geometry: { type: "LineString" as const, coordinates: trailCoords },
-            properties: { featureType: "trail", resourceType: pkg.type }
+            properties: { featureType: "trail", resourceType: pkg.type, boosted: isBoosted }
           });
         }
 
         geoFeatures.push({
           type: "Feature" as const,
           geometry: { type: "Point" as const, coordinates: position },
-          properties: { featureType: "package", resourceType: pkg.type, opacity }
+          properties: { featureType: "package", resourceType: pkg.type, opacity, boosted: isBoosted }
         });
 
         activePackages.push({ ...pkg, progress: rawProgress });
