@@ -176,6 +176,14 @@ export const COLORS = {
   selection: "#ffffff"
 } as const;
 
+// Resource type to color mapping for convoy animations
+export const RESOURCE_COLORS: Record<string, string> = {
+  food: COLORS.buildingsFood,
+  equipment: COLORS.buildingsEquipment,
+  energy: COLORS.buildingsEnergy,
+  materials: COLORS.buildingsMaterials
+} as const;
+
 // Get transition gradient based on phase
 export function getTransitionGradient(currentPhase: Phase, nextPhase: Phase): string {
   if (nextPhase === "night") {

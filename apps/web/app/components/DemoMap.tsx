@@ -27,6 +27,7 @@ import {
   RUST_PHASE_MULTIPLIER,
   CREW_DASH_SEQUENCE,
   COLORS,
+  RESOURCE_COLORS,
   getTransitionGradient,
   loadConstructionVehicleIcon
 } from "./map/mapConfig";
@@ -1392,18 +1393,21 @@ export default function DemoMap({
           }}
         />
         <MapTooltip tooltip={tooltipData} containerSize={mapSize} />
-        {/* Arrival particle text animations */}
+        {/* Arrival particle text animations with screen reader support */}
+        <div aria-live="polite" aria-atomic="false" className="sr-only">
+          {arrivalParticles.slice(0, 1).map(particle => (
+            <span key={particle.id}>
+              Convoy arrived: {particle.amount} {particle.resourceType} delivered
+            </span>
+          ))}
+        </div>
         {arrivalParticles.map(particle => {
-          const color = {
-            food: "#4ade80",
-            equipment: "#f97316",
-            energy: "#facc15",
-            materials: "#818cf8"
-          }[particle.resourceType] || "#ffffff";
+          const color = RESOURCE_COLORS[particle.resourceType] || "#ffffff";
 
           return (
             <div
               key={particle.id}
+              aria-hidden="true"
               className="pointer-events-none absolute z-40 font-bold text-sm whitespace-nowrap animate-[float-up_1.5s_ease-out_forwards]"
               style={{
                 left: particle.x,

@@ -33,6 +33,55 @@ type FeaturePanelProps = {
 const PANEL_WIDTH = 320;
 const PADDING = 16;
 
+// Resource configuration for convoy buttons
+const RESOURCE_CONFIG = {
+  food: { icon: Utensils, color: "#4ade80", label: "Food" },
+  equipment: { icon: Wrench, color: "#f97316", label: "Equipment" },
+  energy: { icon: Zap, color: "#facc15", label: "Energy" },
+  materials: { icon: Package, color: "#818cf8", label: "Materials" }
+} as const;
+
+type ResourceConvoyButtonProps = {
+  resourceType: ResourceType;
+  onClick: () => void;
+  disabled: boolean;
+  expectedGain: number;
+  boostActive: boolean;
+  multiplier: number;
+};
+
+function ResourceConvoyButton({
+  resourceType,
+  onClick,
+  disabled,
+  expectedGain,
+  boostActive,
+  multiplier
+}: ResourceConvoyButtonProps) {
+  const config = RESOURCE_CONFIG[resourceType];
+  const Icon = config.icon;
+  const tooltipText = boostActive
+    ? `+${expectedGain} ${config.label} per convoy (${multiplier}× boost active)`
+    : `+100 ${config.label} per convoy`;
+
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={tooltipText}
+      className={`flex flex-col items-center rounded-2xl p-3 transition-all ${
+        disabled
+          ? "bg-white/5 text-white/30 cursor-not-allowed opacity-50"
+          : "bg-white/5 hover:bg-white/10 active:scale-95"
+      }`}
+    >
+      <Icon className="mb-2 h-5 w-5" style={{ color: config.color }} />
+      <span className="text-[10px] font-bold uppercase text-white/40">{config.label}</span>
+      <span className="text-xs font-bold">{boostActive ? `+${expectedGain}` : "Start Convoy"}</span>
+    </button>
+  );
+}
+
 export default function FeaturePanel({ onContribute, onVote, onBoostProduction, activeTasks, canContribute, userVotes }: FeaturePanelProps) {
   const [selected, setSelected] = useState<SelectedFeature | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -250,9 +299,6 @@ export default function FeaturePanel({ onContribute, onVote, onBoostProduction, 
                 const boostActive = boost && new Date(boost.expires_at).getTime() > now;
                 const multiplier = boostActive ? boost.multiplier : 1;
                 const expectedGain = Math.round(100 * multiplier);
-                const tooltipText = boostActive
-                  ? `+${expectedGain} per convoy (${multiplier}× boost active)`
-                  : "+100 per convoy";
 
                 return (
                   <>
@@ -266,68 +312,44 @@ export default function FeaturePanel({ onContribute, onVote, onBoostProduction, 
                     </p>
                     <div className="grid grid-cols-2 gap-3">
                       {canGenerateFood && (
-                        <button
+                        <ResourceConvoyButton
+                          resourceType="food"
                           onClick={() => handleContributeClick("food", 100)}
                           disabled={contributionDisabled}
-                          title={tooltipText}
-                          className={`flex flex-col items-center rounded-2xl p-3 transition-all ${
-                            contributionDisabled
-                              ? "bg-white/5 text-white/30 cursor-not-allowed opacity-50"
-                              : "bg-white/5 hover:bg-white/10 active:scale-95"
-                          }`}
-                        >
-                          <Utensils className="mb-2 h-5 w-5 text-[#4ade80]" />
-                          <span className="text-[10px] font-bold uppercase text-white/40">Food</span>
-                          <span className="text-xs font-bold">{boostActive ? `+${expectedGain}` : "Start Convoy"}</span>
-                        </button>
+                          expectedGain={expectedGain}
+                          boostActive={!!boostActive}
+                          multiplier={multiplier}
+                        />
                       )}
                       {canGenerateEquipment && (
-                        <button
+                        <ResourceConvoyButton
+                          resourceType="equipment"
                           onClick={() => handleContributeClick("equipment", 100)}
                           disabled={contributionDisabled}
-                          title={tooltipText}
-                          className={`flex flex-col items-center rounded-2xl p-3 transition-all ${
-                            contributionDisabled
-                              ? "bg-white/5 text-white/30 cursor-not-allowed opacity-50"
-                              : "bg-white/5 hover:bg-white/10 active:scale-95"
-                          }`}
-                        >
-                          <Wrench className="mb-2 h-5 w-5 text-[#f97316]" />
-                          <span className="text-[10px] font-bold uppercase text-white/40">Equipment</span>
-                          <span className="text-xs font-bold">{boostActive ? `+${expectedGain}` : "Start Convoy"}</span>
-                        </button>
+                          expectedGain={expectedGain}
+                          boostActive={!!boostActive}
+                          multiplier={multiplier}
+                        />
                       )}
                       {canGenerateEnergy && (
-                        <button
+                        <ResourceConvoyButton
+                          resourceType="energy"
                           onClick={() => handleContributeClick("energy", 100)}
                           disabled={contributionDisabled}
-                          title={tooltipText}
-                          className={`flex flex-col items-center rounded-2xl p-3 transition-all ${
-                            contributionDisabled
-                              ? "bg-white/5 text-white/30 cursor-not-allowed opacity-50"
-                              : "bg-white/5 hover:bg-white/10 active:scale-95"
-                          }`}
-                        >
-                          <Zap className="mb-2 h-5 w-5 text-[#facc15]" />
-                          <span className="text-[10px] font-bold uppercase text-white/40">Energy</span>
-                          <span className="text-xs font-bold">{boostActive ? `+${expectedGain}` : "Start Convoy"}</span>
-                        </button>
+                          expectedGain={expectedGain}
+                          boostActive={!!boostActive}
+                          multiplier={multiplier}
+                        />
                       )}
                       {canGenerateMaterials && (
-                        <button
+                        <ResourceConvoyButton
+                          resourceType="materials"
                           onClick={() => handleContributeClick("materials", 100)}
                           disabled={contributionDisabled}
-                          title={tooltipText}
-                          className={`flex flex-col items-center rounded-2xl p-3 transition-all ${
-                            contributionDisabled
-                              ? "bg-white/5 text-white/30 cursor-not-allowed opacity-50"
-                              : "bg-white/5 hover:bg-white/10 active:scale-95"
-                          }`}
-                        >
-                          <Package className="mb-2 h-5 w-5 text-[#818cf8]" />
-                          <span className="text-[10px] font-bold uppercase text-white/40">Materials</span>
-                          <span className="text-xs font-bold">{boostActive ? `+${expectedGain}` : "Start Convoy"}</span>
-                        </button>
+                          expectedGain={expectedGain}
+                          boostActive={!!boostActive}
+                          multiplier={multiplier}
+                        />
                       )}
                     </div>
                   </>
