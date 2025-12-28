@@ -114,7 +114,7 @@ export function ResourcePoolsPanel({
   variant = "dark"
 }: ResourcePoolsPanelProps) {
   const isLight = variant === "light";
-  const { activeResource, anchorRect, showTooltip, hideTooltip, hideTooltipImmediate } =
+  const { activeResource, anchorRect, showTooltip, hideTooltip, hideTooltipImmediate, cancelHideTimeout } =
     useResourceTooltip();
   const [tappedResource, setTappedResource] = useState<ResourceType | null>(null);
 
@@ -226,6 +226,8 @@ export function ResourcePoolsPanel({
           isVisible={true}
           isLight={isLight}
           anchorRect={anchorRect}
+          onMouseEnter={cancelHideTimeout}
+          onMouseLeave={hideTooltip}
         />
       )}
     </div>
