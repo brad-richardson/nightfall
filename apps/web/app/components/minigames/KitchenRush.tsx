@@ -54,19 +54,6 @@ export default function KitchenRush({ config, difficulty, onComplete }: KitchenR
     };
   }, []);
 
-  // Countdown before game starts
-  useEffect(() => {
-    if (phase !== "ready") return;
-
-    if (countdown > 0) {
-      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
-      return () => clearTimeout(timer);
-    } else {
-      // Start the game
-      startNewRound([]);
-    }
-  }, [countdown, phase]);
-
   const startNewRound = useCallback((currentSequence: number[]) => {
     // Add a new random station to the sequence
     const newStation = Math.floor(Math.random() * STATIONS.length);
@@ -95,6 +82,19 @@ export default function KitchenRush({ config, difficulty, onComplete }: KitchenR
     // Small delay before starting to show
     showTimeoutRef.current = setTimeout(showNext, 500);
   }, [showDuration, pauseBetween]);
+
+  // Countdown before game starts
+  useEffect(() => {
+    if (phase !== "ready") return;
+
+    if (countdown > 0) {
+      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+      return () => clearTimeout(timer);
+    } else {
+      // Start the game
+      startNewRound([]);
+    }
+  }, [countdown, phase, startNewRound]);
 
   const handleStationClick = useCallback((stationId: number) => {
     if (phase !== "input") return;

@@ -1712,7 +1712,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
 
   function calculateMinigameReward(score: number, maxScore: number, phase: string) {
     const performance = Math.min(1, score / maxScore);
-    const multiplier = 1.5 + (performance * 1.5); // 1.5x at 50%, up to 3x at 100%
+    const multiplier = 1.5 + (performance * 1.5); // 2.25x at 50%, up to 3x at 100%
     const durationMs = BASE_BOOST_DURATION_MS * (0.33 + performance * 1.67);
     const nightBonus = phase === "night" ? 1.2 : 1.0;
 
@@ -1812,7 +1812,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     }
 
     // Get current cycle phase for difficulty scaling
-    const cycleState = loadCycleState();
+    const cycleState = await loadCycleState(pool);
     const phase = cycleState.phase;
 
     // Get rust level at building location
@@ -1997,17 +1997,17 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
         [clientId, session.building_gers_id, cooldownAt]
       );
 
-      // Emit SSE event for boost
-      if (eventStream) {
-        eventStream.emit({
-          event_type: "building_boost",
+      // Emit SSE event for boost via pg_notify
+      await pool.query("SELECT pg_notify($1, $2)", [
+        "building_boost",
+        JSON.stringify({
           building_gers_id: session.building_gers_id,
           multiplier: reward.multiplier,
           expires_at: expiresAt.toISOString(),
           client_id: clientId,
           minigame_type: session.minigame_type,
-        });
-      }
+        })
+      ]);
 
       await pool.query("COMMIT");
 

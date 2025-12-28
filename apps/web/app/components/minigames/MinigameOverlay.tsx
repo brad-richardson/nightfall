@@ -16,6 +16,7 @@ export default function MinigameOverlay({ onClose }: MinigameOverlayProps) {
   const completeMinigame = useStore((s) => s.completeMinigame);
   const abandonMinigame = useStore((s) => s.abandonMinigame);
   const setMinigameResult = useStore((s) => s.setMinigameResult);
+  const addBuildingBoost = useStore((s) => s.addBuildingBoost);
   const auth = useStore((s) => s.auth);
 
   const [exiting, setExiting] = useState(false);
@@ -91,6 +92,13 @@ export default function MinigameOverlay({ onClose }: MinigameOverlayProps) {
       const data = await res.json();
 
       if (data.ok) {
+        // Update boost state for UI
+        addBuildingBoost({
+          building_gers_id: activeMinigame.building_gers_id,
+          multiplier: data.reward.multiplier,
+          expires_at: data.reward.expires_at,
+          minigame_type: activeMinigame.minigame_type,
+        });
         completeMinigame({
           score,
           performance: data.performance,
@@ -108,7 +116,7 @@ export default function MinigameOverlay({ onClose }: MinigameOverlayProps) {
       abandonMinigame();
       handleExit();
     }
-  }, [activeMinigame, auth, completeMinigame, abandonMinigame, handleExit]);
+  }, [activeMinigame, auth, completeMinigame, abandonMinigame, addBuildingBoost, handleExit]);
 
   const handleResultsDismiss = useCallback(() => {
     setMinigameResult(null);

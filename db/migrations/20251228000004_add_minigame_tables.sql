@@ -1,5 +1,4 @@
--- Migration: Add minigame tables for production boosts
--- Up migration
+-- migrate:up
 
 -- Track active production boosts (one per building at a time)
 CREATE TABLE production_boosts (
@@ -19,7 +18,7 @@ CREATE TABLE production_boosts (
 CREATE INDEX production_boosts_building_expires_idx
   ON production_boosts(building_gers_id, expires_at);
 CREATE INDEX production_boosts_expires_idx
-  ON production_boosts(expires_at) WHERE expires_at > now();
+  ON production_boosts(expires_at);
 
 -- Track cooldowns per player per building
 CREATE TABLE minigame_cooldowns (
@@ -48,7 +47,7 @@ CREATE TABLE minigame_sessions (
 
 CREATE INDEX minigame_sessions_client_idx ON minigame_sessions(client_id, status);
 
----- Down migration
--- DROP TABLE IF EXISTS minigame_sessions;
--- DROP TABLE IF EXISTS minigame_cooldowns;
--- DROP TABLE IF EXISTS production_boosts;
+-- migrate:down
+DROP TABLE IF EXISTS minigame_sessions;
+DROP TABLE IF EXISTS minigame_cooldowns;
+DROP TABLE IF EXISTS production_boosts;

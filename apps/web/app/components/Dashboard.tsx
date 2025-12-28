@@ -185,9 +185,7 @@ export default function Dashboard({
   const setUserVote = useStore.getState().setUserVote;
   const clearUserVote = useStore.getState().clearUserVote;
   const startMinigame = useStore.getState().startMinigame;
-  const abandonMinigame = useStore.getState().abandonMinigame;
   const setCooldown = useStore.getState().setCooldown;
-  const addBuildingBoost = useStore.getState().addBuildingBoost;
 
   const [resourceDeltas, setResourceDeltas] = useState<ResourceDelta[]>([]);
   const [showMinigameOverlay, setShowMinigameOverlay] = useState(false);
