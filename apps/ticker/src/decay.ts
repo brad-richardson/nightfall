@@ -65,8 +65,11 @@ export async function applyRoadDecay(pool: PoolLike, multipliers: PhaseMultiplie
       -- Status changed (normal <-> degraded)
       o.status != u.status
       OR
-      -- Health crossed a bucket boundary (e.g., 85->79 crosses 80)
+      -- Health crossed a bucket boundary (e.g., 81->79 crosses 80)
       floor(o.health / ${HEALTH_BUCKET_SIZE}) != floor(u.health / ${HEALTH_BUCKET_SIZE})
+      OR
+      -- Health reached zero (critical state, even if still in bucket 0)
+      (u.health = 0 AND o.health > 0)
     `,
     [multipliers.decay]
   );

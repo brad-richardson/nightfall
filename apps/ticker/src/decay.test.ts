@@ -48,8 +48,10 @@ describe("applyRoadDecay", () => {
   it("only emits deltas when status changes or health crosses bucket boundary", async () => {
     // Simulate a query result where only threshold-crossing updates are returned
     const mockDeltas = [
-      { gers_id: "road1", region_id: "region1", health: 79, status: "degraded" }, // crossed 80 -> 79 (bucket 8 -> 7)
-      { gers_id: "road2", region_id: "region1", health: 69, status: "degraded" }, // status changed to degraded
+      // health dropped from 81 to 79, crossing bucket boundary (floor(81/10)=8 -> floor(79/10)=7)
+      { gers_id: "road1", region_id: "region1", health: 79, status: "degraded" },
+      // health dropped below 70 threshold, status changed from 'normal' to 'degraded'
+      { gers_id: "road2", region_id: "region1", health: 69, status: "degraded" },
     ];
     const query = vi.fn().mockResolvedValue({ rows: mockDeltas });
 
@@ -57,5 +59,16 @@ describe("applyRoadDecay", () => {
 
     expect(result).toEqual(mockDeltas);
     expect(result).toHaveLength(2);
+  });
+
+  it("includes explicit check for zero-health transitions", async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [] });
+
+    await applyRoadDecay({ query }, multipliers);
+
+    const sql = String(query.mock.calls[0][0]);
+    // Should explicitly emit when health reaches zero, even if still in bucket 0
+    // (e.g., health 5->0: floor(5/10)=0, floor(0/10)=0, but 0 is critical)
+    expect(sql).toContain("u.health = 0 AND o.health > 0");
   });
 });
