@@ -1,9 +1,17 @@
 import { expect, test } from "@playwright/test";
 import { setupApiMocks } from "./test-utils";
 
+/** Dismiss the onboarding overlay by setting localStorage before page load */
+async function skipOnboarding(page: import("@playwright/test").Page) {
+  await page.addInitScript(() => {
+    localStorage.setItem("nightfall_onboarding_seen", "true");
+  });
+}
+
 test.describe("Mobile sidebar", () => {
   test.beforeEach(async ({ page }) => {
     await setupApiMocks(page);
+    await skipOnboarding(page);
   });
 
   test("trigger button is visible on mobile viewport", async ({ page, isMobile }) => {
