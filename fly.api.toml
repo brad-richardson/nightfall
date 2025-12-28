@@ -14,7 +14,7 @@ primary_region = "ewr"
 [env]
   NODE_ENV = "production"
   PORT = "3000"
-  ALLOWED_ORIGINS = "https://bradrichardson.github.io"
+  ALLOWED_ORIGINS = "https://brad-richardson.github.io,https://nightfall.fly.dev"
 
 [[services]]
   internal_port = 3000
