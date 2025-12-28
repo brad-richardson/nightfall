@@ -1,6 +1,10 @@
 import { expect, test } from "@playwright/test";
+import { setupApiMocks } from "./test-utils";
 
 test("map renders and features are selectable", async ({ page }) => {
+  // Set up API mocks before navigating
+  await setupApiMocks(page);
+
   await page.goto("/");
 
   // 1. Wait for map to be visible

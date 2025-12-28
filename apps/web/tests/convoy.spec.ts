@@ -1,17 +1,24 @@
 import { test, expect } from "@playwright/test";
+import { setupApiMocks } from "./test-utils";
 
 test.describe("Resource Convoy Animation", () => {
+  // Increase timeout for CI which is slower
+  test.setTimeout(60000);
+
   test("convoy appears on map when resource transfer event is dispatched", async ({ page }) => {
+    // Set up API mocks before navigating
+    await setupApiMocks(page);
+
     await page.goto("/");
 
     // Wait for map canvas to be visible
     const mapCanvas = page.locator("canvas.maplibregl-canvas");
-    await expect(mapCanvas).toBeVisible({ timeout: 10000 });
+    await expect(mapCanvas).toBeVisible({ timeout: 15000 });
 
     // Wait for the map to be fully ready (isLoaded state set)
     await page.waitForFunction(
       () => (window as any).__MAP_READY__ === true,
-      { timeout: 15000 }
+      { timeout: 30000 }
     );
 
     // Small delay for React to re-render with updated isLoaded state

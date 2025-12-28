@@ -56,24 +56,10 @@ jobs:
             apps/ticker/dist
           retention-days: 1
 
-  # UI tests need DB - runs after fast jobs pass
+  # UI tests with mocked API - no database needed
   ui-test:
     runs-on: ubuntu-latest
     needs: [lint, unit-test, build]
-    services:
-      db:
-        image: postgis/postgis:16-3.4-alpine
-        ports:
-          - 5432:5432
-        env:
-          POSTGRES_USER: nightfall
-          POSTGRES_PASSWORD: nightfall
-          POSTGRES_DB: nightfall
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 2s
-          --health-timeout 3s
-          --health-retries 10
 
     steps:
       - uses: actions/checkout@v4
@@ -86,11 +72,6 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: build-output
 
       - name: Cache Playwright browsers
         uses: actions/cache@v4
@@ -107,24 +88,8 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
 
-      - name: Run Database Migrations
-        run: pnpm run db:up
-        env:
-          DATABASE_URL: postgresql://nightfall:nightfall@localhost:5432/nightfall?sslmode=disable
-
-      - name: Seed Test Data
-        run: psql -f db/test-seed.sql
-        env:
-          PGHOST: localhost
-          PGPORT: 5432
-          PGUSER: nightfall
-          PGPASSWORD: nightfall
-          PGDATABASE: nightfall
-
       - name: Run UI Tests
         run: pnpm run test:ui
-        env:
-          DATABASE_URL: postgresql://nightfall:nightfall@localhost:5432/nightfall?sslmode=disable
 
   deploy-fly:
     runs-on: ubuntu-latest
