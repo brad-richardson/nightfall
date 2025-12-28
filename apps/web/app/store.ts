@@ -167,6 +167,21 @@ export type MinigameCooldown = {
   available_at: string;
 };
 
+// Player score tracking
+// SECURITY NOTE: Scores are currently stored client-side only (localStorage).
+// This means scores can be manipulated by users and are not synchronized across devices.
+// Tier bonuses should NOT be applied server-side until score tracking is moved to the database.
+// See TODO.md for planned server-side score implementation.
+export type PlayerScore = {
+  totalScore: number;
+  contributionScore: number; // Score from resource contributions
+  voteScore: number; // Score from voting
+  minigameScore: number; // Score from minigames
+  lastUpdated: number; // Timestamp
+};
+
+export type { PlayerTier } from "@nightfall/config";
+
 type State = {
   region: Region;
   features: Feature[];
@@ -182,6 +197,8 @@ type State = {
   minigameResult: MinigameResult | null;
   buildingBoosts: Record<string, BuildingBoost>;
   minigameCooldowns: Record<string, MinigameCooldown>;
+  // Player score tracking (persisted)
+  playerScore: PlayerScore;
 };
 
 type Actions = {
@@ -201,6 +218,10 @@ type Actions = {
   addBuildingBoost: (boost: BuildingBoost) => void;
   removeBuildingBoost: (buildingGersId: string) => void;
   setCooldown: (cooldown: MinigameCooldown) => void;
+  // Score actions
+  addContributionScore: (amount: number) => void;
+  addVoteScore: (amount: number) => void;
+  addMinigameScore: (amount: number) => void;
 };
 
 export const useStore = create<State & Actions>()(
@@ -245,6 +266,14 @@ export const useStore = create<State & Actions>()(
       minigameResult: null,
       buildingBoosts: {},
       minigameCooldowns: {},
+      // Player score initial state
+      playerScore: {
+        totalScore: 0,
+        contributionScore: 0,
+        voteScore: 0,
+        minigameScore: 0,
+        lastUpdated: Date.now()
+      },
 
       setRegion: (updater) =>
         set((state) => ({
@@ -295,11 +324,39 @@ export const useStore = create<State & Actions>()(
       setCooldown: (cooldown) =>
         set((state) => ({
           minigameCooldowns: { ...state.minigameCooldowns, [cooldown.building_gers_id]: cooldown }
+        })),
+      // Score actions
+      addContributionScore: (amount) =>
+        set((state) => ({
+          playerScore: {
+            ...state.playerScore,
+            contributionScore: state.playerScore.contributionScore + amount,
+            totalScore: state.playerScore.totalScore + amount,
+            lastUpdated: Date.now()
+          }
+        })),
+      addVoteScore: (amount) =>
+        set((state) => ({
+          playerScore: {
+            ...state.playerScore,
+            voteScore: state.playerScore.voteScore + amount,
+            totalScore: state.playerScore.totalScore + amount,
+            lastUpdated: Date.now()
+          }
+        })),
+      addMinigameScore: (amount) =>
+        set((state) => ({
+          playerScore: {
+            ...state.playerScore,
+            minigameScore: state.playerScore.minigameScore + amount,
+            totalScore: state.playerScore.totalScore + amount,
+            lastUpdated: Date.now()
+          }
         }))
     }),
     {
       name: "nightfall-auth",
-      partialize: (state) => ({ auth: state.auth })
+      partialize: (state) => ({ auth: state.auth, playerScore: state.playerScore })
     }
   )
 );

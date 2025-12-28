@@ -12,7 +12,7 @@ import RegionalHealthRing from "./RegionalHealthRing";
 import { MapOverlay } from "./MapOverlay";
 import { useEventStream, type EventPayload } from "../hooks/useEventStream";
 import { useStore, type Region, type Feature, type Hex, type CycleState } from "../store";
-import { BAR_HARBOR_DEMO_BBOX, DEGRADED_HEALTH_THRESHOLD, calculateCityScore } from "@nightfall/config";
+import { BAR_HARBOR_DEMO_BBOX, DEGRADED_HEALTH_THRESHOLD, calculateCityScore, SCORE_ACTIONS } from "@nightfall/config";
 import { fetchWithRetry } from "../lib/retry";
 import { formatNumber } from "../lib/formatters";
 import { ResourcePoolsPanel } from "./sidebar/ResourcePoolsPanel";
@@ -24,6 +24,7 @@ import { recordHealthValues, getHealthTrend, clearHealthHistory } from "../lib/h
 import { MinigameOverlay } from "./minigames";
 import { Navigation } from "lucide-react";
 import { AdminConsole } from "./admin";
+import { PlayerTierBadgeCompact } from "./PlayerTierBadge";
 
 type ResourceType = "food" | "equipment" | "energy" | "materials";
 
@@ -237,6 +238,8 @@ export default function Dashboard({
   const clearUserVote = useStore.getState().clearUserVote;
   const startMinigame = useStore.getState().startMinigame;
   const setCooldown = useStore.getState().setCooldown;
+  const addContributionScore = useStore.getState().addContributionScore;
+  const addVoteScore = useStore.getState().addVoteScore;
 
   const [resourceDeltas, setResourceDeltas] = useState<ResourceDelta[]>([]);
   const [showMinigameOverlay, setShowMinigameOverlay] = useState(false);
@@ -664,6 +667,11 @@ export default function Dashboard({
           // Toggling off - clear the vote (they clicked same button again)
           clearUserVote(taskId);
         } else {
+          // Award score only for genuinely new votes (not changing existing votes)
+          const isNewVote = currentVote === undefined;
+          if (isNewVote) {
+            addVoteScore(SCORE_ACTIONS.voteSubmitted);
+          }
           setUserVote(taskId, weight);
         }
 
@@ -687,7 +695,7 @@ export default function Dashboard({
       toast.error("Vote failed", { description: "Please try again" });
       throw err;
     }
-  }, [apiBaseUrl, auth, userVotes, setRegion, setUserVote, clearUserVote]);
+  }, [apiBaseUrl, auth, userVotes, setRegion, setUserVote, clearUserVote, addVoteScore]);
 
   const handleContribute = useCallback(async (
     sourceGersId: string,
@@ -714,11 +722,16 @@ export default function Dashboard({
       });
       if (res.ok) {
         await res.json();
+        // Award score for contribution (1 point per unit contributed)
+        const scoreAmount = Math.round(amount * SCORE_ACTIONS.resourceContribution);
+        if (scoreAmount > 0) {
+          addContributionScore(scoreAmount);
+        }
       }
     } catch (err) {
       console.error("Failed to contribute", err);
     }
-  }, [apiBaseUrl, auth, region.region_id]);
+  }, [apiBaseUrl, auth, region.region_id, addContributionScore]);
 
   const handleBoostProduction = useCallback(async (buildingGersId: string, buildingName: string) => {
     if (!auth.clientId || !auth.token) return;
@@ -952,7 +965,10 @@ export default function Dashboard({
               </h2>
             </MapPanel>
 
-            <PhaseIndicator />
+            <div className="flex items-start gap-3">
+              <PlayerTierBadgeCompact />
+              <PhaseIndicator />
+            </div>
           </div>
 
           <MapOverlay position="top-right" className="!top-24 hidden w-72 flex-col gap-4 lg:flex">
