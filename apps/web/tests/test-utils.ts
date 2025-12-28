@@ -121,7 +121,7 @@ export const MOCK_HEXES = {
 
 export const MOCK_OVERTURE = {
   ok: true,
-  release: "2024-12-01"
+  release: null // null prevents map from loading remote pmtiles in tests
 };
 
 /**
