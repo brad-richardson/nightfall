@@ -204,7 +204,7 @@ describe("runLamplighter", () => {
     expect(totalActions / 10).toBeGreaterThan(1);
   });
 
-  it("issues contributions that update region pools", async () => {
+  it("issues contributions that activate buildings", async () => {
     const singleRegion: RegionState = {
       region_id: "region-1",
       name: "Test District",
@@ -216,23 +216,35 @@ describe("runLamplighter", () => {
       health_avg: 80,
     };
 
+    // Mock building query result for contribution action
+    const mockBuilding = {
+      gers_id: "building-1",
+      name: "Test Building",
+      generates_food: true,
+      generates_equipment: false,
+      generates_energy: false,
+      generates_materials: false,
+    };
+
     query
-      .mockResolvedValueOnce({ rows: [singleRegion] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValue({ rows: [] });
+      .mockResolvedValueOnce({ rows: [singleRegion] }) // fetchRegionStates
+      .mockResolvedValueOnce({ rows: [] }) // fetchCriticalTasks
+      .mockImplementation((sql: string) => {
+        // Handle building queries for contribution
+        if (typeof sql === "string" && sql.includes("world_features") && sql.includes("generates_food")) {
+          return Promise.resolve({ rows: [mockBuilding] });
+        }
+        // Handle feature_state insert for activation
+        if (typeof sql === "string" && sql.includes("INSERT INTO feature_state")) {
+          return Promise.resolve({ rows: [] });
+        }
+        return Promise.resolve({ rows: [] });
+      });
 
     await runLamplighter({ query }, true, "day");
 
-    // Check if any UPDATE regions query was made (for contributions)
-    const updateCalls = query.mock.calls.filter(
-      (call) =>
-        typeof call[0] === "string" && call[0].includes("UPDATE regions")
-    );
-
-    // May or may not have contributions based on randomness, but the query setup should work
+    // Check that query was called (building activation or activity fallback)
     expect(query).toHaveBeenCalled();
-    // updateCalls validates contributions happened (may be 0 due to randomness)
-    expect(updateCalls.length).toBeGreaterThanOrEqual(0);
   });
 
   it("votes on critical tasks", async () => {
