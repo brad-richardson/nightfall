@@ -54,60 +54,53 @@ export const CREW_DASH_SEQUENCE: number[][] = [
   [3, 4, 0]
 ];
 
-// Construction crew SVG icon (vehicle with workers in front)
+// Construction crew SVG icon - centered workers with construction badge background
 export const CONSTRUCTION_VEHICLE_SVG = `
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-  <!-- Vehicle body (shifted right to make room for workers) -->
-  <rect x="28" y="30" width="28" height="12" rx="2" fill="#FFB800"/>
-  <rect x="30" y="26" width="14" height="6" rx="1" fill="#FFD54F"/>
-  <!-- Cabin -->
-  <rect x="44" y="20" width="12" height="12" rx="1" fill="#4A90D9"/>
-  <rect x="46" y="22" width="8" height="7" rx="1" fill="#87CEEB"/>
-  <!-- Arm/boom -->
-  <rect x="24" y="24" width="16" height="4" rx="1" fill="#FF9800" transform="rotate(-12 32 26)"/>
-  <rect x="20" y="20" width="8" height="5" rx="1" fill="#FF9800" transform="rotate(-12 24 22.5)"/>
-  <!-- Tracks -->
-  <ellipse cx="34" cy="46" rx="8" ry="5" fill="#333"/>
-  <ellipse cx="50" cy="46" rx="8" ry="5" fill="#333"/>
-  <rect x="26" y="41" width="16" height="5" fill="#333"/>
-  <rect x="42" y="41" width="16" height="5" fill="#333"/>
-  <!-- Track details -->
-  <ellipse cx="34" cy="46" rx="5" ry="3" fill="#555"/>
-  <ellipse cx="50" cy="46" rx="5" ry="3" fill="#555"/>
+  <defs>
+    <clipPath id="topClip">
+      <rect x="4" y="4" width="56" height="8" rx="8"/>
+    </clipPath>
+  </defs>
+  <!-- Badge background - rounded rectangle with construction colors -->
+  <rect x="4" y="4" width="56" height="56" rx="8" fill="#1a1a1a" fill-opacity="0.85"/>
+  <rect x="4" y="4" width="56" height="56" rx="8" fill="none" stroke="#FF9800" stroke-width="3" stroke-opacity="0.9"/>
+  <!-- Hazard stripes at top -->
+  <rect x="4" y="4" width="56" height="8" rx="8" ry="8" fill="#FF9800" fill-opacity="0.3" clip-path="url(#topClip)"/>
 
-  <!-- Construction Worker 1 (front left) -->
+  <!-- Construction Worker 1 (left) -->
   <!-- Hard hat -->
-  <ellipse cx="12" cy="22" rx="8" ry="5" fill="#FFD700"/>
-  <rect x="4" y="22" width="16" height="3" fill="#FFD700"/>
-  <rect x="6" y="25" width="12" height="2" fill="#FF8C00"/>
+  <ellipse cx="22" cy="18" rx="9" ry="5" fill="#FFD700"/>
+  <rect x="13" y="18" width="18" height="3" fill="#FFD700"/>
+  <rect x="15" y="21" width="14" height="2" fill="#FF8C00"/>
   <!-- Face -->
-  <circle cx="12" cy="32" r="7" fill="#FDBF6F"/>
+  <circle cx="22" cy="29" r="8" fill="#FDBF6F"/>
   <!-- Eyes -->
-  <circle cx="9" cy="31" r="1.5" fill="#333"/>
-  <circle cx="15" cy="31" r="1.5" fill="#333"/>
+  <circle cx="19" cy="28" r="1.5" fill="#333"/>
+  <circle cx="25" cy="28" r="1.5" fill="#333"/>
   <!-- Smile -->
-  <path d="M 8 35 Q 12 38 16 35" stroke="#333" stroke-width="1.5" fill="none"/>
+  <path d="M 18 32 Q 22 35 26 32" stroke="#333" stroke-width="1.5" fill="none"/>
   <!-- Body (high-vis vest) -->
-  <rect x="5" y="40" width="14" height="14" rx="2" fill="#FF6600"/>
-  <rect x="7" y="40" width="2" height="14" fill="#FFFF00"/>
-  <rect x="15" y="40" width="2" height="14" fill="#FFFF00"/>
+  <rect x="14" y="38" width="16" height="18" rx="2" fill="#FF6600"/>
+  <rect x="16" y="38" width="2.5" height="18" fill="#FFFF00"/>
+  <rect x="25.5" y="38" width="2.5" height="18" fill="#FFFF00"/>
 
-  <!-- Construction Worker 2 (front right, slightly behind) -->
+  <!-- Construction Worker 2 (right) -->
   <!-- Hard hat -->
-  <ellipse cx="24" cy="26" rx="7" ry="4" fill="#FFD700"/>
-  <rect x="17" y="26" width="14" height="2.5" fill="#FFD700"/>
-  <rect x="19" y="28.5" width="10" height="1.5" fill="#FF8C00"/>
+  <ellipse cx="42" cy="18" rx="9" ry="5" fill="#FFD700"/>
+  <rect x="33" y="18" width="18" height="3" fill="#FFD700"/>
+  <rect x="35" y="21" width="14" height="2" fill="#FF8C00"/>
   <!-- Face -->
-  <circle cx="24" cy="34" r="6" fill="#FDBF6F"/>
+  <circle cx="42" cy="29" r="8" fill="#FDBF6F"/>
   <!-- Eyes -->
-  <circle cx="21.5" cy="33" r="1.2" fill="#333"/>
-  <circle cx="26.5" cy="33" r="1.2" fill="#333"/>
+  <circle cx="39" cy="28" r="1.5" fill="#333"/>
+  <circle cx="45" cy="28" r="1.5" fill="#333"/>
   <!-- Smile -->
-  <path d="M 21 37 Q 24 39 27 37" stroke="#333" stroke-width="1.2" fill="none"/>
+  <path d="M 38 32 Q 42 35 46 32" stroke="#333" stroke-width="1.5" fill="none"/>
   <!-- Body (high-vis vest) -->
-  <rect x="18" y="41" width="12" height="13" rx="2" fill="#FF6600"/>
-  <rect x="20" y="41" width="1.5" height="13" fill="#FFFF00"/>
-  <rect x="26.5" y="41" width="1.5" height="13" fill="#FFFF00"/>
+  <rect x="34" y="38" width="16" height="18" rx="2" fill="#FF6600"/>
+  <rect x="36" y="38" width="2.5" height="18" fill="#FFFF00"/>
+  <rect x="45.5" y="38" width="2.5" height="18" fill="#FFFF00"/>
 </svg>
 `;
 

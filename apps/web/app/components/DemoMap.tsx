@@ -389,8 +389,8 @@ export default function DemoMap({
 
       const crewPathLayers = getCrewPathLayers();
       // Add path line below crew icons
-      map.current?.addLayer(crewPathLayers[0] as maplibregl.AddLayerObject, "game-crews-glow");
-      // Add ring and icon on top
+      map.current?.addLayer(crewPathLayers[0] as maplibregl.AddLayerObject, "game-crews-shadow");
+      // Add shadow and icon on top
       for (let i = 1; i < crewPathLayers.length; i++) {
         map.current?.addLayer(crewPathLayers[i] as maplibregl.AddLayerObject);
       }

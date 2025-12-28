@@ -501,41 +501,33 @@ export function getHexLayers(): { fill: maplibregl.LayerSpecification; outline: 
 
 export function getCrewLayers(): maplibregl.LayerSpecification[] {
   return [
-    // Working glow effect - larger and more prominent
+    // Subtle shadow under crew badge
     {
-      id: "game-crews-glow",
+      id: "game-crews-shadow",
+      type: "circle",
+      source: "game-crews",
+      paint: {
+        "circle-radius": 34,
+        "circle-color": "#000000",
+        "circle-blur": 0.8,
+        "circle-opacity": 0.3,
+        "circle-translate": [2, 2]
+      }
+    },
+    // Working pulse effect - construction orange, not circular glow
+    {
+      id: "game-crews-working-pulse",
       type: "circle",
       source: "game-crews",
       filter: ["==", ["get", "status"], "working"],
       paint: {
-        "circle-radius": 40,
+        "circle-radius": 38,
         "circle-color": CREW_COLORS.working,
-        "circle-blur": 1,
-        "circle-opacity": 0.6
+        "circle-blur": 0.6,
+        "circle-opacity": 0.4
       }
     },
-    // Status ring (under icon) - larger and thicker
-    {
-      id: "game-crews-ring",
-      type: "circle",
-      source: "game-crews",
-      paint: {
-        "circle-radius": 28,
-        "circle-color": "transparent",
-        "circle-stroke-width": 4,
-        "circle-stroke-color": [
-          "match",
-          ["get", "status"],
-          "idle", CREW_COLORS.idle,
-          "traveling", CREW_COLORS.traveling,
-          "working", CREW_COLORS.working,
-          "returning", CREW_COLORS.returning,
-          "#ffffff"
-        ],
-        "circle-stroke-opacity": 0.95
-      }
-    },
-    // Construction crew icon (vehicle with workers)
+    // Construction crew badge icon - no rotation, stays upright
     {
       id: "game-crews-icon",
       type: "symbol",
@@ -544,10 +536,8 @@ export function getCrewLayers(): maplibregl.LayerSpecification[] {
         "icon-image": "construction-vehicle",
         "icon-size": 1.0,
         "icon-allow-overlap": true,
-        "icon-ignore-placement": true,
-        // Rotate icon based on bearing when traveling
-        "icon-rotate": ["coalesce", ["get", "bearing"], 0],
-        "icon-rotation-alignment": "map"
+        "icon-ignore-placement": true
+        // No rotation - badge stays upright, path line shows direction
       },
       paint: {
         "icon-opacity": 1
@@ -586,32 +576,32 @@ export function getCentralHubLayers(): maplibregl.LayerSpecification[] {
 
 export function getCrewPathLayers(): maplibregl.LayerSpecification[] {
   return [
-    // Path line (dashed trail) - slightly thicker for visibility
+    // Path line (dashed trail) - construction orange color
     {
       id: "game-crew-path-line",
       type: "line",
       source: "game-crew-paths",
       paint: {
-        "line-color": "#f0ddc2",
+        "line-color": "#FF9800",
         "line-width": 3,
         "line-dasharray": [2, 2],
-        "line-opacity": 0.6
+        "line-opacity": 0.5
       }
     },
-    // Moving crew ring - larger to match stationary crew
+    // Shadow under moving crew badge
     {
-      id: "game-crew-path-ring",
+      id: "game-crew-path-shadow",
       type: "circle",
       source: "game-crew-markers",
       paint: {
-        "circle-radius": 28,
-        "circle-color": "transparent",
-        "circle-stroke-width": 4,
-        "circle-stroke-color": CREW_COLORS.traveling,
-        "circle-stroke-opacity": 0.95
+        "circle-radius": 34,
+        "circle-color": "#000000",
+        "circle-blur": 0.8,
+        "circle-opacity": 0.3,
+        "circle-translate": [2, 2]
       }
     },
-    // Moving crew icon - larger
+    // Moving crew badge icon - no rotation, stays upright
     {
       id: "game-crew-path-icon",
       type: "symbol",
@@ -620,9 +610,8 @@ export function getCrewPathLayers(): maplibregl.LayerSpecification[] {
         "icon-image": "construction-vehicle",
         "icon-size": 1.0,
         "icon-allow-overlap": true,
-        "icon-ignore-placement": true,
-        "icon-rotate": ["coalesce", ["get", "bearing"], 0],
-        "icon-rotation-alignment": "map"
+        "icon-ignore-placement": true
+        // No rotation - badge stays upright, path line shows direction
       },
       paint: {
         "icon-opacity": 1
