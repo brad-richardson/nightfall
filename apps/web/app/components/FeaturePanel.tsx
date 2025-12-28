@@ -259,8 +259,8 @@ export default function FeaturePanel({ onContribute, onVote, onBoostProduction, 
                     }`}
                   >
                     <Utensils className="mb-2 h-5 w-5 text-[#4ade80]" />
-                    <span className="text-[10px] font-bold uppercase text-white/40">Add Food</span>
-                    <span className="text-xs font-bold">+100</span>
+                    <span className="text-[10px] font-bold uppercase text-white/40">Food</span>
+                    <span className="text-xs font-bold">Start Convoy</span>
                   </button>
                 )}
                 {canGenerateEquipment && (
@@ -274,8 +274,8 @@ export default function FeaturePanel({ onContribute, onVote, onBoostProduction, 
                     }`}
                   >
                     <Wrench className="mb-2 h-5 w-5 text-[#f97316]" />
-                    <span className="text-[10px] font-bold uppercase text-white/40">Add Equipment</span>
-                    <span className="text-xs font-bold">+100</span>
+                    <span className="text-[10px] font-bold uppercase text-white/40">Equipment</span>
+                    <span className="text-xs font-bold">Start Convoy</span>
                   </button>
                 )}
                 {canGenerateEnergy && (
@@ -289,8 +289,8 @@ export default function FeaturePanel({ onContribute, onVote, onBoostProduction, 
                     }`}
                   >
                     <Zap className="mb-2 h-5 w-5 text-[#facc15]" />
-                    <span className="text-[10px] font-bold uppercase text-white/40">Add Energy</span>
-                    <span className="text-xs font-bold">+100</span>
+                    <span className="text-[10px] font-bold uppercase text-white/40">Energy</span>
+                    <span className="text-xs font-bold">Start Convoy</span>
                   </button>
                 )}
                 {canGenerateMaterials && (
@@ -304,8 +304,8 @@ export default function FeaturePanel({ onContribute, onVote, onBoostProduction, 
                     }`}
                   >
                     <Package className="mb-2 h-5 w-5 text-[#818cf8]" />
-                    <span className="text-[10px] font-bold uppercase text-white/40">Add Materials</span>
-                    <span className="text-xs font-bold">+100</span>
+                    <span className="text-[10px] font-bold uppercase text-white/40">Materials</span>
+                    <span className="text-xs font-bold">Start Convoy</span>
                   </button>
                 )}
               </div>
