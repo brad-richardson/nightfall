@@ -118,11 +118,9 @@ test.describe("Map Interactions with Overlays", () => {
   test("overlays remain visible during map interactions", async ({ page }) => {
     // Check that key overlays are present
     const phaseIndicator = page.locator('[class*="PhaseIndicator"]').first();
-    const activityFeed = page.locator('[class*="ActivityFeed"]').first();
 
     // Verify they're visible before interaction
     const hasPhaseIndicator = (await phaseIndicator.count()) > 0;
-    const hasActivityFeed = (await activityFeed.count()) > 0;
 
     // Pan the map
     const mapCanvas = page.locator("canvas.maplibregl-canvas");
@@ -139,9 +137,6 @@ test.describe("Map Interactions with Overlays", () => {
     // Overlays should still be visible
     if (hasPhaseIndicator) {
       await expect(phaseIndicator).toBeVisible();
-    }
-    if (hasActivityFeed) {
-      await expect(activityFeed).toBeVisible();
     }
   });
 

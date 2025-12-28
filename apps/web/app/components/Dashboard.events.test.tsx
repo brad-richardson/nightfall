@@ -19,7 +19,6 @@ vi.mock("./DemoMap", () => ({
 }));
 vi.mock("./FeaturePanel", () => ({ default: () => <div data-testid="feature-panel" /> }));
 vi.mock("./TaskList", () => ({ default: () => <div data-testid="task-list" /> }));
-vi.mock("./ActivityFeed", () => ({ default: () => <div data-testid="activity-feed" /> }));
 vi.mock("./MobileSidebar", () => ({ default: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 vi.mock("./PhaseIndicator", () => ({ default: () => <div data-testid="phase-indicator" /> }));
 

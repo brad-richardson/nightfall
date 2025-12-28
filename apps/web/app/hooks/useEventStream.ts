@@ -38,7 +38,6 @@ export function useEventStream(
         "world_delta",
         "feature_delta",
         "task_delta",
-        "feed_item",
         "resource_transfer",
         "reset_warning",
         "reset"
@@ -62,13 +61,6 @@ export function useEventStream(
         eventSource.close();
         eventSourceRef.current = null;
 
-        // Emit disconnected/error event for ActivityFeed
-        if (retryCountRef.current >= maxRetries) {
-          window.dispatchEvent(new CustomEvent("nightfall:sse_error"));
-        } else {
-          window.dispatchEvent(new CustomEvent("nightfall:sse_disconnected"));
-        }
-
         if (retryCountRef.current < maxRetries) {
           retryCountRef.current += 1;
           const delay = Math.min(1000 * Math.pow(2, retryCountRef.current), 30000);
@@ -81,8 +73,6 @@ export function useEventStream(
         if (!active || eventSourceRef.current !== eventSource) return;
         retryCountRef.current = 0;
         onEventRef.current({ event: "connected", data: {} });
-        // Emit connected event for ActivityFeed
-        window.dispatchEvent(new CustomEvent("nightfall:sse_connected"));
       };
     }
 
