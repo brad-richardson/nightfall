@@ -1023,7 +1023,10 @@ export default function Dashboard({
           </MapOverlay>
 
 
-          <div className="pointer-events-auto absolute bottom-0 left-0 right-0 lg:hidden">
+          <div
+            className="pointer-events-auto absolute bottom-0 left-0 right-0 bg-[color:var(--night-ink)]/90 lg:hidden"
+            style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+          >
             <MobileSidebar>
               <SidebarContent resourceFeed={resourceDeltas} />
             </MobileSidebar>
