@@ -28,6 +28,20 @@ const PERFECT_ZONE = 8;
 const GREAT_ZONE = 16;
 const GOOD_ZONE = 24;
 
+// Path generation constants
+const PATH_MARGIN = 40;
+const PATH_RANDOMNESS = 60;
+const CONTROL_POINT_RANDOMNESS = 40;
+const MIN_SEGMENTS = 3;
+const MAX_EXTRA_SEGMENTS = 3;
+
+// Game constants
+const INITIAL_SPREAD_PROGRESS = 0.3;
+const WELD_COMPLETE_THRESHOLD = 0.95;
+const BASE_SPREAD_SPEED = 0.08;
+const WELD_SPEED = 0.25;
+const RESULT_DISPLAY_MS = 700;
+
 // Generate a random crack path
 function generateCrackPath(width: number, height: number): CrackPath {
   const points: Point[] = [];
@@ -37,32 +51,31 @@ function generateCrackPath(width: number, height: number): CrackPath {
   const startEdge = Math.floor(Math.random() * 4);
   let startX: number, startY: number;
 
-  const margin = 40;
-  const innerWidth = width - margin * 2;
-  const innerHeight = height - margin * 2;
+  const innerWidth = width - PATH_MARGIN * 2;
+  const innerHeight = height - PATH_MARGIN * 2;
 
   switch (startEdge) {
     case 0: // Top
-      startX = margin + Math.random() * innerWidth;
-      startY = margin;
+      startX = PATH_MARGIN + Math.random() * innerWidth;
+      startY = PATH_MARGIN;
       break;
     case 1: // Right
-      startX = width - margin;
-      startY = margin + Math.random() * innerHeight;
+      startX = width - PATH_MARGIN;
+      startY = PATH_MARGIN + Math.random() * innerHeight;
       break;
     case 2: // Bottom
-      startX = margin + Math.random() * innerWidth;
-      startY = height - margin;
+      startX = PATH_MARGIN + Math.random() * innerWidth;
+      startY = height - PATH_MARGIN;
       break;
     default: // Left
-      startX = margin;
-      startY = margin + Math.random() * innerHeight;
+      startX = PATH_MARGIN;
+      startY = PATH_MARGIN + Math.random() * innerHeight;
   }
 
   points.push({ x: startX, y: startY });
 
-  // Generate 3-5 intermediate points moving generally toward center then away
-  const numSegments = 3 + Math.floor(Math.random() * 3);
+  // Generate intermediate points moving generally toward center then away
+  const numSegments = MIN_SEGMENTS + Math.floor(Math.random() * MAX_EXTRA_SEGMENTS);
   const centerX = width / 2;
   const centerY = height / 2;
 
@@ -70,16 +83,16 @@ function generateCrackPath(width: number, height: number): CrackPath {
     const t = i / numSegments;
     // Move toward center in first half, then away
     const targetX = t < 0.5
-      ? startX + (centerX - startX) * (t * 2) + (Math.random() - 0.5) * 60
-      : centerX + (width - margin - centerX) * ((t - 0.5) * 2) * (Math.random() > 0.5 ? 1 : -1) + (Math.random() - 0.5) * 60;
+      ? startX + (centerX - startX) * (t * 2) + (Math.random() - 0.5) * PATH_RANDOMNESS
+      : centerX + (width - PATH_MARGIN - centerX) * ((t - 0.5) * 2) * (Math.random() > 0.5 ? 1 : -1) + (Math.random() - 0.5) * PATH_RANDOMNESS;
     const targetY = t < 0.5
-      ? startY + (centerY - startY) * (t * 2) + (Math.random() - 0.5) * 60
-      : centerY + (height - margin - centerY) * ((t - 0.5) * 2) * (Math.random() > 0.5 ? 1 : -1) + (Math.random() - 0.5) * 60;
+      ? startY + (centerY - startY) * (t * 2) + (Math.random() - 0.5) * PATH_RANDOMNESS
+      : centerY + (height - PATH_MARGIN - centerY) * ((t - 0.5) * 2) * (Math.random() > 0.5 ? 1 : -1) + (Math.random() - 0.5) * PATH_RANDOMNESS;
 
     // Clamp to bounds
     points.push({
-      x: Math.max(margin, Math.min(width - margin, targetX)),
-      y: Math.max(margin, Math.min(height - margin, targetY)),
+      x: Math.max(PATH_MARGIN, Math.min(width - PATH_MARGIN, targetX)),
+      y: Math.max(PATH_MARGIN, Math.min(height - PATH_MARGIN, targetY)),
     });
   }
 
@@ -91,8 +104,8 @@ function generateCrackPath(width: number, height: number): CrackPath {
     const midY = (p1.y + p2.y) / 2;
     // Add some randomness to control points
     controlPoints.push({
-      x: midX + (Math.random() - 0.5) * 40,
-      y: midY + (Math.random() - 0.5) * 40,
+      x: midX + (Math.random() - 0.5) * CONTROL_POINT_RANDOMNESS,
+      y: midY + (Math.random() - 0.5) * CONTROL_POINT_RANDOMNESS,
     });
   }
 
@@ -180,7 +193,7 @@ const CrackVisuals = memo(function CrackVisuals({
   const pathString = useMemo(() => getCrackPathString(crack), [crack]);
 
   return (
-    <svg width={width} height={height} className="absolute inset-0">
+    <svg width={width} height={height} className="absolute inset-0" aria-hidden="true">
       {/* Background glow for crack */}
       <defs>
         <filter id="crackGlow" x="-50%" y="-50%" width="200%" height="200%">
@@ -272,17 +285,19 @@ export default function PatchJob({ config, difficulty, onComplete }: PatchJobPro
   // Crack state
   const [crack, setCrack] = useState<CrackPath | null>(null);
   const [weldProgress, setWeldProgress] = useState(0);
-  const [spreadProgress, setSpreadProgress] = useState(0.3); // Crack starts at 30% visible
+  const [spreadProgress, setSpreadProgress] = useState(INITIAL_SPREAD_PROGRESS);
   const [isWelding, setIsWelding] = useState(false);
   const [weldPosition, setWeldPosition] = useState<Point | null>(null);
-  const [accuracySum, setAccuracySum] = useState(0);
-  const [accuracyCount, setAccuracyCount] = useState(0);
 
   const gameAreaRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number>();
   const lastTimeRef = useRef<number>(0);
   const scoreRef = useRef(score);
   const resultTimeoutRef = useRef<NodeJS.Timeout>();
+
+  // Use refs for accuracy tracking to avoid stale closure issues
+  const accuracySumRef = useRef(0);
+  const accuracyCountRef = useRef(0);
 
   scoreRef.current = score;
 
@@ -293,20 +308,16 @@ export default function PatchJob({ config, difficulty, onComplete }: PatchJobPro
   const roundsNeeded = config.base_rounds + difficulty.extra_rounds;
 
   // Spread speed increases with difficulty
-  const baseSpreadSpeed = 0.08; // 8% per second at speed_mult = 1
-  const spreadSpeed = baseSpreadSpeed * difficulty.speed_mult;
-
-  // Weld speed (how fast you can weld when on target)
-  const weldSpeed = 0.25; // 25% per second when perfectly on target
+  const spreadSpeed = BASE_SPREAD_SPEED * difficulty.speed_mult;
 
   // Generate new crack for round
   const generateNewCrack = useCallback(() => {
     const newCrack = generateCrackPath(gameWidth, gameHeight);
     setCrack(newCrack);
     setWeldProgress(0);
-    setSpreadProgress(0.3); // Start with 30% of crack visible
-    setAccuracySum(0);
-    setAccuracyCount(0);
+    setSpreadProgress(INITIAL_SPREAD_PROGRESS);
+    accuracySumRef.current = 0;
+    accuracyCountRef.current = 0;
   }, [gameWidth, gameHeight]);
 
   // Points calculation based on performance
@@ -326,6 +337,26 @@ export default function PatchJob({ config, difficulty, onComplete }: PatchJobPro
       return { zone: "MISS", points: Math.round(roundPoints * 0.1), color: "#ef4444" };
     }
   }, [config.max_score, roundsNeeded, difficulty.window_mult]);
+
+  // Handle round completion (called outside state updaters)
+  const handleRoundComplete = useCallback((result: { zone: string; points: number; color: string }) => {
+    setLastResult(result);
+    setScore(s => s + result.points);
+    setPhase("result");
+
+    resultTimeoutRef.current = setTimeout(() => {
+      const newRound = currentRound + 1;
+      if (newRound >= roundsNeeded) {
+        setPhase("complete");
+        onComplete(scoreRef.current + result.points);
+      } else {
+        setCurrentRound(newRound);
+        generateNewCrack();
+        setLastResult(null);
+        setPhase("playing");
+      }
+    }, RESULT_DISPLAY_MS);
+  }, [currentRound, roundsNeeded, generateNewCrack, onComplete]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -357,7 +388,12 @@ export default function PatchJob({ config, difficulty, onComplete }: PatchJobPro
       return;
     }
 
+    // Track if round is complete to prevent multiple completions
+    let roundComplete = false;
+
     const animate = (time: number) => {
+      if (roundComplete) return;
+
       if (lastTimeRef.current === 0) {
         lastTimeRef.current = time;
       }
@@ -370,26 +406,11 @@ export default function PatchJob({ config, difficulty, onComplete }: PatchJobPro
         const newProgress = Math.min(1, prev + spreadSpeed * delta);
 
         // Check if crack has fully spread before being welded
-        if (newProgress >= 1 && weldProgress < 0.95) {
-          // Round failed - crack spread too much
+        if (!roundComplete && newProgress >= 1 && weldProgress < WELD_COMPLETE_THRESHOLD) {
+          roundComplete = true;
           const result = { zone: "TOO SLOW!", points: Math.round(config.max_score / roundsNeeded * 0.1), color: "#ef4444" };
-
-          setLastResult(result);
-          setScore(s => s + result.points);
-          setPhase("result");
-
-          resultTimeoutRef.current = setTimeout(() => {
-            const newRound = currentRound + 1;
-            if (newRound >= roundsNeeded) {
-              setPhase("complete");
-              onComplete(scoreRef.current + result.points);
-            } else {
-              setCurrentRound(newRound);
-              generateNewCrack();
-              setLastResult(null);
-              setPhase("playing");
-            }
-          }, 700);
+          // Schedule state update outside of the state updater
+          queueMicrotask(() => handleRoundComplete(result));
         }
 
         return newProgress;
@@ -401,40 +422,27 @@ export default function PatchJob({ config, difficulty, onComplete }: PatchJobPro
 
         // Only weld if close enough to the path and ahead of current progress
         if (distance < GOOD_ZONE && progress >= weldProgress - 0.05) {
-          // Weld speed is affected by accuracy
+          // Weld speed is affected by accuracy (already inside GOOD_ZONE check)
           const accuracyMultiplier = distance < PERFECT_ZONE ? 1.0
             : distance < GREAT_ZONE ? 0.8
-            : distance < GOOD_ZONE ? 0.6
-            : 0.2;
+            : 0.6;
 
           setWeldProgress(prev => {
-            const newProgress = Math.min(spreadProgress, prev + weldSpeed * accuracyMultiplier * delta);
+            const newProgress = Math.min(spreadProgress, prev + WELD_SPEED * accuracyMultiplier * delta);
 
-            // Track accuracy for scoring
-            setAccuracySum(s => s + distance);
-            setAccuracyCount(c => c + 1);
+            // Track accuracy for scoring using refs
+            accuracySumRef.current += distance;
+            accuracyCountRef.current += 1;
 
             // Check if welding is complete
-            if (newProgress >= 0.95) {
-              const avgAccuracy = (accuracySum + distance) / (accuracyCount + 1);
+            if (!roundComplete && newProgress >= WELD_COMPLETE_THRESHOLD) {
+              roundComplete = true;
+              const avgAccuracy = accuracyCountRef.current > 0
+                ? accuracySumRef.current / accuracyCountRef.current
+                : GOOD_ZONE;
               const result = getRoundPoints(avgAccuracy);
-
-              setLastResult(result);
-              setScore(s => s + result.points);
-              setPhase("result");
-
-              resultTimeoutRef.current = setTimeout(() => {
-                const newRound = currentRound + 1;
-                if (newRound >= roundsNeeded) {
-                  setPhase("complete");
-                  onComplete(scoreRef.current + result.points);
-                } else {
-                  setCurrentRound(newRound);
-                  generateNewCrack();
-                  setLastResult(null);
-                  setPhase("playing");
-                }
-              }, 700);
+              // Schedule state update outside of the state updater
+              queueMicrotask(() => handleRoundComplete(result));
             }
 
             return newProgress;
@@ -442,7 +450,9 @@ export default function PatchJob({ config, difficulty, onComplete }: PatchJobPro
         }
       }
 
-      animationRef.current = requestAnimationFrame(animate);
+      if (!roundComplete) {
+        animationRef.current = requestAnimationFrame(animate);
+      }
     };
 
     lastTimeRef.current = 0;
@@ -453,9 +463,9 @@ export default function PatchJob({ config, difficulty, onComplete }: PatchJobPro
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [phase, crack, isWelding, weldPosition, weldProgress, spreadProgress, spreadSpeed, weldSpeed,
-      accuracySum, accuracyCount, currentRound, roundsNeeded, config.max_score, getRoundPoints,
-      generateNewCrack, onComplete]);
+  }, [phase, crack, isWelding, weldPosition, weldProgress, spreadProgress, spreadSpeed,
+      currentRound, roundsNeeded, config.max_score, getRoundPoints,
+      generateNewCrack, handleRoundComplete]);
 
   // Handle pointer events for welding
   const getRelativePosition = useCallback((clientX: number, clientY: number): Point | null => {
@@ -490,6 +500,72 @@ export default function PatchJob({ config, difficulty, onComplete }: PatchJobPro
     setIsWelding(false);
   }, []);
 
+  // Keyboard accessibility - arrow keys move weld position
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (phase !== "playing") return;
+
+    const MOVE_STEP = 10;
+    let newPos: Point | null = null;
+
+    switch (e.key) {
+      case "ArrowUp":
+      case "w":
+      case "W":
+        e.preventDefault();
+        newPos = weldPosition
+          ? { x: weldPosition.x, y: Math.max(0, weldPosition.y - MOVE_STEP) }
+          : { x: gameWidth / 2, y: gameHeight / 2 };
+        break;
+      case "ArrowDown":
+      case "s":
+      case "S":
+        e.preventDefault();
+        newPos = weldPosition
+          ? { x: weldPosition.x, y: Math.min(gameHeight, weldPosition.y + MOVE_STEP) }
+          : { x: gameWidth / 2, y: gameHeight / 2 };
+        break;
+      case "ArrowLeft":
+      case "a":
+      case "A":
+        e.preventDefault();
+        newPos = weldPosition
+          ? { x: Math.max(0, weldPosition.x - MOVE_STEP), y: weldPosition.y }
+          : { x: gameWidth / 2, y: gameHeight / 2 };
+        break;
+      case "ArrowRight":
+      case "d":
+      case "D":
+        e.preventDefault();
+        newPos = weldPosition
+          ? { x: Math.min(gameWidth, weldPosition.x + MOVE_STEP), y: weldPosition.y }
+          : { x: gameWidth / 2, y: gameHeight / 2 };
+        break;
+      case " ":
+      case "Enter":
+        e.preventDefault();
+        if (!isWelding) {
+          setIsWelding(true);
+          if (!weldPosition) {
+            setWeldPosition({ x: gameWidth / 2, y: gameHeight / 2 });
+          }
+        }
+        break;
+    }
+
+    if (newPos) {
+      setWeldPosition(newPos);
+      if (!isWelding) {
+        setIsWelding(true);
+      }
+    }
+  }, [phase, weldPosition, isWelding, gameWidth, gameHeight]);
+
+  const handleKeyUp = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === " " || e.key === "Enter") {
+      setIsWelding(false);
+    }
+  }, []);
+
   // Render countdown
   if (phase === "ready") {
     return (
@@ -503,6 +579,9 @@ export default function PatchJob({ config, difficulty, onComplete }: PatchJobPro
     );
   }
 
+  const weldPercent = Math.round(weldProgress * 100);
+  const spreadPercent = Math.round(spreadProgress * 100);
+
   return (
     <div className="flex w-full max-w-md flex-col items-center">
       {/* Status bar */}
@@ -515,42 +594,61 @@ export default function PatchJob({ config, difficulty, onComplete }: PatchJobPro
         </div>
       </div>
 
-      {/* Progress bars */}
+      {/* Progress bars with ARIA attributes */}
       <div className="mb-2 w-full">
         <div className="mb-1 flex items-center justify-between text-xs">
-          <span className="text-white/40">Welded</span>
-          <span className="text-[#fbbf24]">{Math.round(weldProgress * 100)}%</span>
+          <span className="text-white/40" id="weld-progress-label">Welded</span>
+          <span className="text-[#fbbf24]">{weldPercent}%</span>
         </div>
-        <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
+        <div
+          className="h-2 w-full overflow-hidden rounded-full bg-white/10"
+          role="progressbar"
+          aria-valuenow={weldPercent}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-labelledby="weld-progress-label"
+        >
           <div
             className="h-full bg-gradient-to-r from-[#f97316] to-[#fbbf24] transition-all duration-100"
-            style={{ width: `${weldProgress * 100}%` }}
+            style={{ width: `${weldPercent}%` }}
           />
         </div>
       </div>
 
       <div className="mb-4 w-full">
         <div className="mb-1 flex items-center justify-between text-xs">
-          <span className="text-white/40">Crack Spread</span>
-          <span className="text-red-400">{Math.round(spreadProgress * 100)}%</span>
+          <span className="text-white/40" id="spread-progress-label">Crack Spread</span>
+          <span className="text-red-400">{spreadPercent}%</span>
         </div>
-        <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
+        <div
+          className="h-2 w-full overflow-hidden rounded-full bg-white/10"
+          role="progressbar"
+          aria-valuenow={spreadPercent}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-labelledby="spread-progress-label"
+        >
           <div
             className="h-full bg-gradient-to-r from-[#ef4444] to-[#991b1b] transition-all duration-100"
-            style={{ width: `${spreadProgress * 100}%` }}
+            style={{ width: `${spreadPercent}%` }}
           />
         </div>
       </div>
 
-      {/* Game area */}
+      {/* Game area with keyboard accessibility */}
       <div
         ref={gameAreaRef}
-        className="relative mb-4 overflow-hidden rounded-2xl border-2 border-white/10 bg-gradient-to-b from-[#374151] to-[#1f2937]"
+        role="application"
+        aria-label="Welding game area. Use arrow keys or WASD to move, Space or Enter to weld."
+        tabIndex={0}
+        className="relative mb-4 overflow-hidden rounded-2xl border-2 border-white/10 bg-gradient-to-b from-[#374151] to-[#1f2937] focus:outline-none focus:ring-2 focus:ring-[#f97316] focus:ring-offset-2 focus:ring-offset-[#1a1d21]"
         style={{ width: gameWidth, height: gameHeight, touchAction: "none" }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerUp}
+        onKeyDown={handleKeyDown}
+        onKeyUp={handleKeyUp}
       >
         {/* Metal plate texture */}
         <div className="absolute inset-0 opacity-20"
@@ -577,6 +675,7 @@ export default function PatchJob({ config, difficulty, onComplete }: PatchJobPro
           <div
             className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2"
             style={{ left: weldPosition.x, top: weldPosition.y }}
+            aria-hidden="true"
           >
             {/* Outer glow */}
             <div className="absolute -inset-4 animate-pulse rounded-full bg-[#f97316]/30" />
@@ -603,7 +702,7 @@ export default function PatchJob({ config, difficulty, onComplete }: PatchJobPro
       </div>
 
       {/* Phase indicator */}
-      <div className="mb-4 h-12 text-center">
+      <div className="mb-4 h-12 text-center" aria-live="polite">
         {phase === "playing" && (
           <p className="text-sm text-white/60">
             {isWelding ? (
@@ -633,7 +732,7 @@ export default function PatchJob({ config, difficulty, onComplete }: PatchJobPro
 
       {/* Hint */}
       <p className="text-center text-xs text-white/40">
-        Drag your finger or mouse along the crack to weld it shut
+        Drag your finger, use arrow keys, or press <kbd className="rounded bg-white/10 px-1.5 py-0.5">Space</kbd> to weld
       </p>
 
       {/* Difficulty indicators */}
