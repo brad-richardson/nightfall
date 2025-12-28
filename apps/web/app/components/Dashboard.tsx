@@ -83,6 +83,10 @@ const RESOURCE_COLORS: Record<ResourceType, string> = {
   materials: "#818cf8"  // indigo-400
 };
 
+// Tailwind lg breakpoint is 1024px, so max-width for mobile is 1023px
+const MOBILE_MAX_WIDTH = "(max-width: 1023px)";
+const HEADER_AUTO_COLLAPSE_DELAY_MS = 3000;
+
 function ResourceTicker({ deltas }: { deltas: ResourceDelta[] }) {
   const handleFlyToConvoy = (transferId: string) => {
     window.dispatchEvent(new CustomEvent("nightfall:fly_to_convoy", {
@@ -280,14 +284,14 @@ export default function Dashboard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-collapse header on mobile after 3 seconds
+  // Auto-collapse header on mobile after initial delay (stays expanded after manual interaction)
   useEffect(() => {
-    const mediaQuery = window.matchMedia("(max-width: 1023px)");
+    const mediaQuery = window.matchMedia(MOBILE_MAX_WIDTH);
     if (!mediaQuery.matches) return;
 
     const timer = setTimeout(() => {
       setIsHeaderCollapsed(true);
-    }, 3000);
+    }, HEADER_AUTO_COLLAPSE_DELAY_MS);
 
     return () => clearTimeout(timer);
   }, []);
@@ -874,7 +878,8 @@ export default function Dashboard({
             <button
               type="button"
               onClick={() => setIsHeaderCollapsed(false)}
-              className={`flex items-center gap-3 rounded-full border border-white/10 bg-[#0f1216]/80 px-4 py-2 text-white shadow-lg backdrop-blur-md transition-all duration-300 lg:hidden ${isHeaderCollapsed ? "opacity-100" : "pointer-events-none opacity-0 absolute"}`}
+              aria-label="Expand header"
+              className={`flex items-center gap-3 rounded-full border border-white/10 bg-[#0f1216]/80 px-4 py-2 text-white shadow-lg backdrop-blur-md transition-all duration-300 lg:hidden ${isHeaderCollapsed ? "opacity-100" : "absolute opacity-0 pointer-events-none"}`}
             >
               <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-white/60">Console</span>
               <span className="text-white/30">|</span>
@@ -887,7 +892,7 @@ export default function Dashboard({
             </button>
 
             {/* Full header - always visible on desktop, toggleable on mobile */}
-            <MapPanel className={`max-w-[520px] transition-all duration-300 lg:opacity-100 lg:pointer-events-auto ${isHeaderCollapsed ? "opacity-0 pointer-events-none absolute lg:relative" : "opacity-100"}`}>
+            <MapPanel className={`max-w-[520px] transition-all duration-300 lg:opacity-100 lg:pointer-events-auto ${isHeaderCollapsed ? "absolute opacity-0 pointer-events-none lg:relative" : "opacity-100"}`}>
               <button
                 type="button"
                 onClick={() => setIsHeaderCollapsed(true)}
