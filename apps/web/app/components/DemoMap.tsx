@@ -88,6 +88,8 @@ export default function DemoMap({
   const breathePhaseRef = useRef(0);
   const hoverTimeoutRef = useRef<number | null>(null);
   const completedPackageIds = useRef<Set<string>>(new Set());
+  // Queue for transfer events that arrive before the map is loaded
+  const pendingTransfersRef = useRef<ResourceTransferPayload[]>([]);
   const tooltipDismissRef = useRef<number | null>(null);
   const fadeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const featuresRef = useRef(features);
@@ -1128,7 +1130,15 @@ export default function DemoMap({
 
   // Resource transfer spawning
   const spawnResourceTransfer = useCallback((transfer: ResourceTransferPayload) => {
-    if (!isLoaded) return;
+    // Queue events if map isn't loaded yet - they'll be processed when it loads
+    if (!isLoaded) {
+      // Avoid duplicate entries in the queue
+      if (!pendingTransfersRef.current.some(t => t.transfer_id === transfer.transfer_id)) {
+        pendingTransfersRef.current.push(transfer);
+        console.debug("[spawnResourceTransfer] queued (map not loaded)", transfer.transfer_id);
+      }
+      return;
+    }
 
     const departAt = Date.parse(transfer.depart_at);
     const arriveAt = Date.parse(transfer.arrive_at);
@@ -1202,6 +1212,19 @@ export default function DemoMap({
     window.addEventListener("nightfall:resource_transfer", handleTransfer);
     return () => window.removeEventListener("nightfall:resource_transfer", handleTransfer);
   }, [spawnResourceTransfer]);
+
+  // Process queued transfer events once the map is loaded
+  useEffect(() => {
+    if (!isLoaded || pendingTransfersRef.current.length === 0) return;
+
+    console.debug("[DemoMap] Processing queued transfers:", pendingTransfersRef.current.length);
+    const queued = [...pendingTransfersRef.current];
+    pendingTransfersRef.current = [];
+
+    for (const transfer of queued) {
+      spawnResourceTransfer(transfer);
+    }
+  }, [isLoaded, spawnResourceTransfer]);
 
   // Animate resource packages with throttled GeoJSON updates
   useEffect(() => {
