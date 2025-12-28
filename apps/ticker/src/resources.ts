@@ -419,6 +419,8 @@ export async function enqueueResourceTransfers(
       );
     });
 
+    // Query result excludes boost_multiplier since it's not stored in DB;
+    // we add it afterward from the in-memory batch data for real-time display
     const result = await pool.query<Omit<ResourceTransfer, 'boost_multiplier'>>(
       `INSERT INTO resource_transfers (
         region_id,

@@ -143,13 +143,13 @@ export default function MinigameResults({
             <div className="mb-4">
               <div className="mb-1 flex justify-between text-xs text-white/50">
                 <span>Boost Strength</span>
-                <span>{Math.round((result.multiplier - 1.5) / 1.5 * 100)}%</span>
+                <span>{Math.round(Math.max(0, (result.multiplier - 1.5) / 1.5) * 100)}%</span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-white/10">
                 <div
                   className="h-full rounded-full transition-all duration-1000"
                   style={{
-                    width: `${Math.min(100, (result.multiplier - 1.5) / 1.5 * 100)}%`,
+                    width: `${Math.max(0, Math.min(100, (result.multiplier - 1.5) / 1.5 * 100))}%`,
                     backgroundColor: resourceColors[resourceType],
                     transitionDelay: "500ms"
                   }}

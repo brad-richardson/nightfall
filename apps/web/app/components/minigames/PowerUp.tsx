@@ -20,9 +20,6 @@ const PERFECT_ZONE = 5; // Within 5% of center = perfect
 const GREAT_ZONE = 15; // Within 15% = great
 const GOOD_ZONE = 30; // Within 30% = good
 
-// Number of successful charges needed to complete
-const BASE_CHARGES_NEEDED = 5;
-
 export default function PowerUp({ config, difficulty, onComplete }: PowerUpProps) {
   const [phase, setPhase] = useState<GamePhase>("ready");
   const [countdown, setCountdown] = useState(3);
@@ -35,16 +32,19 @@ export default function PowerUp({ config, difficulty, onComplete }: PowerUpProps
 
   const animationRef = useRef<number>();
   const lastTimeRef = useRef<number>(0);
+  // Use ref to avoid stale closure in setTimeout callback
+  const scoreRef = useRef(score);
+  scoreRef.current = score;
 
   // Speed increases with difficulty
   const baseSpeed = 180; // degrees per second at speed_mult = 1
   const speed = baseSpeed * difficulty.speed_mult;
 
-  // Total charges needed (extra rounds from night mode add more charges)
-  const chargesNeeded = BASE_CHARGES_NEEDED + difficulty.extra_rounds;
+  // Total charges needed: use config.base_rounds (server-provided), add extra for night mode
+  const chargesNeeded = config.base_rounds + difficulty.extra_rounds;
 
-  // Points per zone
-  const getZonePoints = (position: number) => {
+  // Points per zone - memoized to avoid recreation on every render
+  const getZonePoints = useCallback((position: number) => {
     const absPos = Math.abs(position);
     const chargePoints = Math.round(config.max_score / chargesNeeded);
 
@@ -59,7 +59,7 @@ export default function PowerUp({ config, difficulty, onComplete }: PowerUpProps
     } else {
       return { zone: "MISS", points: 0, color: "#ef4444" };
     }
-  };
+  }, [config.max_score, chargesNeeded]);
 
   // Animation loop for meter movement
   useEffect(() => {
@@ -81,7 +81,7 @@ export default function PowerUp({ config, difficulty, onComplete }: PowerUpProps
       setMeterPosition((prev) => {
         let next = prev + meterDirection * speed * delta;
 
-        // Bounce at edges
+        // Bounce at edges with clamping to handle large delta overshoots
         if (next > 100) {
           next = 100 - (next - 100);
           setMeterDirection(-1);
@@ -90,7 +90,8 @@ export default function PowerUp({ config, difficulty, onComplete }: PowerUpProps
           setMeterDirection(1);
         }
 
-        return next;
+        // Clamp to ensure we stay within bounds even with extreme overshoots
+        return Math.max(-100, Math.min(100, next));
       });
 
       animationRef.current = requestAnimationFrame(animate);
@@ -134,7 +135,8 @@ export default function PowerUp({ config, difficulty, onComplete }: PowerUpProps
     setTimeout(() => {
       if (chargesCompleted + 1 >= chargesNeeded) {
         setPhase("complete");
-        onComplete(score + result.points);
+        // Use ref to get current score value (avoids stale closure)
+        onComplete(scoreRef.current + result.points);
       } else {
         // Shrink target zone slightly each round (make it harder)
         setTargetZoneSize((prev) => Math.max(15, prev - 2));
@@ -145,7 +147,7 @@ export default function PowerUp({ config, difficulty, onComplete }: PowerUpProps
         setPhase("charging");
       }
     }, 600);
-  }, [phase, meterPosition, chargesCompleted, chargesNeeded, score, onComplete]);
+  }, [phase, meterPosition, chargesCompleted, chargesNeeded, getZonePoints, onComplete]);
 
   // Handle keyboard/touch
   useEffect(() => {
