@@ -16,9 +16,9 @@ export async function performWeeklyReset(client: PoolLike) {
     `);
 
     // 2. Clear Rust (outer = 0.3, inner = 0)
-    // We need max distance first
+    // We need max distance from hex_cells (not regions, which has distance_from_center = 0)
     const maxDistResult = await client.query<{ max_dist: number }>(
-      "SELECT MAX(distance_from_center) as max_dist FROM regions"
+      "SELECT MAX(distance_from_center) as max_dist FROM hex_cells"
     );
     const maxDist = maxDistResult.rows[0]?.max_dist || 1;
 
