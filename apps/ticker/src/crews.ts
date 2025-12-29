@@ -475,9 +475,10 @@ export async function arriveCrewsAtHub(pool: PoolLike): Promise<CrewEvent[]> {
     crew_id: string;
     region_id: string;
     waypoints: CrewWaypoint[] | null;
+    home_hub_gers_id: string | null;
   }>(
     `
-    SELECT c.crew_id, c.region_id, c.waypoints
+    SELECT c.crew_id, c.region_id, c.waypoints, c.home_hub_gers_id
     FROM crews c
     WHERE c.status = 'traveling'
       AND c.active_task_id IS NULL
@@ -497,16 +498,18 @@ export async function arriveCrewsAtHub(pool: PoolLike): Promise<CrewEvent[]> {
       finalLat = lastWaypoint.coord[1];
     }
 
-    // Fallback: if no waypoints, lookup hub position directly
+    // Fallback: if no waypoints, lookup hub position (prefer home hub)
     if (finalLng == null || finalLat == null) {
       const hubResult = await pool.query<{ hub_lon: number; hub_lat: number }>(
         `SELECT COALESCE(ST_X(ST_PointOnSurface(hub.geom)), (hub.bbox_xmin + hub.bbox_xmax) / 2) AS hub_lon,
                 COALESCE(ST_Y(ST_PointOnSurface(hub.geom)), (hub.bbox_ymin + hub.bbox_ymax) / 2) AS hub_lat
-         FROM hex_cells h
-         JOIN world_features hub ON hub.gers_id = h.hub_building_gers_id
-         WHERE h.region_id = $1 AND h.hub_building_gers_id IS NOT NULL
-         LIMIT 1`,
-        [crew.region_id]
+         FROM world_features hub
+         WHERE hub.gers_id = COALESCE($2, (
+           SELECT h.hub_building_gers_id FROM hex_cells h
+           WHERE h.region_id = $1 AND h.hub_building_gers_id IS NOT NULL
+           LIMIT 1
+         ))`,
+        [crew.region_id, crew.home_hub_gers_id]
       );
       if (hubResult.rows[0]) {
         finalLng = hubResult.rows[0].hub_lon;
@@ -562,6 +565,7 @@ export async function completeFinishedTasks(
     target_gers_id: string;
     current_lng: number | null;
     current_lat: number | null;
+    home_hub_gers_id: string | null;
   }>(
     `
     SELECT
@@ -570,7 +574,8 @@ export async function completeFinishedTasks(
       c.active_task_id,
       t.target_gers_id,
       c.current_lng,
-      c.current_lat
+      c.current_lat,
+      c.home_hub_gers_id
     FROM crews AS c
     JOIN tasks AS t ON t.task_id = c.active_task_id
     WHERE c.status = 'working'
@@ -898,21 +903,23 @@ async function dispatchCrewToTask(
 }
 
 /**
- * Helper: Return a crew to their hub
+ * Helper: Return a crew to their home hub (or any hub if no home assigned)
  */
 async function returnCrewToHub(
   pool: PoolLike,
-  crew: { crew_id: string; region_id: string; current_lng: number | null; current_lat: number | null }
+  crew: { crew_id: string; region_id: string; current_lng: number | null; current_lat: number | null; home_hub_gers_id?: string | null }
 ): Promise<CrewEvent | null> {
-  // Get hub position
+  // Get hub position - prefer crew's home hub, fallback to any hub in region
   const hubResult = await pool.query<{ hub_lon: number; hub_lat: number }>(
     `SELECT COALESCE(ST_X(ST_PointOnSurface(hub.geom)), (hub.bbox_xmin + hub.bbox_xmax) / 2) AS hub_lon,
             COALESCE(ST_Y(ST_PointOnSurface(hub.geom)), (hub.bbox_ymin + hub.bbox_ymax) / 2) AS hub_lat
-     FROM hex_cells h
-     JOIN world_features hub ON hub.gers_id = h.hub_building_gers_id
-     WHERE h.region_id = $1 AND h.hub_building_gers_id IS NOT NULL
-     LIMIT 1`,
-    [crew.region_id]
+     FROM world_features hub
+     WHERE hub.gers_id = COALESCE($2, (
+       SELECT h.hub_building_gers_id FROM hex_cells h
+       WHERE h.region_id = $1 AND h.hub_building_gers_id IS NOT NULL
+       LIMIT 1
+     ))`,
+    [crew.region_id, crew.home_hub_gers_id]
   );
   const hub = hubResult.rows[0];
 

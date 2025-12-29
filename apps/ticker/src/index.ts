@@ -176,6 +176,9 @@ async function publishResourceTransfers(client: PoolLike, transfers: ResourceTra
   await notifyEvent(client, "resource_transfer", { transfer_ids: transferIds });
 }
 
+// UUIDs are ~40 bytes each, chunk to stay under 8KB limit
+const CREW_ID_CHUNK_SIZE = 100;
+
 /**
  * Publish crew delta with ID-only updates.
  * Client fetches full crew data (with waypoints) from /api/batch/crews.
@@ -183,8 +186,11 @@ async function publishResourceTransfers(client: PoolLike, transfers: ResourceTra
 async function publishCrewDeltas(client: PoolLike, crewEvents: { crew_id: string; region_id: string; event_type: string; waypoints?: unknown; position?: unknown; task_id?: string | null }[]) {
   if (crewEvents.length === 0) return;
   const crewIds = crewEvents.map(c => c.crew_id);
-  // Can batch many IDs since each is ~40 bytes
-  await notifyEvent(client, "crew_delta", { crew_ids: crewIds });
+  // Chunk to stay under PostgreSQL NOTIFY 8KB limit
+  for (let i = 0; i < crewIds.length; i += CREW_ID_CHUNK_SIZE) {
+    const chunk = crewIds.slice(i, i + CREW_ID_CHUNK_SIZE);
+    await notifyEvent(client, "crew_delta", { crew_ids: chunk });
+  }
 }
 
 async function runTick(client: PoolLike) {

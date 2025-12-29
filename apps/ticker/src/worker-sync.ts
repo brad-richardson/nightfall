@@ -5,11 +5,12 @@ type SyncResult = { added: number; removed: number };
 
 /**
  * Syncs the number of crews per region to match the hex cell count.
- * Goal: 1 worker per hex cell (minimum 1 per region).
+ * Goal: 2 workers per hex cell (minimum 2 per region).
  *
- * - Adds new idle crews if hex count exceeds crew count
- * - Removes idle crews if crew count exceeds hex count (never removes active crews)
+ * - Adds new idle crews if hex count * 2 exceeds crew count
+ * - Removes idle crews if crew count exceeds hex count * 2 (never removes active crews)
  * - Updates the crew_count column on the regions table
+ * - Assigns crews to specific hex hubs (home_hub_gers_id) for distributed returning
  *
  * All operations are performed in a single transaction for consistency.
  */
@@ -18,10 +19,10 @@ export async function syncRegionWorkers(pool: PoolLike): Promise<SyncResult> {
   // This avoids N+1 queries and ensures transaction safety
   const result = await pool.query<SyncResult>(`
     WITH region_stats AS (
-      -- Calculate target crew count for each region
+      -- Calculate target crew count for each region (2 per hex, minimum 2)
       SELECT
         r.region_id,
-        GREATEST(1, COALESCE(h.hex_count, 1))::int AS target_crews,
+        GREATEST(2, COALESCE(h.hex_count, 1) * 2)::int AS target_crews,
         COALESCE(c.crew_count, 0)::int AS current_crews,
         COALESCE(c.idle_count, 0)::int AS idle_crews
       FROM regions r
@@ -37,6 +38,13 @@ export async function syncRegionWorkers(pool: PoolLike): Promise<SyncResult> {
         FROM crews
         GROUP BY region_id
       ) c ON c.region_id = r.region_id
+    ),
+    -- Get hex cells with their hubs for crew assignment
+    hex_hubs AS (
+      SELECT h.region_id, h.h3_index, h.hub_building_gers_id,
+             ROW_NUMBER() OVER (PARTITION BY h.region_id ORDER BY h.h3_index) AS hex_idx
+      FROM hex_cells h
+      WHERE h.hub_building_gers_id IS NOT NULL
     ),
     regions_needing_crews AS (
       -- Regions that need more crews
@@ -59,11 +67,19 @@ export async function syncRegionWorkers(pool: PoolLike): Promise<SyncResult> {
         )
     ),
     inserted_crews AS (
-      -- Add new crews where needed
-      INSERT INTO crews (region_id, status)
-      SELECT r.region_id, 'idle'
+      -- Add new crews where needed, assigning to hex hubs in round-robin
+      INSERT INTO crews (region_id, status, home_hub_gers_id)
+      SELECT
+        r.region_id,
+        'idle',
+        -- Assign crews to hubs in round-robin (2 per hex)
+        (SELECT hub_building_gers_id FROM hex_hubs hh
+         WHERE hh.region_id = r.region_id
+         ORDER BY hh.hex_idx
+         OFFSET ((gs.n - 1) / 2) % (SELECT COUNT(*) FROM hex_hubs hh2 WHERE hh2.region_id = r.region_id)
+         LIMIT 1)
       FROM regions_needing_crews r
-      CROSS JOIN LATERAL generate_series(1, r.crews_to_add)
+      CROSS JOIN LATERAL generate_series(1, r.crews_to_add) AS gs(n)
       RETURNING crew_id
     ),
     deleted_crews AS (

@@ -67,7 +67,7 @@ describe("syncRegionWorkers", () => {
     expect(sql).toContain("status = 'idle'");
   });
 
-  it("ensures minimum of 1 crew per region", async () => {
+  it("ensures minimum of 2 crews per region (2 per hex)", async () => {
     const query = vi.fn().mockResolvedValueOnce({
       rows: [{ added: 0, removed: 0 }]
     });
@@ -75,7 +75,9 @@ describe("syncRegionWorkers", () => {
     await syncRegionWorkers({ query });
 
     const sql = String(query.mock.calls[0][0]);
-    // Should use GREATEST(1, ...) to ensure minimum of 1
-    expect(sql).toContain("GREATEST(1,");
+    // Should use GREATEST(2, ...) to ensure minimum of 2 crews
+    expect(sql).toContain("GREATEST(2,");
+    // Should multiply hex count by 2 for 2 workers per hex
+    expect(sql).toContain("* 2");
   });
 });

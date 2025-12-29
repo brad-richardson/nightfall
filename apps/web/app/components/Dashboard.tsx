@@ -457,7 +457,7 @@ export default function Dashboard({
     regionUpdate: { pool_food: number; pool_equipment: number; pool_energy: number; pool_materials: number; rust_avg?: number | null; health_avg?: number | null; score?: number | null } | null;
     featureUpdates: Map<string, { health: number; status: string }>;
     taskUpdates: Map<string, { task_id: string; status: string; priority_score: number; vote_score?: number; cost_food?: number; cost_equipment?: number; cost_energy?: number; cost_materials?: number; duration_s?: number; repair_amount?: number; task_type?: string; target_gers_id?: string; region_id?: string }>;
-    crewUpdates: Map<string, { crew_id: string; event_type: string; waypoints?: { coord: [number, number]; arrive_at: string }[] | null; position?: { lng: number; lat: number } | null; task_id?: string | null }>;
+    crewUpdates: Map<string, { crew_id: string; event_type: string; waypoints?: { coord: [number, number]; arrive_at: string }[] | null; path_started_at?: string | null; position?: { lng: number; lat: number } | null; task_id?: string | null }>;
     resourceDeltas: ResourceDelta[];
     needsTaskRefetch: boolean;
     dirty: boolean;
@@ -716,7 +716,8 @@ export default function Dashboard({
               status: newStatus,
               active_task_id: delta.task_id ?? (delta.event_type === "crew_idle" ? null : crew.active_task_id),
               waypoints: delta.waypoints ?? null,
-              path_started_at: delta.waypoints ? new Date().toISOString() : null,
+              // Use server's path_started_at if available, fallback to client time for legacy events
+              path_started_at: delta.path_started_at ?? (delta.waypoints ? new Date().toISOString() : null),
               current_lng: delta.position?.lng ?? crew.current_lng,
               current_lat: delta.position?.lat ?? crew.current_lat
             };
@@ -970,6 +971,7 @@ export default function Dashboard({
                   crew_id: crew.crew_id,
                   event_type: eventTypeMap[crew.status] ?? "crew_idle",
                   waypoints: crew.waypoints,
+                  path_started_at: crew.path_started_at,
                   position: crew.position,
                   task_id: crew.task_id
                 });
@@ -1255,6 +1257,7 @@ export default function Dashboard({
         region_id: string;
         event_type: string;
         waypoints?: { coord: [number, number]; arrive_at: string }[] | null;
+        path_started_at?: string | null;
         position?: { lng: number; lat: number } | null;
         task_id?: string | null;
       };
