@@ -22,10 +22,12 @@ import { checkAndPerformReset } from "./reset";
 import { cleanupOldData } from "./cleanup";
 import { attachPoolErrorHandler } from "./pool";
 import { calculateCityScore } from "@nightfall/config";
+import { syncRegionWorkers } from "./worker-sync";
 
 const intervalMs = Number(process.env.TICK_INTERVAL_MS ?? 10_000);
 const lockId = Number(process.env.TICK_LOCK_ID ?? 424242);
 const cleanupIntervalMs = Number(process.env.CLEANUP_INTERVAL_MS ?? 60 * 60 * 1000);
+const workerSyncIntervalMs = Number(process.env.WORKER_SYNC_INTERVAL_MS ?? 5 * 60 * 1000); // 5 minutes
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL
@@ -34,6 +36,7 @@ const pool = new Pool({
 attachPoolErrorHandler(pool, logger);
 
 let lastCleanupMs = 0;
+let lastWorkerSyncMs = 0;
 
 type RegionSnapshot = {
   region_id: string;
@@ -225,6 +228,20 @@ async function runTick(client: PoolLike) {
       logger.info({ ...stats }, "cleanup complete");
     } catch (error) {
       logger.error({ err: error }, "cleanup failed");
+    }
+  }
+
+  // Periodically sync worker count with hex count (1 worker per hex)
+  if (
+    Number.isFinite(workerSyncIntervalMs) &&
+    workerSyncIntervalMs > 0 &&
+    now - lastWorkerSyncMs >= workerSyncIntervalMs
+  ) {
+    try {
+      await syncRegionWorkers(client);
+      lastWorkerSyncMs = now;
+    } catch (error) {
+      logger.error({ err: error }, "worker sync failed");
     }
   }
 

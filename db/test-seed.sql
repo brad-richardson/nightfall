@@ -2,7 +2,8 @@
 -- This creates a small test region with minimal data
 
 -- Create test region (Bar Harbor, ME Demo)
-INSERT INTO regions (region_id, name, boundary, center, distance_from_center, pool_food, pool_equipment, pool_energy, pool_materials, crew_count)
+-- Demo region has higher difficulty (2.5x decay rate) to make the small area more challenging
+INSERT INTO regions (region_id, name, boundary, center, distance_from_center, pool_food, pool_equipment, pool_energy, pool_materials, crew_count, difficulty_multiplier)
 VALUES (
   'bar_harbor_me_usa_demo',
   'Bar Harbor, ME, USA (Demo)',
@@ -13,7 +14,8 @@ VALUES (
   2000,
   2000,
   2000,
-  10
+  10,
+  2.5
 )
 ON CONFLICT (region_id) DO NOTHING;
 

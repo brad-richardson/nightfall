@@ -12,6 +12,7 @@ export async function applyRoadDecay(pool: PoolLike, multipliers: PhaseMultiplie
   // 1. Capture old state before update
   // 2. Perform the update
   // 3. Filter results to only emit when crossing notable thresholds
+  // Region difficulty_multiplier affects decay rate (higher = faster decay)
   const result = await pool.query<FeatureDelta>(
     `
     WITH feature_rust AS (
@@ -39,9 +40,10 @@ export async function applyRoadDecay(pool: PoolLike, multipliers: PhaseMultiplie
             ${decayCases}
             ELSE 1.0
           END
-        ) * (1 + COALESCE(feature_rust.rust_level, 0)) * $1 AS decay_value
+        ) * (1 + COALESCE(feature_rust.rust_level, 0)) * $1 * COALESCE(r.difficulty_multiplier, 1.0) AS decay_value
       FROM world_features AS wf
       LEFT JOIN feature_rust ON feature_rust.gers_id = wf.gers_id
+      LEFT JOIN regions AS r ON r.region_id = wf.region_id
       WHERE wf.feature_type = 'road'
     ),
     updated AS (
