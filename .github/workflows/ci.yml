@@ -106,9 +106,7 @@ jobs:
     needs: [lint, unit-test, build, ui-test]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     permissions:
-      contents: read
-      pages: write
-      id-token: write
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -128,13 +126,13 @@ jobs:
           NEXT_PUBLIC_API_BASE_URL: https://nightfall.fly.dev
           NEXT_PUBLIC_BASE_PATH: /${{ github.event.repository.name }}
 
-      - uses: actions/configure-pages@v5
-
-      - uses: actions/upload-pages-artifact@v3
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          path: apps/web/out
-
-      - uses: actions/deploy-pages@v4
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./apps/web/out
+          keep_files: true
+          exclude_assets: ''
 
   reingest-demo:
     runs-on: ubuntu-latest
