@@ -39,10 +39,10 @@ export const RESOURCE_TYPES: ResourceType[] = ["food", "equipment", "energy", "m
 
 export type RoadClassInfo = {
   decayRate: number;
-  costFood: number;
-  costEquipment: number;
-  costEnergy: number;
-  costMaterials: number;
+  /** Base cost for all resource types (same for food, equipment, energy, materials) */
+  baseCost: number;
+  /** Maximum +/- offset from baseCost (actual cost = baseCost + offset where offset is in [-costVariance, +costVariance]) */
+  costVariance: number;
   durationS: number;
   repairAmount: number;
   priorityWeight: number;
@@ -51,70 +51,56 @@ export type RoadClassInfo = {
 export const ROAD_CLASSES: Record<string, RoadClassInfo> = {
   motorway: {
     decayRate: 0.5,
-    costFood: 30,
-    costEquipment: 60,
-    costEnergy: 45,
-    costMaterials: 75,
+    baseCost: 50,
+    costVariance: 20, // range: 30-70
     durationS: 8,
     repairAmount: 30,
     priorityWeight: 10
   },
   trunk: {
     decayRate: 0.6,
-    costFood: 26,
-    costEquipment: 45,
-    costEnergy: 38,
-    costMaterials: 60,
+    baseCost: 42,
+    costVariance: 17, // range: 25-59
     durationS: 7,
     repairAmount: 30,
     priorityWeight: 8
   },
   primary: {
     decayRate: 0.8,
-    costFood: 19,
-    costEquipment: 34,
-    costEnergy: 26,
-    costMaterials: 45,
+    baseCost: 31,
+    costVariance: 12, // range: 19-43
     durationS: 6,
     repairAmount: 25,
     priorityWeight: 6
   },
   secondary: {
     decayRate: 1.0,
-    costFood: 15,
-    costEquipment: 23,
-    costEnergy: 19,
-    costMaterials: 30,
+    baseCost: 22,
+    costVariance: 9, // range: 13-31
     durationS: 5,
     repairAmount: 25,
     priorityWeight: 4
   },
   tertiary: {
     decayRate: 1.2,
-    costFood: 11,
-    costEquipment: 19,
-    costEnergy: 15,
-    costMaterials: 23,
+    baseCost: 17,
+    costVariance: 7, // range: 10-24
     durationS: 4,
     repairAmount: 20,
     priorityWeight: 3
   },
   residential: {
     decayRate: 1.5,
-    costFood: 8,
-    costEquipment: 11,
-    costEnergy: 9,
-    costMaterials: 15,
+    baseCost: 11,
+    costVariance: 4, // range: 7-15
     durationS: 3,
     repairAmount: 20,
     priorityWeight: 2
   },
   service: {
     decayRate: 2.0,
-    costFood: 4,
-    costEquipment: 6,
-    costEnergy: 5,
-    costMaterials: 8,
+    baseCost: 6,
+    costVariance: 2, // range: 4-8
     durationS: 3,
     repairAmount: 15,
     priorityWeight: 1

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { spawnDegradedRoadTasks, updateTaskPriorities } from "./tasks";
+import { spawnDegradedRoadTasks, updateTaskPriorities, buildCostCase } from "./tasks";
+import { ROAD_CLASSES, RESOURCE_TYPES } from "@nightfall/config";
 
 describe("spawnDegradedRoadTasks", () => {
   it("inserts tasks for degraded roads", async () => {
@@ -61,5 +62,59 @@ describe("updateTaskPriorities", () => {
     // Verify the decay formula includes time-based calculation
     expect(sql).toContain("EXTRACT(EPOCH FROM (now() - created_at");
     expect(sql).toContain("/ 3600.0"); // Hourly decay
+  });
+});
+
+describe("buildCostCase", () => {
+  it("generates deterministic SQL for each resource type", () => {
+    const foodCase = buildCostCase("food");
+    const foodCase2 = buildCostCase("food");
+
+    // Same input should produce identical output
+    expect(foodCase).toBe(foodCase2);
+  });
+
+  it("generates different SQL for different resource types", () => {
+    const foodCase = buildCostCase("food");
+    const materialsCase = buildCostCase("materials");
+
+    // Different resource types should produce different SQL (different hash inputs)
+    expect(foodCase).not.toBe(materialsCase);
+    expect(foodCase).toContain("'food'");
+    expect(materialsCase).toContain("'materials'");
+  });
+
+  it("includes all road classes in the generated SQL", () => {
+    const sql = buildCostCase("food");
+
+    for (const roadClass of Object.keys(ROAD_CLASSES)) {
+      expect(sql).toContain(`WHEN '${roadClass}'`);
+    }
+  });
+
+  it("generates costs within expected range for each road class", () => {
+    const sql = buildCostCase("food");
+
+    for (const [cls, info] of Object.entries(ROAD_CLASSES)) {
+      // The formula should be: baseCost + (abs(hash) % range) - variance
+      // where range = 2 * variance + 1
+      const range = 2 * info.costVariance + 1;
+      expect(sql).toContain(
+        `WHEN '${cls}' THEN ${info.baseCost} + (abs(hashtext(wf.gers_id || 'food')) % ${range}) - ${info.costVariance}`
+      );
+    }
+  });
+
+  it("throws error for invalid resource type", () => {
+    // @ts-expect-error - Testing runtime validation
+    expect(() => buildCostCase("invalid")).toThrow(
+      "Invalid resourceType: invalid. Must be one of: food, equipment, energy, materials"
+    );
+  });
+
+  it("accepts all valid resource types", () => {
+    for (const resourceType of RESOURCE_TYPES) {
+      expect(() => buildCostCase(resourceType)).not.toThrow();
+    }
   });
 });
