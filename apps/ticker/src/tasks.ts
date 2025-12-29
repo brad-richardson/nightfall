@@ -4,22 +4,27 @@ import { ROAD_CLASSES, DEGRADED_HEALTH_THRESHOLD } from "@nightfall/config";
 
 const DEFAULT_LAMBDA = 0.1;
 
+/**
+ * Generate SQL CASE expression for hash-based cost calculation.
+ * Cost = baseCost + offset, where offset is in [-costVariance, +costVariance]
+ * The offset is determined by hashing (gers_id || resourceType) for consistency.
+ */
+function buildCostCase(resourceType: string): string {
+  const cases = Object.entries(ROAD_CLASSES)
+    .map(([cls, info]) => {
+      const range = 2 * info.costVariance + 1;
+      // Use hashtext for deterministic hash, abs + mod to get offset in [0, range-1], then subtract variance
+      return `WHEN '${cls}' THEN ${info.baseCost} + (abs(hashtext(wf.gers_id || '${resourceType}')) % ${range}) - ${info.costVariance}`;
+    })
+    .join("\n        ");
+  return cases;
+}
+
 export async function spawnDegradedRoadTasks(pool: PoolLike) {
-  const costFoodCases = Object.entries(ROAD_CLASSES)
-    .map(([cls, info]) => `WHEN '${cls}' THEN ${info.costFood}`)
-    .join("\n        ");
-
-  const costEquipmentCases = Object.entries(ROAD_CLASSES)
-    .map(([cls, info]) => `WHEN '${cls}' THEN ${info.costEquipment}`)
-    .join("\n        ");
-
-  const costEnergyCases = Object.entries(ROAD_CLASSES)
-    .map(([cls, info]) => `WHEN '${cls}' THEN ${info.costEnergy}`)
-    .join("\n        ");
-
-  const costMaterialsCases = Object.entries(ROAD_CLASSES)
-    .map(([cls, info]) => `WHEN '${cls}' THEN ${info.costMaterials}`)
-    .join("\n        ");
+  const costFoodCases = buildCostCase("food");
+  const costEquipmentCases = buildCostCase("equipment");
+  const costEnergyCases = buildCostCase("energy");
+  const costMaterialsCases = buildCostCase("materials");
 
   const durationCases = Object.entries(ROAD_CLASSES)
     .map(([cls, info]) => `WHEN '${cls}' THEN ${info.durationS}`)
