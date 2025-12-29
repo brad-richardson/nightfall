@@ -238,7 +238,6 @@ export default function Dashboard({
   const clearUserVote = useStore.getState().clearUserVote;
   const startMinigame = useStore.getState().startMinigame;
   const setCooldown = useStore.getState().setCooldown;
-  const addContributionScore = useStore.getState().addContributionScore;
   const addVoteScore = useStore.getState().addVoteScore;
 
   const [resourceDeltas, setResourceDeltas] = useState<ResourceDelta[]>([]);
@@ -376,12 +375,6 @@ export default function Dashboard({
 
       if (pending.regionUpdate) {
         const update = pending.regionUpdate;
-        console.debug("[Dashboard] Applying pool update:", {
-          pool_food: update.pool_food,
-          pool_equipment: update.pool_equipment,
-          pool_energy: update.pool_energy,
-          pool_materials: update.pool_materials
-        });
         setRegion((prev) => ({
           ...prev,
           pool_food: update.pool_food,
@@ -622,15 +615,6 @@ export default function Dashboard({
       }
 
       if (data.region_updates?.length) {
-        console.debug("[SSE] world_delta region_updates:", data.region_updates.map(r => ({
-          region_id: r.region_id,
-          pool_food: r.pool_food,
-          pool_equipment: r.pool_equipment,
-          pool_energy: r.pool_energy,
-          pool_materials: r.pool_materials,
-          health_avg: r.health_avg,
-          rust_avg: r.rust_avg
-        })));
         const match = data.region_updates.find((r) => r.region_id === regionRef.current.region_id);
         if (match) {
           // Calculate resource deltas
@@ -829,42 +813,6 @@ export default function Dashboard({
       throw err;
     }
   }, [apiBaseUrl, auth, userVotes, setRegion, setUserVote, clearUserVote, addVoteScore]);
-
-  const handleContribute = useCallback(async (
-    sourceGersId: string,
-    resourceType: "food" | "equipment" | "energy" | "materials",
-    amount: number
-  ) => {
-    if (!auth.clientId || !auth.token) return;
-    try {
-      const res = await fetch(`${apiBaseUrl}/api/contribute`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${auth.token}`
-        },
-        body: JSON.stringify({
-          client_id: auth.clientId,
-          region_id: region.region_id,
-          food: resourceType === "food" ? amount : 0,
-          equipment: resourceType === "equipment" ? amount : 0,
-          energy: resourceType === "energy" ? amount : 0,
-          materials: resourceType === "materials" ? amount : 0,
-          source_gers_id: sourceGersId
-        })
-      });
-      if (res.ok) {
-        await res.json();
-        // Award score for contribution (1 point per unit contributed)
-        const scoreAmount = Math.round(amount * SCORE_ACTIONS.resourceContribution);
-        if (scoreAmount > 0) {
-          addContributionScore(scoreAmount);
-        }
-      }
-    } catch (err) {
-      console.error("Failed to contribute", err);
-    }
-  }, [apiBaseUrl, auth, region.region_id, addContributionScore]);
 
   const handleBoostProduction = useCallback(async (buildingGersId: string, buildingName: string) => {
     if (!auth.clientId || !auth.token) return;
