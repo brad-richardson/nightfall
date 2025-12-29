@@ -1,4 +1,6 @@
-export type PhaseName = "dawn" | "day" | "dusk" | "night";
+// Re-export PhaseName from shared config for single source of truth
+import type { PhaseName } from "@nightfall/config";
+export type { PhaseName } from "@nightfall/config";
 
 type Phase = {
   name: PhaseName;
