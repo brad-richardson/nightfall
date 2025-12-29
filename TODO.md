@@ -9,6 +9,23 @@ The minigame system is in place with KitchenRush implemented. Remaining minigame
 - [x] Power Up (Energy): Rhythm minigame - tap to spin generator, maintain RPM in sweet spot
 - [x] Salvage Run (Materials): Timing windows minigame - hit action when oscillating marker is in clean zone
 
+### Additional Minigame Ideas (Mario Party-inspired)
+Energy and Materials currently only have one minigame each. Ideas for more variety:
+
+**Energy minigames:**
+- [ ] Surge Stopper: Whack-a-mole style - tap surging outlets before they overload
+- [ ] Circuit Race: Connect wires in order before time runs out (like tracing a path)
+- [ ] Turbine Spin: Rhythm game - tap to keep turbines spinning at optimal speed
+- [ ] Solar Catcher: Move panels to catch moving sunbeams, avoid shadows
+- [ ] Battery Bounce: Pong-like game bouncing energy between battery poles
+
+**Materials minigames:**
+- [ ] Lumber Stack: Jenga-style - carefully stack lumber without toppling
+- [ ] Conveyor Sort: Sort falling materials onto correct conveyor belts
+- [ ] Blueprint Match: Memory match pairs of construction materials
+- [ ] Excavator Dig: Dig for buried materials, avoid hitting pipes/cables
+- [ ] Pallet Tetris: Tetris-like game fitting materials onto pallets efficiently
+
 ## Mechanics & Balancing
 - [ ] Region Resizing: Reduce the default size of the active region area for tighter gameplay
 

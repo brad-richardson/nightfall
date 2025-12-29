@@ -63,8 +63,12 @@ export { BUILDING_ACTIVATION_MS } from "@nightfall/config";
 // Minigame configuration
 export const MINIGAME_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
 export const BASE_BOOST_DURATION_MS = 3 * 60 * 1000; // 3 minutes base
+export const QUICK_MODE_ROUNDS = 1; // Quick activation requires just 1 round
 
-// Minigame types by resource
+// Minigame modes
+export type MinigameMode = "quick" | "boost";
+
+// Minigame types by resource (see TODO.md for additional game ideas)
 export const FOOD_MINIGAMES = ["kitchen_rush", "fresh_check"];
 export const EQUIPMENT_MINIGAMES = ["gear_up", "patch_job"];
 export const ENERGY_MINIGAMES = ["power_up"];

@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { MinigameResult, ResourceType } from "../../store";
+import type { MinigameResult, ResourceType, MinigameMode } from "../../store";
 
 type MinigameResultsProps = {
   result: MinigameResult;
   buildingName: string;
   resourceType: ResourceType;
+  mode: MinigameMode;
   onDismiss: () => void;
 };
 
@@ -14,6 +15,7 @@ export default function MinigameResults({
   result,
   buildingName,
   resourceType,
+  mode,
   onDismiss,
 }: MinigameResultsProps) {
   const [showDetails, setShowDetails] = useState(false);
@@ -58,16 +60,79 @@ export default function MinigameResults({
   const rating = getRating(result.performance);
 
   // Animate details in after initial reveal
+  // Quick mode allows faster dismissal since it's a simpler interaction
   useEffect(() => {
     const detailsTimer = setTimeout(() => setShowDetails(true), 400);
-    // Allow dismiss after 2 seconds to give user time to see results
-    const dismissTimer = setTimeout(() => setCanDismiss(true), 2000);
+    const dismissDelay = mode === "quick" ? 800 : 2000;
+    const dismissTimer = setTimeout(() => setCanDismiss(true), dismissDelay);
     return () => {
       clearTimeout(detailsTimer);
       clearTimeout(dismissTimer);
     };
-  }, []);
+  }, [mode]);
 
+  // Quick mode: show activation success screen
+  if (mode === "quick") {
+    return (
+      <div className="flex h-full flex-col items-center justify-center p-8">
+        <div className={`mb-4 text-6xl transition-transform duration-500 ${showDetails ? "scale-100" : "scale-0"}`}>
+          ✓
+        </div>
+
+        <h2
+          className="mb-2 font-display text-3xl font-bold text-[#4ade80]"
+        >
+          Building Activated!
+        </h2>
+
+        <p className="mb-6 text-white/60">Convoys will dispatch for 2 minutes</p>
+
+        {/* Activation card */}
+        <div
+          className={`w-full max-w-sm transform rounded-2xl border-2 border-white/20 bg-gradient-to-b from-white/10 to-white/5 p-6 transition-all duration-500 ${
+            showDetails ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0"
+          }`}
+        >
+          {/* Header with resource info */}
+          <div className="mb-4 flex items-center gap-3">
+            <span
+              className="flex h-12 w-12 items-center justify-center rounded-xl text-2xl"
+              style={{ backgroundColor: `${resourceColors[resourceType]}20` }}
+            >
+              {resourceIcons[resourceType]}
+            </span>
+            <div>
+              <p className="font-medium text-white">{buildingName}</p>
+              <p className="text-xs capitalize text-white/50">{resourceType} production</p>
+            </div>
+          </div>
+
+          {/* Activation message */}
+          <div className="flex items-start gap-2 rounded-xl bg-gradient-to-r from-[#4ade80]/10 to-transparent p-3">
+            <span className="text-xl">🚚</span>
+            <p className="text-sm text-white/80">
+              Resources will be delivered to the regional hub. Use Boost Production for increased output!
+            </p>
+          </div>
+        </div>
+
+        {/* Back button */}
+        <button
+          onClick={onDismiss}
+          disabled={!canDismiss}
+          className={`mt-6 rounded-xl bg-[color:var(--night-teal)] px-8 py-3 text-sm font-semibold uppercase tracking-wider text-white shadow-[0_4px_16px_rgba(45,212,191,0.3)] transition-all duration-500 focus:outline-none focus:ring-2 focus:ring-[color:var(--night-teal)] focus:ring-offset-2 focus:ring-offset-[#0f1216] ${
+            showDetails ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0"
+          } ${
+            canDismiss ? "hover:brightness-110" : "cursor-not-allowed opacity-50"
+          }`}
+        >
+          {canDismiss ? "Back to Map" : "..."}
+        </button>
+      </div>
+    );
+  }
+
+  // Boost mode: show full results with boost info
   return (
     <div className="flex h-full flex-col items-center justify-center p-8">
       {/* Win/Loss indicator */}

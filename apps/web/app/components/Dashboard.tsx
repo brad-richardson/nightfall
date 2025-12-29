@@ -1085,7 +1085,8 @@ export default function Dashboard({
     }
   }, [apiBaseUrl, auth, userVotes, setRegion, setUserVote, clearUserVote, addVoteScore]);
 
-  const handleBoostProduction = useCallback(async (buildingGersId: string, buildingName: string) => {
+  // Unified handler for both quick activation and boost production minigames
+  const handleStartMinigame = useCallback(async (buildingGersId: string, buildingName: string, mode: "quick" | "boost") => {
     if (!auth.clientId || !auth.token) return;
 
     try {
@@ -1097,7 +1098,8 @@ export default function Dashboard({
         },
         body: JSON.stringify({
           client_id: auth.clientId,
-          building_gers_id: buildingGersId
+          building_gers_id: buildingGersId,
+          mode
         })
       });
 
@@ -1110,6 +1112,7 @@ export default function Dashboard({
           building_name: buildingName,
           minigame_type: data.minigame_type,
           resource_type: data.resource_type,
+          mode: data.mode,
           config: data.config,
           difficulty: data.difficulty,
           started_at: Date.now(),
@@ -1136,7 +1139,8 @@ export default function Dashboard({
     setShowMinigameOverlay(false);
   }, []);
 
-  const handleActivateBuilding = useCallback(async (buildingGersId: string): Promise<{ activated_at: string; expires_at: string }> => {
+  // Direct activation handler for dev mode (skips minigame for faster testing)
+  const handleDirectActivate = useCallback(async (buildingGersId: string): Promise<{ activated_at: string; expires_at: string }> => {
     if (!auth.clientId || !auth.token) {
       throw new Error("Not authenticated");
     }
@@ -1157,6 +1161,8 @@ export default function Dashboard({
     if (!data.ok && !data.already_activated) {
       throw new Error(data.error || "Activation failed");
     }
+
+    toast.success("Building activated!", { description: "Convoys will be dispatched for 2 minutes" });
 
     return {
       activated_at: data.activated_at,
@@ -1427,8 +1433,8 @@ export default function Dashboard({
             <FeaturePanel
               activeTasks={region.tasks}
               onVote={handleVote}
-              onActivateBuilding={handleActivateBuilding}
-              onBoostProduction={handleBoostProduction}
+              onStartMinigame={handleStartMinigame}
+              onDirectActivate={process.env.NODE_ENV === "development" ? handleDirectActivate : undefined}
               canContribute={Boolean(auth.token && auth.clientId)}
               userVotes={userVotes}
             />

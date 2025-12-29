@@ -103,13 +103,15 @@ export default function MinigameOverlay({ onClose }: MinigameOverlayProps) {
       const data = await res.json();
 
       if (data.ok) {
-        // Update boost state for UI
-        addBuildingBoost({
-          building_gers_id: activeMinigame.building_gers_id,
-          multiplier: data.reward.multiplier,
-          expires_at: data.reward.expires_at,
-          minigame_type: activeMinigame.minigame_type,
-        });
+        // Update boost state for UI (only for boost mode)
+        if (data.reward) {
+          addBuildingBoost({
+            building_gers_id: activeMinigame.building_gers_id,
+            multiplier: data.reward.multiplier,
+            expires_at: data.reward.expires_at,
+            minigame_type: activeMinigame.minigame_type,
+          });
+        }
         // Update building activation state (minigame always activates the building)
         if (data.activation) {
           addBuildingActivation({
@@ -118,12 +120,13 @@ export default function MinigameOverlay({ onClose }: MinigameOverlayProps) {
             expires_at: data.activation.expires_at,
           });
         }
+        // For quick mode, set minimal result; for boost mode, include full reward info
         completeMinigame({
           score,
           performance: data.performance,
-          multiplier: data.reward.multiplier,
-          duration_ms: data.reward.duration_ms,
-          expires_at: data.reward.expires_at,
+          multiplier: data.reward?.multiplier ?? 1,
+          duration_ms: data.reward?.duration_ms ?? 0,
+          expires_at: data.reward?.expires_at ?? data.activation?.expires_at ?? "",
         });
         // Award score for minigame completion
         const baseScore = SCORE_ACTIONS.minigameCompleted;
@@ -222,6 +225,7 @@ export default function MinigameOverlay({ onClose }: MinigameOverlayProps) {
             result={minigameResult}
             buildingName={activeMinigame?.building_name || "Building"}
             resourceType={activeMinigame?.resource_type || "food"}
+            mode={activeMinigame?.mode || "boost"}
             onDismiss={handleResultsDismiss}
           />
         ) : activeMinigame ? (
@@ -232,7 +236,7 @@ export default function MinigameOverlay({ onClose }: MinigameOverlayProps) {
                 {minigameLabels[activeMinigame.minigame_type]}
               </p>
               <h2 id="minigame-title" className="mt-2 font-display text-xl text-white">
-                Boost Production
+                {activeMinigame.mode === "quick" ? "Quick Activation" : "Boost Production"}
               </h2>
               <div className="mt-2 flex items-center justify-center gap-2">
                 <span
@@ -245,6 +249,11 @@ export default function MinigameOverlay({ onClose }: MinigameOverlayProps) {
                   {activeMinigame.building_name}
                 </span>
               </div>
+              {activeMinigame.mode === "quick" && (
+                <p className="mt-2 text-xs text-white/40">
+                  Complete 1 round to activate
+                </p>
+              )}
             </div>
 
             {/* Game area */}
