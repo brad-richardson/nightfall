@@ -5,10 +5,10 @@ type SyncResult = { added: number; removed: number };
 
 /**
  * Syncs the number of crews per region to match the hex cell count.
- * Goal: 2 workers per hex cell (minimum 2 per region).
+ * Goal: 1 worker per hex cell (minimum 1 per region).
  *
- * - Adds new idle crews if hex count * 2 exceeds crew count
- * - Removes idle crews if crew count exceeds hex count * 2 (never removes active crews)
+ * - Adds new idle crews if hex count exceeds crew count
+ * - Removes idle crews if crew count exceeds hex count (never removes active crews)
  * - Updates the crew_count column on the regions table
  * - Assigns crews to specific hex hubs (home_hub_gers_id) for distributed returning
  *
@@ -19,10 +19,10 @@ export async function syncRegionWorkers(pool: PoolLike): Promise<SyncResult> {
   // This avoids N+1 queries and ensures transaction safety
   const result = await pool.query<SyncResult>(`
     WITH region_stats AS (
-      -- Calculate target crew count for each region (2 per hex, minimum 2)
+      -- Calculate target crew count for each region (1 per hex, minimum 1)
       SELECT
         r.region_id,
-        GREATEST(2, COALESCE(h.hex_count, 1) * 2)::int AS target_crews,
+        GREATEST(1, COALESCE(h.hex_count, 1))::int AS target_crews,
         COALESCE(c.crew_count, 0)::int AS current_crews,
         COALESCE(c.idle_count, 0)::int AS idle_crews
       FROM regions r
@@ -72,11 +72,11 @@ export async function syncRegionWorkers(pool: PoolLike): Promise<SyncResult> {
       SELECT
         r.region_id,
         'idle',
-        -- Assign crews to hubs in round-robin (2 per hex)
+        -- Assign crews to hubs in round-robin (1 per hex)
         (SELECT hub_building_gers_id FROM hex_hubs hh
          WHERE hh.region_id = r.region_id
          ORDER BY hh.hex_idx
-         OFFSET ((gs.n - 1) / 2) % (SELECT COUNT(*) FROM hex_hubs hh2 WHERE hh2.region_id = r.region_id)
+         OFFSET (gs.n - 1) % (SELECT COUNT(*) FROM hex_hubs hh2 WHERE hh2.region_id = r.region_id)
          LIMIT 1)
       FROM regions_needing_crews r
       CROSS JOIN LATERAL generate_series(1, r.crews_to_add) AS gs(n)

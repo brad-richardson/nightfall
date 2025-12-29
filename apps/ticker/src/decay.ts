@@ -40,7 +40,11 @@ export async function applyRoadDecay(pool: PoolLike, multipliers: PhaseMultiplie
             ${decayCases}
             ELSE 1.0
           END
-        ) * (1 + COALESCE(feature_rust.rust_level, 0)) * $1 * COALESCE(r.difficulty_multiplier, 1.0) AS decay_value
+        )
+        -- Scale decay by rust level: almost zero when rust is low, full when rust is high
+        -- This allows crews to catch up when the city is doing well
+        * GREATEST(0.1, COALESCE(feature_rust.rust_level, 0))
+        * $1 * COALESCE(r.difficulty_multiplier, 1.0) AS decay_value
       FROM world_features AS wf
       LEFT JOIN feature_rust ON feature_rust.gers_id = wf.gers_id
       LEFT JOIN regions AS r ON r.region_id = wf.region_id
