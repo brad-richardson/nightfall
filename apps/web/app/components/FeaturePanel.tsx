@@ -226,6 +226,9 @@ export default function FeaturePanel({ onActivateBuilding, onVote, onBoostProduc
             {selected.type === 'road' && (
               <h2 className="mt-1 font-display text-xl">Road Segment</h2>
             )}
+            {selected.type === 'building' && (
+              <h2 className="mt-1 font-display text-xl">Building</h2>
+            )}
             <p className="text-[10px] font-mono text-white/30 uppercase mt-1 overflow-hidden text-ellipsis">
               {selected.gers_id}
             </p>

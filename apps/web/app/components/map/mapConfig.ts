@@ -54,59 +54,29 @@ export const CREW_DASH_SEQUENCE: number[][] = [
   [3, 4, 0]
 ];
 
-// Construction crew SVG icon - centered workers with construction badge background
+// Construction crew SVG icon - compact hard hat badge
 export const CONSTRUCTION_VEHICLE_SVG = `
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-  <defs>
-    <clipPath id="topClip">
-      <rect x="4" y="4" width="56" height="8" rx="8"/>
-    </clipPath>
-  </defs>
-  <!-- Badge background - rounded rectangle with construction colors -->
-  <rect x="4" y="4" width="56" height="56" rx="8" fill="#1a1a1a" fill-opacity="0.85"/>
-  <rect x="4" y="4" width="56" height="56" rx="8" fill="none" stroke="#FF9800" stroke-width="3" stroke-opacity="0.9"/>
-  <!-- Hazard stripes at top -->
-  <rect x="4" y="4" width="56" height="8" rx="8" ry="8" fill="#FF9800" fill-opacity="0.3" clip-path="url(#topClip)"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+  <!-- Badge background - dark circle with orange border -->
+  <circle cx="20" cy="20" r="17" fill="#1a1a1a" fill-opacity="0.9"/>
+  <circle cx="20" cy="20" r="17" fill="none" stroke="#FF9800" stroke-width="2.5"/>
 
-  <!-- Construction Worker 1 (left) -->
-  <!-- Hard hat -->
-  <ellipse cx="22" cy="18" rx="9" ry="5" fill="#FFD700"/>
-  <rect x="13" y="18" width="18" height="3" fill="#FFD700"/>
-  <rect x="15" y="21" width="14" height="2" fill="#FF8C00"/>
-  <!-- Face -->
-  <circle cx="22" cy="29" r="8" fill="#FDBF6F"/>
-  <!-- Eyes -->
-  <circle cx="19" cy="28" r="1.5" fill="#333"/>
-  <circle cx="25" cy="28" r="1.5" fill="#333"/>
-  <!-- Smile -->
-  <path d="M 18 32 Q 22 35 26 32" stroke="#333" stroke-width="1.5" fill="none"/>
-  <!-- Body (high-vis vest) -->
-  <rect x="14" y="38" width="16" height="18" rx="2" fill="#FF6600"/>
-  <rect x="16" y="38" width="2.5" height="18" fill="#FFFF00"/>
-  <rect x="25.5" y="38" width="2.5" height="18" fill="#FFFF00"/>
+  <!-- Hard hat icon (simplified, centered) -->
+  <ellipse cx="20" cy="14" rx="10" ry="4" fill="#FFD700"/>
+  <rect x="10" y="14" width="20" height="4" fill="#FFD700"/>
+  <rect x="11" y="18" width="18" height="2" fill="#FF8C00"/>
 
-  <!-- Construction Worker 2 (right) -->
-  <!-- Hard hat -->
-  <ellipse cx="42" cy="18" rx="9" ry="5" fill="#FFD700"/>
-  <rect x="33" y="18" width="18" height="3" fill="#FFD700"/>
-  <rect x="35" y="21" width="14" height="2" fill="#FF8C00"/>
-  <!-- Face -->
-  <circle cx="42" cy="29" r="8" fill="#FDBF6F"/>
-  <!-- Eyes -->
-  <circle cx="39" cy="28" r="1.5" fill="#333"/>
-  <circle cx="45" cy="28" r="1.5" fill="#333"/>
-  <!-- Smile -->
-  <path d="M 38 32 Q 42 35 46 32" stroke="#333" stroke-width="1.5" fill="none"/>
-  <!-- Body (high-vis vest) -->
-  <rect x="34" y="38" width="16" height="18" rx="2" fill="#FF6600"/>
-  <rect x="36" y="38" width="2.5" height="18" fill="#FFFF00"/>
-  <rect x="45.5" y="38" width="2.5" height="18" fill="#FFFF00"/>
+  <!-- Worker silhouette (simplified) -->
+  <circle cx="20" cy="25" r="5" fill="#FDBF6F"/>
+  <rect x="13" y="30" width="14" height="7" rx="2" fill="#FF6600"/>
+  <rect x="15" y="30" width="2" height="7" fill="#FFFF00"/>
+  <rect x="23" y="30" width="2" height="7" fill="#FFFF00"/>
 </svg>
 `;
 
 // Create an ImageData-compatible array from SVG for MapLibre
 export function createConstructionVehicleImage(): { width: number; height: number; data: Uint8ClampedArray } {
-  const size = 64;
+  const size = 40;
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
@@ -131,7 +101,7 @@ export function createConstructionVehicleImage(): { width: number; height: numbe
 // Simpler approach: load icon as HTMLImageElement
 export function loadConstructionVehicleIcon(): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
-    const img = new Image(64, 64);
+    const img = new Image(40, 40);
     const svgBlob = new Blob([CONSTRUCTION_VEHICLE_SVG], { type: "image/svg+xml" });
     const url = URL.createObjectURL(svgBlob);
     img.onload = () => {
