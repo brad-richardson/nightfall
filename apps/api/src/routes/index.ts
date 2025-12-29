@@ -12,4 +12,5 @@ export { registerMinigameRoutes } from "./minigame";
 export { registerRepairMinigameRoutes } from "./repair-minigame";
 export { registerBuildingRoutes } from "./building";
 export { registerAdminRoutes } from "./admin";
+export { registerBatchRoutes } from "./batch";
 export type { RouteContext } from "./types";

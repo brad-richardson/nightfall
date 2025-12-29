@@ -25,6 +25,7 @@ import {
   registerRepairMinigameRoutes,
   registerBuildingRoutes,
   registerAdminRoutes,
+  registerBatchRoutes,
   type RouteContext
 } from "./routes";
 
@@ -88,9 +89,10 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   };
 
   // Add cache control headers for API routes
+  // Note: /api/batch/* endpoints set their own Cache-Control headers (public, max-age=10)
   app.addHook("onSend", (request, reply, payload, done) => {
     const url = request.raw.url ?? "";
-    if (url.startsWith("/api/") && !url.startsWith("/api/stream")) {
+    if (url.startsWith("/api/") && !url.startsWith("/api/stream") && !url.startsWith("/api/batch/")) {
       reply.header("Cache-Control", "no-store");
       reply.header("Pragma", "no-cache");
     }
@@ -115,6 +117,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   registerRepairMinigameRoutes(app);
   registerBuildingRoutes(app);
   registerAdminRoutes(app, routeContext);
+  registerBatchRoutes(app);
 
   // Cleanup on close
   app.addHook("onClose", async () => {

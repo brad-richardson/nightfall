@@ -72,6 +72,7 @@ function formatTime(seconds: number) {
 }
 
 const FETCH_RETRY_OPTIONS = { attempts: 3, baseDelayMs: 250, maxDelayMs: 2000, jitter: 0.2 };
+const BATCH_DEBOUNCE_MS = 100; // Debounce rapid ID notifications
 
 const RESOURCE_LABELS: Record<ResourceType, string> = {
   food: "Food",
@@ -477,6 +478,20 @@ export default function Dashboard({
     dirty: false
   });
 
+  // Pending batch fetch IDs (for debouncing rapid SSE notifications)
+  const pendingBatchIdsRef = useRef<{
+    hexIds: Set<string>;
+    featureIds: Set<string>;
+    transferIds: Set<string>;
+    crewIds: Set<string>;
+  }>({
+    hexIds: new Set(),
+    featureIds: new Set(),
+    transferIds: new Set(),
+    crewIds: new Set()
+  });
+  const batchFetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   // Hydrate store exactly once (survives strict mode double-render)
   useLayoutEffect(() => {
     if (hasHydratedRef.current) return;
@@ -853,6 +868,147 @@ export default function Dashboard({
     }
   }, [apiBaseUrl, setRegion, setFeatures, setHexes]);
 
+  // Fetch batch data for pending IDs (called after debounce)
+  const fetchBatchData = useCallback(async () => {
+    const pendingBatch = pendingBatchIdsRef.current;
+    const pending = pendingUpdatesRef.current;
+
+    // Collect IDs to fetch
+    const hexIds = Array.from(pendingBatch.hexIds);
+    const featureIds = Array.from(pendingBatch.featureIds);
+    const transferIds = Array.from(pendingBatch.transferIds);
+    const crewIds = Array.from(pendingBatch.crewIds);
+
+    // Clear pending sets
+    pendingBatch.hexIds.clear();
+    pendingBatch.featureIds.clear();
+    pendingBatch.transferIds.clear();
+    pendingBatch.crewIds.clear();
+
+    // Fetch all in parallel
+    const promises: Promise<void>[] = [];
+
+    if (hexIds.length > 0) {
+      promises.push(
+        fetch(`${apiBaseUrl}/api/batch/hexes?ids=${hexIds.join(",")}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.hexes) {
+              for (const hex of data.hexes) {
+                pending.hexUpdates.set(hex.h3_index, hex);
+              }
+              pending.dirty = true;
+            }
+          })
+          .catch(err => console.error("[Dashboard] Failed to fetch batch hexes:", err))
+      );
+    }
+
+    if (featureIds.length > 0) {
+      promises.push(
+        fetch(`${apiBaseUrl}/api/batch/features?ids=${featureIds.join(",")}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.features) {
+              for (const feature of data.features) {
+                if (feature.health != null && feature.status != null) {
+                  pending.featureUpdates.set(feature.gers_id, {
+                    health: feature.health,
+                    status: feature.status
+                  });
+                }
+              }
+              pending.dirty = true;
+            }
+          })
+          .catch(err => console.error("[Dashboard] Failed to fetch batch features:", err))
+      );
+    }
+
+    if (transferIds.length > 0) {
+      promises.push(
+        fetch(`${apiBaseUrl}/api/batch/transfers?ids=${transferIds.join(",")}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.transfers) {
+              for (const transfer of data.transfers) {
+                if (transfer.region_id !== regionRef.current.region_id) continue;
+                // Track spawned transfer to prevent duplicates
+                if (!spawnedTransferIdsRef.current.has(transfer.transfer_id)) {
+                  spawnedTransferIdsRef.current.add(transfer.transfer_id);
+                  // Dispatch for map animation
+                  window.dispatchEvent(new CustomEvent("nightfall:resource_transfer", { detail: transfer }));
+                  // Add to resource deltas
+                  pending.resourceDeltas.push({
+                    type: transfer.resource_type,
+                    delta: -transfer.amount,
+                    source: "In transit",
+                    ts: Date.now(),
+                    transferId: transfer.transfer_id,
+                    arriveAt: Date.parse(transfer.arrive_at)
+                  });
+                  pending.dirty = true;
+                }
+              }
+            }
+          })
+          .catch(err => console.error("[Dashboard] Failed to fetch batch transfers:", err))
+      );
+    }
+
+    if (crewIds.length > 0) {
+      promises.push(
+        fetch(`${apiBaseUrl}/api/batch/crews?ids=${crewIds.join(",")}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.crews) {
+              for (const crew of data.crews) {
+                if (crew.region_id !== regionRef.current.region_id) continue;
+                // Map status to event_type for existing handler
+                const eventTypeMap: Record<string, string> = {
+                  traveling: "crew_dispatched",
+                  working: "crew_arrived",
+                  idle: "crew_idle"
+                };
+                pending.crewUpdates.set(crew.crew_id, {
+                  crew_id: crew.crew_id,
+                  event_type: eventTypeMap[crew.status] ?? "crew_idle",
+                  waypoints: crew.waypoints,
+                  position: crew.position,
+                  task_id: crew.task_id
+                });
+              }
+              pending.dirty = true;
+            }
+          })
+          .catch(err => console.error("[Dashboard] Failed to fetch batch crews:", err))
+      );
+    }
+
+    await Promise.all(promises);
+  }, [apiBaseUrl]);
+
+  // Schedule batch fetch with debouncing
+  const scheduleBatchFetch = useCallback(() => {
+    if (batchFetchTimeoutRef.current) {
+      clearTimeout(batchFetchTimeoutRef.current);
+    }
+    batchFetchTimeoutRef.current = setTimeout(() => {
+      batchFetchTimeoutRef.current = null;
+      fetchBatchData();
+    }, BATCH_DEBOUNCE_MS);
+  }, [fetchBatchData]);
+
+  // Cleanup batch fetch timeout on unmount
+  useEffect(() => {
+    const timeoutRef = batchFetchTimeoutRef;
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
+
   // Periodic fallback: poll for state if SSE appears stale
   useEffect(() => {
     const interval = setInterval(() => {
@@ -889,7 +1045,8 @@ export default function Dashboard({
       const data = payload.data as {
         type?: string;
         rust_changed?: string[];
-        hex_updates?: { h3_index: string; rust_level: number }[];
+        hex_ids?: string[]; // New ID-only format
+        hex_updates?: { h3_index: string; rust_level: number }[]; // Legacy full data format
         regions_changed?: string[];
         region_id?: string;
         rust_level?: number;
@@ -915,6 +1072,16 @@ export default function Dashboard({
         }
       }
 
+      // New ID-only format - queue for batch fetch
+      if (data.hex_ids?.length) {
+        const pendingBatch = pendingBatchIdsRef.current;
+        for (const hexId of data.hex_ids) {
+          pendingBatch.hexIds.add(hexId);
+        }
+        scheduleBatchFetch();
+      }
+
+      // Legacy full data format (backwards compatibility)
       if (data.hex_updates?.length) {
         for (const update of data.hex_updates) {
           pending.hexUpdates.set(update.h3_index, update);
@@ -954,7 +1121,26 @@ export default function Dashboard({
       break;
     }
     case "resource_transfer": {
-      const transfer = payload.data as ResourceTransferPayload;
+      const data = payload.data as
+        | ResourceTransferPayload // Legacy full data format
+        | { transfer_ids: string[] }; // New ID-only format
+
+      // New ID-only format - queue for batch fetch
+      if ('transfer_ids' in data) {
+        const pendingBatch = pendingBatchIdsRef.current;
+        for (const transferId of data.transfer_ids) {
+          if (!spawnedTransferIdsRef.current.has(transferId)) {
+            pendingBatch.transferIds.add(transferId);
+          }
+        }
+        if (pendingBatch.transferIds.size > 0) {
+          scheduleBatchFetch();
+        }
+        break;
+      }
+
+      // Legacy full data format (backwards compatibility)
+      const transfer = data;
       if (transfer.region_id !== regionRef.current.region_id) {
         break;
       }
@@ -977,16 +1163,28 @@ export default function Dashboard({
     case "feature_delta": {
       type FeatureDelta = { gers_id: string; health: number; status: string };
       const data = payload.data as
-        | FeatureDelta
-        | { features: FeatureDelta[] };
+        | FeatureDelta // Legacy single item
+        | { features: FeatureDelta[] } // Legacy batched
+        | { feature_ids: string[] }; // New ID-only format
 
-      // Handle batched format
+      // New ID-only format - queue for batch fetch
+      if ('feature_ids' in data) {
+        const pendingBatch = pendingBatchIdsRef.current;
+        for (const featureId of data.feature_ids) {
+          pendingBatch.featureIds.add(featureId);
+        }
+        scheduleBatchFetch();
+        break;
+      }
+
+      // Legacy batched format
       if ('features' in data) {
         console.debug("[SSE] feature_delta batch received:", data.features.length, "updates");
         for (const delta of data.features) {
           pending.featureUpdates.set(delta.gers_id, delta);
         }
       } else {
+        // Legacy single item format
         console.debug("[SSE] feature_delta received:", data.gers_id, "health:", data.health);
         pending.featureUpdates.set(data.gers_id, data);
       }
@@ -1065,7 +1263,21 @@ export default function Dashboard({
         task_id?: string | null;
       };
 
-      const data = payload.data as { crews: CrewDelta[] };
+      const data = payload.data as
+        | { crews: CrewDelta[] } // Legacy full data format
+        | { crew_ids: string[] }; // New ID-only format
+
+      // New ID-only format - queue for batch fetch
+      if ('crew_ids' in data) {
+        const pendingBatch = pendingBatchIdsRef.current;
+        for (const crewId of data.crew_ids) {
+          pendingBatch.crewIds.add(crewId);
+        }
+        scheduleBatchFetch();
+        break;
+      }
+
+      // Legacy full data format
       if (!data.crews?.length) break;
 
       // Filter to only our region's crews
@@ -1080,7 +1292,7 @@ export default function Dashboard({
       break;
     }
     }
-  }, [refreshRegionState]);
+  }, [refreshRegionState, scheduleBatchFetch]);
 
   useEventStream(apiBaseUrl, handleEvent);
 

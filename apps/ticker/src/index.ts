@@ -83,40 +83,47 @@ async function fetchRegionSnapshots(client: PoolLike, regionIds: string[]): Prom
   }));
 }
 
-type HexUpdate = { h3_index: string; rust_level: number };
+type HexUpdate = { h3_index: string; rust_level: number; region_id?: string };
 
+/**
+ * Publish world delta with ID-only hex updates.
+ * Client fetches full hex data from /api/batch/hexes.
+ * Region updates are kept inline (small payload).
+ */
 async function publishWorldDelta(
   client: PoolLike,
   hexes: HexUpdate[],
   regionIds: string[]
 ) {
-  const hexUpdates = Array.from(new Map(hexes.map((h) => [h.h3_index, h])).values());
+  const hexIds = Array.from(new Set(hexes.map((h) => h.h3_index)));
   const regionsChanged = Array.from(new Set(regionIds));
 
+  // Region updates are small enough to send inline
   const regionUpdates = regionsChanged.length > 0 ? await fetchRegionSnapshots(client, regionsChanged) : [];
 
-  if (hexUpdates.length === 0 && regionUpdates.length === 0) {
+  if (hexIds.length === 0 && regionUpdates.length === 0) {
     return;
   }
 
-  // Chunk hex updates to stay under 8KB payload limit
-  for (let i = 0; i < hexUpdates.length; i += HEX_CHUNK_SIZE) {
-    const chunk = hexUpdates.slice(i, i + HEX_CHUNK_SIZE);
+  // Send hex IDs only (no full data) - client fetches from /api/batch/hexes
+  // Can send many more IDs since each is ~20 bytes vs ~50 bytes for full update
+  const HEX_ID_CHUNK_SIZE = 200;
+  for (let i = 0; i < hexIds.length; i += HEX_ID_CHUNK_SIZE) {
+    const chunk = hexIds.slice(i, i + HEX_ID_CHUNK_SIZE);
     const isFirstChunk = i === 0;
     await notifyEvent(client, "world_delta", {
-      rust_changed: chunk.map((h) => h.h3_index),
-      hex_updates: chunk,
-      // Only send region updates in the first chunk to avoid duplication
+      // ID-only format for client to fetch
+      hex_ids: chunk,
+      // Region updates inline (first chunk only)
       regions_changed: isFirstChunk ? regionsChanged : [],
       region_updates: isFirstChunk ? regionUpdates : []
     });
   }
 
   // If no hex updates but we have region updates, still send them
-  if (hexUpdates.length === 0 && regionUpdates.length > 0) {
+  if (hexIds.length === 0 && regionUpdates.length > 0) {
     await notifyEvent(client, "world_delta", {
-      rust_changed: [],
-      hex_updates: [],
+      hex_ids: [],
       regions_changed: regionsChanged,
       region_updates: regionUpdates
     });
@@ -124,15 +131,19 @@ async function publishWorldDelta(
 }
 
 // PostgreSQL NOTIFY has 8KB payload limit, chunk to stay under
-const HEX_CHUNK_SIZE = 50;
-const FEATURE_CHUNK_SIZE = 25;
 const TASK_CHUNK_SIZE = 15; // Tasks have more fields, use smaller chunks
+const FEATURE_ID_CHUNK_SIZE = 200; // IDs are small, can fit many
 
+/**
+ * Publish feature delta with ID-only updates.
+ * Client fetches full feature data from /api/batch/features.
+ */
 async function publishFeatureDeltas(client: PoolLike, deltas: FeatureDelta[]) {
   if (deltas.length === 0) return;
-  for (let i = 0; i < deltas.length; i += FEATURE_CHUNK_SIZE) {
-    const chunk = deltas.slice(i, i + FEATURE_CHUNK_SIZE);
-    await notifyEvent(client, "feature_delta", { features: chunk });
+  const featureIds = deltas.map(d => d.gers_id);
+  for (let i = 0; i < featureIds.length; i += FEATURE_ID_CHUNK_SIZE) {
+    const chunk = featureIds.slice(i, i + FEATURE_ID_CHUNK_SIZE);
+    await notifyEvent(client, "feature_delta", { feature_ids: chunk });
   }
 }
 
@@ -154,23 +165,26 @@ async function publishFeedItems(
   }
 }
 
+/**
+ * Publish resource transfer with ID-only.
+ * Client fetches full transfer data from /api/batch/transfers.
+ */
 async function publishResourceTransfers(client: PoolLike, transfers: ResourceTransfer[]) {
-  for (const transfer of transfers) {
-    await notifyEvent(client, "resource_transfer", transfer);
-  }
+  if (transfers.length === 0) return;
+  const transferIds = transfers.map(t => t.transfer_id);
+  // Can batch many IDs since each is ~40 bytes
+  await notifyEvent(client, "resource_transfer", { transfer_ids: transferIds });
 }
 
-// Crew events include waypoints which can be large - send one at a time
-const CREW_CHUNK_SIZE = 1;
-
+/**
+ * Publish crew delta with ID-only updates.
+ * Client fetches full crew data (with waypoints) from /api/batch/crews.
+ */
 async function publishCrewDeltas(client: PoolLike, crewEvents: { crew_id: string; region_id: string; event_type: string; waypoints?: unknown; position?: unknown; task_id?: string | null }[]) {
   if (crewEvents.length === 0) return;
-  // Chunk crew events to stay under 8KB payload limit
-  // Each event with waypoints can be ~2KB, so keep chunks small
-  for (let i = 0; i < crewEvents.length; i += CREW_CHUNK_SIZE) {
-    const chunk = crewEvents.slice(i, i + CREW_CHUNK_SIZE);
-    await notifyEvent(client, "crew_delta", { crews: chunk });
-  }
+  const crewIds = crewEvents.map(c => c.crew_id);
+  // Can batch many IDs since each is ~40 bytes
+  await notifyEvent(client, "crew_delta", { crew_ids: crewIds });
 }
 
 async function runTick(client: PoolLike) {
