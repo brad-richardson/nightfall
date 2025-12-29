@@ -125,10 +125,10 @@ export function loadConstructionVehicleIcon(): Promise<HTMLImageElement> {
 
 // Color palette - resource colors match ResourcePoolsPanel
 export const COLORS = {
-  background: "#101216",
-  landuse: "#14181e",
-  water: "#0a1520",
-  waterOutline: "#1a2a3a",
+  background: "#0c0e12",
+  landuse: "#181c24",
+  water: "#0a1218",
+  waterOutline: "#2a4560",
   buildings: "#1a1f28",
   buildingOutline: "#2a3040",
   // Resource building colors (matching RESOURCE_COLORS in ResourcePoolsPanel)

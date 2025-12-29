@@ -52,8 +52,8 @@ export function getBaseLayers(): maplibregl.LayerSpecification[] {
       type: "line",
       paint: {
         "line-color": COLORS.waterOutline,
-        "line-width": 1,
-        "line-opacity": 0.5
+        "line-width": 1.5,
+        "line-opacity": 0.7
       }
     },
     {

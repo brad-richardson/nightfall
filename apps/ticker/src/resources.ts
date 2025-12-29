@@ -85,7 +85,7 @@ export function resetResourceTransferCacheForTests() {
 
 // Graph cache per region (simple in-memory cache)
 const graphCache = new Map<string, { graph: Graph; coords: ConnectorCoords; timestamp: number }>();
-const GRAPH_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const GRAPH_CACHE_TTL_MS = 60 * 1000; // 1 minute - keep fresh for health changes
 
 export async function loadGraphForRegion(
   pool: PoolLike,
@@ -140,15 +140,27 @@ export async function loadGraphForRegion(
       [connectorIds]
     );
 
-    // Build adjacency list
+    // Build adjacency list - add edges in BOTH directions since most roads are bidirectional
     const graph: Graph = new Map();
     for (const row of edgesResult.rows) {
+      // Forward direction: from_connector → to_connector
       if (!graph.has(row.from_connector)) {
         graph.set(row.from_connector, []);
       }
       graph.get(row.from_connector)!.push({
         segmentGersId: row.segment_gers_id,
         toConnector: row.to_connector,
+        lengthMeters: row.length_meters,
+        health: row.health,
+      });
+
+      // Reverse direction: to_connector → from_connector
+      if (!graph.has(row.to_connector)) {
+        graph.set(row.to_connector, []);
+      }
+      graph.get(row.to_connector)!.push({
+        segmentGersId: row.segment_gers_id,
+        toConnector: row.from_connector,
         lengthMeters: row.length_meters,
         health: row.health,
       });

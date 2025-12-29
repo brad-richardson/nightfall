@@ -1,15 +1,16 @@
 import type { Graph, GraphEdge, PathResult, Point, ConnectorCoords } from "./types.js";
-import { DEGRADED_HEALTH_THRESHOLD } from "@nightfall/config";
 
 /**
  * Calculate health-based slowdown multiplier.
- * - Roads above degraded threshold (healthy): max 3x slowdown
- * - Roads below threshold (degraded/repairable): max 2x slowdown
+ * - Healthy roads (100%): 1x speed
+ * - Degraded roads (70%): ~1.4x slower
+ * - Very damaged roads (25%): 4x slower
+ * - Nearly impassable (1%): 5x slower (capped)
  */
 export function healthSlowdownMultiplier(health: number): number {
   const baseMultiplier = 100 / Math.max(1, health);
-  const maxMultiplier = health < DEGRADED_HEALTH_THRESHOLD ? 2 : 3;
-  return Math.min(maxMultiplier, baseMultiplier);
+  // Cap at 5x slowdown to ensure paths can always be found
+  return Math.min(5, baseMultiplier);
 }
 
 /**

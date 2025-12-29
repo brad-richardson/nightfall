@@ -18,14 +18,15 @@ describe("healthSlowdownMultiplier", () => {
     expect(healthSlowdownMultiplier(50)).toBe(2);
   });
 
-  it("caps at 3x for healthy roads", () => {
-    // Health > degraded threshold (50) caps at 3x
-    expect(healthSlowdownMultiplier(60)).toBeLessThanOrEqual(3);
+  it("returns proportional slowdown for degraded roads", () => {
+    // 30% health = 100/30 = 3.33x slowdown
+    expect(healthSlowdownMultiplier(30)).toBeCloseTo(3.33, 1);
   });
 
-  it("caps at 2x for degraded roads", () => {
-    // Health < degraded threshold (50) caps at 2x
-    expect(healthSlowdownMultiplier(30)).toBe(2);
+  it("caps at 5x for nearly impassable roads", () => {
+    // Very low health caps at 5x
+    expect(healthSlowdownMultiplier(10)).toBe(5);
+    expect(healthSlowdownMultiplier(1)).toBe(5);
   });
 });
 
