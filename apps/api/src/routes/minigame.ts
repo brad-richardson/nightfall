@@ -416,13 +416,13 @@ export function registerMinigameRoutes(app: FastifyInstance) {
       return {
         ok: true,
         mode: isQuickMode ? "quick" : "boost",
-        // Reward is only present for boost mode
+        // Reward and boost_updated only present for boost mode
         reward: isQuickMode ? null : {
           multiplier: finalMultiplier,
           duration_ms: reward.durationMs,
           expires_at: finalExpiresAt instanceof Date ? finalExpiresAt.toISOString() : finalExpiresAt,
         },
-        boost_updated: shouldUpdateBoost,
+        boost_updated: isQuickMode ? null : shouldUpdateBoost,
         activation: {
           activated_at: now.toISOString(),
           expires_at: activationExpiresAt.toISOString(),

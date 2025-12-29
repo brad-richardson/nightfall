@@ -68,27 +68,11 @@ export const QUICK_MODE_ROUNDS = 1; // Quick activation requires just 1 round
 // Minigame modes
 export type MinigameMode = "quick" | "boost";
 
-// Minigame types by resource
+// Minigame types by resource (see TODO.md for additional game ideas)
 export const FOOD_MINIGAMES = ["kitchen_rush", "fresh_check"];
 export const EQUIPMENT_MINIGAMES = ["gear_up", "patch_job"];
 export const ENERGY_MINIGAMES = ["power_up"];
 export const MATERIALS_MINIGAMES = ["crane_drop"];
-
-// TODO: Add more Mario Party-inspired minigames for resource types with only one game
-//
-// ENERGY minigame ideas (currently only has power_up):
-// - "surge_stopper": Whack-a-mole style - tap surging outlets before they overload
-// - "circuit_race": Connect wires in order before time runs out (like tracing a path)
-// - "turbine_spin": Rhythm game - tap to keep turbines spinning at optimal speed
-// - "solar_catcher": Move panels to catch moving sunbeams, avoid shadows
-// - "battery_bounce": Pong-like game bouncing energy between battery poles
-//
-// MATERIALS minigame ideas (currently only has crane_drop):
-// - "lumber_stack": Jenga-style - carefully stack lumber without toppling
-// - "conveyor_sort": Sort falling materials onto correct conveyor belts
-// - "blueprint_match": Memory match pairs of construction materials
-// - "excavator_dig": Dig for buried materials, avoid hitting pipes/cables
-// - "pallet_tetris": Tetris-like game fitting materials onto pallets efficiently
 
 // Max possible scores by minigame type (for anti-cheat)
 export const MINIGAME_CONFIG: Record<string, { maxScore: number; expectedDurationMs: number; baseRounds: number }> = {
