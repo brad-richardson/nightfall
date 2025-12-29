@@ -3,6 +3,10 @@ name: PR Preview
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+    paths:
+      - 'apps/web/**'
+      - 'packages/config/**'
+      - 'pnpm-lock.yaml'
 
 concurrency:
   group: pr-preview-${{ github.event.pull_request.number }}
@@ -13,7 +17,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: write
     steps:
       - uses: actions/checkout@v4
 
@@ -41,23 +44,4 @@ jobs:
           destination_dir: pr-${{ github.event.pull_request.number }}
           keep_files: true
 
-      - name: Find existing comment
-        uses: peter-evans/find-comment@v3
-        id: fc
-        with:
-          issue-number: ${{ github.event.pull_request.number }}
-          comment-author: 'github-actions[bot]'
-          body-includes: '🚀 PR Preview'
-
-      - name: Create or update preview comment
-        uses: peter-evans/create-or-update-comment@v4
-        with:
-          comment-id: ${{ steps.fc.outputs.comment-id }}
-          issue-number: ${{ github.event.pull_request.number }}
-          body: |
-            🚀 **PR Preview deployed!**
-
-            Preview URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/pr-${{ github.event.pull_request.number }}/
-
-            _Updated: ${{ github.event.pull_request.head.sha }}_
-          edit-mode: replace
+      # Preview URL: https://<owner>.github.io/<repo>/pr-<number>/
