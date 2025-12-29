@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS regions (
   distance_from_center REAL NOT NULL,
   pool_labor BIGINT NOT NULL DEFAULT 0,
   pool_materials BIGINT NOT NULL DEFAULT 0,
-  crew_count SMALLINT NOT NULL DEFAULT 10,
+  crew_count SMALLINT NOT NULL DEFAULT 15,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

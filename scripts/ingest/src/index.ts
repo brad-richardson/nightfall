@@ -1439,7 +1439,7 @@ async function seedDemoData(pgPool: Pool, region: RegionConfig) {
         `
         INSERT INTO crews (region_id, status)
         SELECT $1, 'idle'
-        FROM generate_series(1, 10)
+        FROM generate_series(1, 15)
         `,
         [region.regionId]
       );

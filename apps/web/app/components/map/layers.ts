@@ -507,7 +507,7 @@ export function getCrewLayers(): maplibregl.LayerSpecification[] {
       type: "circle",
       source: "game-crews",
       paint: {
-        "circle-radius": 34,
+        "circle-radius": 22,
         "circle-color": "#000000",
         "circle-blur": 0.8,
         "circle-opacity": 0.3,
@@ -521,7 +521,7 @@ export function getCrewLayers(): maplibregl.LayerSpecification[] {
       source: "game-crews",
       filter: ["==", ["get", "status"], "working"],
       paint: {
-        "circle-radius": 38,
+        "circle-radius": 26,
         "circle-color": CREW_COLORS.working,
         "circle-blur": 0.6,
         "circle-opacity": 0.4
@@ -594,7 +594,7 @@ export function getCrewPathLayers(): maplibregl.LayerSpecification[] {
       type: "circle",
       source: "game-crew-markers",
       paint: {
-        "circle-radius": 34,
+        "circle-radius": 22,
         "circle-color": "#000000",
         "circle-blur": 0.8,
         "circle-opacity": 0.3,
