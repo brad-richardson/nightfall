@@ -4,31 +4,19 @@
 
 import type { FastifyInstance } from "fastify";
 import { getPool } from "../db";
+import { getConfig } from "../config";
 import { verifyToken } from "../utils/auth";
 import { BUILDING_ACTIVATION_MS } from "../utils/constants";
 import { loadCycleState } from "../cycle";
 import { loadGraphForRegion } from "../services/graph";
 import { clamp, haversineDistanceMeters } from "../utils/helpers";
+import { getPhaseMultipliers } from "@nightfall/config";
 import {
   type Point,
   findPath,
   findNearestConnector,
   buildWaypoints
 } from "@nightfall/pathfinding";
-
-// Resource transfer config (matches ticker settings)
-const RESOURCE_TRAVEL_MPS = 10;
-const RESOURCE_TRAVEL_MIN_S = 5;
-const RESOURCE_TRAVEL_MAX_S = 60;
-const RESOURCE_DISTANCE_MULTIPLIER = 1.25;
-
-// Phase-based generation multipliers (matches ticker)
-const PHASE_GENERATION: Record<string, number> = {
-  dawn: 12,
-  day: 15,
-  dusk: 8,
-  night: 3
-};
 
 export function registerBuildingRoutes(app: FastifyInstance) {
   /**
@@ -254,7 +242,8 @@ async function createImmediateTransfer(
 
   // Get current cycle phase for generation multiplier
   const cycle = await loadCycleState(pool);
-  const generationMultiplier = PHASE_GENERATION[cycle.phase] ?? 10;
+  const phaseMultipliers = getPhaseMultipliers(cycle.phase);
+  const generationMultiplier = phaseMultipliers.generation;
   const boostMultiplier = buildingData.boost_multiplier ?? 1;
   const rustFactor = 1 - buildingData.rust_level;
 
@@ -278,6 +267,9 @@ async function createImmediateTransfer(
     return null;
   }
 
+  // Get config values for travel time calculation
+  const config = getConfig();
+
   // Calculate path and travel time
   const sourceCenter: [number, number] = [buildingData.source_lon, buildingData.source_lat];
   const hubCenter: [number, number] = [buildingData.hub_lon, buildingData.hub_lat];
@@ -296,43 +288,28 @@ async function createImmediateTransfer(
       const pathResult = findPath(graph, coords, startConnector, endConnector);
       if (pathResult) {
         travelSeconds = clamp(
-          pathResult.totalWeightedDistance / RESOURCE_TRAVEL_MPS,
-          RESOURCE_TRAVEL_MIN_S,
-          RESOURCE_TRAVEL_MAX_S
+          pathResult.totalWeightedDistance / config.RESOURCE_TRAVEL_MPS,
+          config.RESOURCE_TRAVEL_MIN_S,
+          config.RESOURCE_TRAVEL_MAX_S
         );
         pathWaypoints = buildWaypoints(
           pathResult,
           coords,
           departAtMs,
-          RESOURCE_TRAVEL_MPS,
+          config.RESOURCE_TRAVEL_MPS,
           { actualStart: sourceCenter as Point, actualEnd: hubCenter as Point }
         );
       } else {
         // No path found, use haversine fallback
-        const distanceMeters = haversineDistanceMeters(sourceCenter, hubCenter);
-        travelSeconds = clamp(
-          (distanceMeters * RESOURCE_DISTANCE_MULTIPLIER) / RESOURCE_TRAVEL_MPS,
-          RESOURCE_TRAVEL_MIN_S,
-          RESOURCE_TRAVEL_MAX_S
-        );
+        travelSeconds = calculateHaversineTravelTime(sourceCenter, hubCenter, config);
       }
     } else {
       // No connectors, use haversine fallback
-      const distanceMeters = haversineDistanceMeters(sourceCenter, hubCenter);
-      travelSeconds = clamp(
-        (distanceMeters * RESOURCE_DISTANCE_MULTIPLIER) / RESOURCE_TRAVEL_MPS,
-        RESOURCE_TRAVEL_MIN_S,
-        RESOURCE_TRAVEL_MAX_S
-      );
+      travelSeconds = calculateHaversineTravelTime(sourceCenter, hubCenter, config);
     }
   } else {
     // No graph data, use haversine fallback
-    const distanceMeters = haversineDistanceMeters(sourceCenter, hubCenter);
-    travelSeconds = clamp(
-      (distanceMeters * RESOURCE_DISTANCE_MULTIPLIER) / RESOURCE_TRAVEL_MPS,
-      RESOURCE_TRAVEL_MIN_S,
-      RESOURCE_TRAVEL_MAX_S
-    );
+    travelSeconds = calculateHaversineTravelTime(sourceCenter, hubCenter, config);
   }
 
   // Insert the transfer
@@ -384,4 +361,21 @@ async function createImmediateTransfer(
   ]);
 
   return transfer;
+}
+
+/**
+ * Calculate travel time using haversine distance as a fallback
+ * when road graph pathfinding is not available.
+ */
+function calculateHaversineTravelTime(
+  source: [number, number],
+  hub: [number, number],
+  config: ReturnType<typeof getConfig>
+): number {
+  const distanceMeters = haversineDistanceMeters(source, hub);
+  return clamp(
+    (distanceMeters * config.RESOURCE_DISTANCE_MULTIPLIER) / config.RESOURCE_TRAVEL_MPS,
+    config.RESOURCE_TRAVEL_MIN_S,
+    config.RESOURCE_TRAVEL_MAX_S
+  );
 }
