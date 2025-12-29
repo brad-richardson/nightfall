@@ -1,6 +1,11 @@
 import type { TaskDelta } from "./deltas";
 import type { PoolLike } from "./ticker";
-import { ROAD_CLASSES, DEGRADED_HEALTH_THRESHOLD } from "@nightfall/config";
+import {
+  ROAD_CLASSES,
+  DEGRADED_HEALTH_THRESHOLD,
+  RESOURCE_TYPES,
+  type ResourceType,
+} from "@nightfall/config";
 
 const DEFAULT_LAMBDA = 0.1;
 
@@ -8,8 +13,18 @@ const DEFAULT_LAMBDA = 0.1;
  * Generate SQL CASE expression for hash-based cost calculation.
  * Cost = baseCost + offset, where offset is in [-costVariance, +costVariance]
  * The offset is determined by hashing (gers_id || resourceType) for consistency.
+ *
+ * @param resourceType - Must be a valid ResourceType from config
+ * @throws Error if resourceType is not in RESOURCE_TYPES (defense against SQL injection)
  */
-function buildCostCase(resourceType: string): string {
+export function buildCostCase(resourceType: ResourceType): string {
+  // Validate resourceType against allowed values to prevent SQL injection
+  if (!RESOURCE_TYPES.includes(resourceType)) {
+    throw new Error(
+      `Invalid resourceType: ${resourceType}. Must be one of: ${RESOURCE_TYPES.join(", ")}`
+    );
+  }
+
   const cases = Object.entries(ROAD_CLASSES)
     .map(([cls, info]) => {
       const range = 2 * info.costVariance + 1;
