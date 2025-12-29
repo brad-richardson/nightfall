@@ -83,3 +83,15 @@ export const MINIGAME_CONFIG: Record<string, { maxScore: number; expectedDuratio
   power_up: { maxScore: 1000, expectedDurationMs: 20000, baseRounds: 3 },
   crane_drop: { maxScore: 1000, expectedDurationMs: 25000, baseRounds: 8 },
 };
+
+// Road repair minigame configuration
+export const REPAIR_MINIGAME_TYPES = ["pothole_patrol", "road_roller", "traffic_director"] as const;
+
+export const REPAIR_MINIGAME_CONFIG: Record<string, { maxScore: number; expectedDurationMs: number; baseRounds: number }> = {
+  pothole_patrol: { maxScore: 1000, expectedDurationMs: 20000, baseRounds: 5 },
+  road_roller: { maxScore: 1000, expectedDurationMs: 25000, baseRounds: 3 },
+  traffic_director: { maxScore: 1000, expectedDurationMs: 25000, baseRounds: 8 },
+};
+
+// Minimum performance required to successfully repair (60% = decent but not perfect)
+export const REPAIR_SUCCESS_THRESHOLD = 0.6;

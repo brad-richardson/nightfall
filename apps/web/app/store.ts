@@ -123,6 +123,7 @@ export type UserVotes = Record<string, number>;
 
 // Minigame types
 export type MinigameType = "kitchen_rush" | "fresh_check" | "gear_up" | "patch_job" | "power_up" | "crane_drop";
+export type RepairMinigameType = "pothole_patrol" | "road_roller" | "traffic_director";
 export type ResourceType = "food" | "equipment" | "energy" | "materials";
 
 export type MinigameMode = "quick" | "boost";
@@ -158,6 +159,31 @@ export type MinigameResult = {
   multiplier: number;
   duration_ms: number;
   expires_at: string;
+};
+
+// Repair minigame session (for roads)
+export type RepairMinigameSession = {
+  session_id: string;
+  road_gers_id: string;
+  road_class: string;
+  minigame_type: RepairMinigameType;
+  current_health: number;
+  target_health: number;
+  config: {
+    base_rounds: number;
+    max_score: number;
+    expected_duration_ms: number;
+  };
+  difficulty: MinigameDifficulty;
+  started_at: number;
+};
+
+export type RepairMinigameResult = {
+  score: number;
+  performance: number;
+  success: boolean;
+  new_health: number;
+  health_restored: number;
 };
 
 export type BuildingBoost = {
@@ -210,6 +236,9 @@ type State = {
   minigameCooldowns: Record<string, MinigameCooldown>;
   // Building activation state
   buildingActivations: Record<string, BuildingActivation>;
+  // Repair minigame state
+  activeRepairMinigame: RepairMinigameSession | null;
+  repairMinigameResult: RepairMinigameResult | null;
   // Player score tracking (persisted)
   playerScore: PlayerScore;
 };
@@ -234,6 +263,11 @@ type Actions = {
   // Building activation actions
   addBuildingActivation: (activation: BuildingActivation) => void;
   removeBuildingActivation: (buildingGersId: string) => void;
+  // Repair minigame actions
+  startRepairMinigame: (session: RepairMinigameSession) => void;
+  completeRepairMinigame: (result: RepairMinigameResult) => void;
+  abandonRepairMinigame: () => void;
+  setRepairMinigameResult: (result: RepairMinigameResult | null) => void;
   // Score actions
   addContributionScore: (amount: number) => void;
   addVoteScore: (amount: number) => void;
@@ -284,6 +318,9 @@ export const useStore = create<State & Actions>()(
       minigameCooldowns: {},
       // Building activation initial state
       buildingActivations: {},
+      // Repair minigame initial state
+      activeRepairMinigame: null,
+      repairMinigameResult: null,
       // Player score initial state
       playerScore: {
         totalScore: 0,
@@ -354,6 +391,11 @@ export const useStore = create<State & Actions>()(
           void _removed;
           return { buildingActivations: rest };
         }),
+      // Repair minigame actions
+      startRepairMinigame: (session) => set({ activeRepairMinigame: session, repairMinigameResult: null }),
+      completeRepairMinigame: (result) => set({ activeRepairMinigame: null, repairMinigameResult: result }),
+      abandonRepairMinigame: () => set({ activeRepairMinigame: null, repairMinigameResult: null }),
+      setRepairMinigameResult: (result) => set({ repairMinigameResult: result }),
       // Score actions
       addContributionScore: (amount) =>
         set((state) => ({

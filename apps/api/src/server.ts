@@ -22,6 +22,7 @@ import {
   registerContributeRoutes,
   registerVoteRoutes,
   registerMinigameRoutes,
+  registerRepairMinigameRoutes,
   registerBuildingRoutes,
   registerAdminRoutes,
   type RouteContext
@@ -111,6 +112,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   registerContributeRoutes(app, routeContext);
   registerVoteRoutes(app);
   registerMinigameRoutes(app);
+  registerRepairMinigameRoutes(app);
   registerBuildingRoutes(app);
   registerAdminRoutes(app, routeContext);
 
