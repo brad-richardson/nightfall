@@ -9,6 +9,7 @@ export { registerWorldRoutes } from "./world";
 export { registerContributeRoutes } from "./contribute";
 export { registerVoteRoutes } from "./vote";
 export { registerMinigameRoutes } from "./minigame";
+export { registerRepairMinigameRoutes } from "./repair-minigame";
 export { registerBuildingRoutes } from "./building";
 export { registerAdminRoutes } from "./admin";
 export type { RouteContext } from "./types";

@@ -19,6 +19,7 @@ import { ConnectionStatus } from "./ConnectionStatus";
 import { recordResourceValues, clearResourceHistory } from "../lib/resourceHistory";
 import { recordHealthValues, clearHealthHistory } from "../lib/healthHistory";
 import { MinigameOverlay } from "./minigames";
+import { RepairMinigameOverlay } from "./minigames/repair";
 import { Navigation } from "lucide-react";
 import { AdminConsole } from "./admin";
 import { PlayerTierBadgeCompact } from "./PlayerTierBadge";
@@ -427,6 +428,8 @@ export default function Dashboard({
   const userVotes = useStore((state) => state.userVotes);
   const activeMinigame = useStore((state) => state.activeMinigame);
   const minigameResult = useStore((state) => state.minigameResult);
+  const activeRepairMinigame = useStore((state) => state.activeRepairMinigame);
+  const repairMinigameResult = useStore((state) => state.repairMinigameResult);
   const buildingActivations = useStore((state) => state.buildingActivations);
 
   // Get stable action references (actions never change)
@@ -438,11 +441,13 @@ export default function Dashboard({
   const setUserVote = useStore.getState().setUserVote;
   const clearUserVote = useStore.getState().clearUserVote;
   const startMinigame = useStore.getState().startMinigame;
+  const startRepairMinigame = useStore.getState().startRepairMinigame;
   const setCooldown = useStore.getState().setCooldown;
   const addVoteScore = useStore.getState().addVoteScore;
 
   const [resourceDeltas, setResourceDeltas] = useState<ResourceDelta[]>([]);
   const [showMinigameOverlay, setShowMinigameOverlay] = useState(false);
+  const [showRepairMinigameOverlay, setShowRepairMinigameOverlay] = useState(false);
   const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
   const prevTasksRef = useRef<Map<string, string>>(new Map());
   const hasHydratedRef = useRef(false);
@@ -1139,6 +1144,54 @@ export default function Dashboard({
     setShowMinigameOverlay(false);
   }, []);
 
+  const handleManualRepair = useCallback(async (roadGersId: string, roadClass: string) => {
+    if (!auth.clientId || !auth.token) return;
+
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/repair-minigame/start`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${auth.token}`
+        },
+        body: JSON.stringify({
+          client_id: auth.clientId,
+          road_gers_id: roadGersId
+        })
+      });
+
+      const data = await res.json();
+
+      if (data.ok) {
+        startRepairMinigame({
+          session_id: data.session_id,
+          road_gers_id: roadGersId,
+          road_class: data.road_class || roadClass,
+          minigame_type: data.minigame_type,
+          current_health: data.current_health,
+          target_health: data.target_health,
+          config: data.config,
+          difficulty: data.difficulty,
+          started_at: Date.now(),
+        });
+        setShowRepairMinigameOverlay(true);
+      } else if (data.error === "road_already_healthy") {
+        toast.info("Road is already healthy", { description: "No repair needed" });
+      } else if (data.error === "repair_already_in_progress") {
+        toast.error("Repair in progress", { description: "Someone is already repairing this road" });
+      } else {
+        toast.error("Failed to start repair", { description: data.error });
+      }
+    } catch (err) {
+      console.error("Failed to start repair minigame", err);
+      toast.error("Failed to start repair", { description: "Please try again" });
+    }
+  }, [apiBaseUrl, auth, startRepairMinigame]);
+
+  const handleRepairMinigameClose = useCallback(() => {
+    setShowRepairMinigameOverlay(false);
+  }, []);
+
   // Direct activation handler for dev mode (skips minigame for faster testing)
   const handleDirectActivate = useCallback(async (buildingGersId: string): Promise<{ activated_at: string; expires_at: string }> => {
     if (!auth.clientId || !auth.token) {
@@ -1435,6 +1488,7 @@ export default function Dashboard({
               onVote={handleVote}
               onStartMinigame={handleStartMinigame}
               onDirectActivate={process.env.NODE_ENV === "development" ? handleDirectActivate : undefined}
+              onManualRepair={handleManualRepair}
               canContribute={Boolean(auth.token && auth.clientId)}
               userVotes={userVotes}
             />
@@ -1444,6 +1498,9 @@ export default function Dashboard({
       <OnboardingOverlay />
       {showMinigameOverlay && (activeMinigame || minigameResult) && (
         <MinigameOverlay onClose={handleMinigameClose} />
+      )}
+      {showRepairMinigameOverlay && (activeRepairMinigame || repairMinigameResult) && (
+        <RepairMinigameOverlay onClose={handleRepairMinigameClose} />
       )}
       {process.env.NODE_ENV === "development" && <AdminConsole />}
       <PerformanceOverlay />

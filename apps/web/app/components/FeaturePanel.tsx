@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { X, Rocket, Play, CheckCircle2 } from "lucide-react";
+import { X, Rocket, Play, CheckCircle2, Wrench } from "lucide-react";
 import { useStore, type UserVotes } from "../store";
 import VoteButton from "./VoteButton";
 import { BUILDING_ACTIVATION_MS } from "@nightfall/config";
@@ -24,6 +24,7 @@ type FeaturePanelProps = {
   onVote: (taskId: string, weight: number) => Promise<void>;
   onStartMinigame: (buildingGersId: string, buildingName: string, mode: "quick" | "boost") => void;
   onDirectActivate?: (buildingGersId: string) => Promise<{ activated_at: string; expires_at: string }>;
+  onManualRepair: (roadGersId: string, roadClass: string) => void;
   activeTasks: Task[];
   canContribute: boolean;
   userVotes: UserVotes;
@@ -32,7 +33,7 @@ type FeaturePanelProps = {
 const PANEL_WIDTH = 320;
 const PADDING = 16;
 
-export default function FeaturePanel({ onVote, onStartMinigame, onDirectActivate, activeTasks, canContribute, userVotes }: FeaturePanelProps) {
+export default function FeaturePanel({ onVote, onStartMinigame, onDirectActivate, onManualRepair, activeTasks, canContribute, userVotes }: FeaturePanelProps) {
   const [selected, setSelected] = useState<SelectedFeature | null>(null);
   const [panelPos, setPanelPos] = useState({ x: 0, y: 0 });
   const [isActivating, setIsActivating] = useState(false);
@@ -380,11 +381,27 @@ export default function FeaturePanel({ onVote, onStartMinigame, onDirectActivate
                 </span>
               </div>
               <div className="h-1.5 w-full rounded-full bg-white/5 overflow-hidden">
-                <div 
-                  className="h-full bg-[color:var(--night-teal)] transition-all duration-500" 
-                  style={{ width: `${selectedDetails?.health ?? 100}%` }} 
+                <div
+                  className="h-full bg-[color:var(--night-teal)] transition-all duration-500"
+                  style={{ width: `${selectedDetails?.health ?? 100}%` }}
                 />
               </div>
+
+              {/* Manual Repair Button - only show if road is damaged */}
+              {(selectedDetails?.health ?? 100) < 100 && (
+                <button
+                  onClick={() => onManualRepair(selected.gers_id, selectedDetails?.road_class || 'road')}
+                  disabled={!canContribute}
+                  className={`flex w-full items-center justify-center gap-2 rounded-2xl p-3 transition-all ${
+                    canContribute
+                      ? "bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-[0_4px_16px_rgba(245,158,11,0.3)] hover:brightness-110 active:scale-95"
+                      : "bg-white/10 text-white/40 cursor-not-allowed"
+                  }`}
+                >
+                  <Wrench className="h-4 w-4" />
+                  <span className="text-sm font-semibold uppercase tracking-wider">Manually Repair</span>
+                </button>
+              )}
 
               {task ? (
                 <div className="rounded-2xl bg-[color:var(--night-teal)]/10 p-4 border border-[color:var(--night-teal)]/20 animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -400,8 +417,10 @@ export default function FeaturePanel({ onVote, onStartMinigame, onDirectActivate
                     />
                   </div>
                 </div>
+              ) : (selectedDetails?.health ?? 100) >= 100 ? (
+                <p className="text-xs text-white/40 italic">This road is in perfect condition.</p>
               ) : (
-                <p className="text-xs text-white/40 italic">This road is currently stable. No active tasks.</p>
+                <p className="text-xs text-white/40 italic">Play the minigame above to repair, or wait for a crew.</p>
               )}
             </div>
           )}
