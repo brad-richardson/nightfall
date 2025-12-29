@@ -218,21 +218,21 @@ export default function FeaturePanel({ onActivateBuilding, onVote, onBoostProduc
       </button>
 
       {selected && (
-        <div className="space-y-6">
+        <div className="space-y-4">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-[color:var(--night-teal)]">
               {selected.type}
             </p>
-            <h2 className="mt-1 font-display text-xl">
-              {selected.type === 'road' ? 'Road Segment' : (selectedDetails?.place_category || 'Building')}
-            </h2>
+            {selected.type === 'road' && (
+              <h2 className="mt-1 font-display text-xl">Road Segment</h2>
+            )}
             <p className="text-[10px] font-mono text-white/30 uppercase mt-1 overflow-hidden text-ellipsis">
               {selected.gers_id}
             </p>
           </div>
 
           {selected.type === 'building' && (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {hasAnyResource ? (
                 <>
                   {/* Resource types indicator */}
@@ -341,13 +341,10 @@ export default function FeaturePanel({ onActivateBuilding, onVote, onBoostProduc
                       }`}
                     >
                       <Rocket className="h-4 w-4" />
-                      <span className="text-sm font-semibold uppercase tracking-wider">Boost Activation</span>
+                      <span className="text-sm font-semibold uppercase tracking-wider">Boost Production</span>
                     </button>
                   </div>
 
-                  <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 h-4">
-                    {!canContribute ? "Authorizing..." : "Choose an activation option"}
-                  </div>
                 </>
               ) : (
                 <p className="text-xs text-white/40 italic">

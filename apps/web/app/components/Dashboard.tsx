@@ -7,19 +7,17 @@ import DemoMap from "./DemoMap";
 import PhaseIndicator from "./PhaseIndicator";
 import FeaturePanel from "./FeaturePanel";
 import MobileSidebar from "./MobileSidebar";
-import RegionalHealthRing from "./RegionalHealthRing";
 import { MapOverlay } from "./MapOverlay";
 import { useEventStream, SSE_STALE_THRESHOLD_MS, type EventPayload } from "../hooks/useEventStream";
 import { useStore, type Region, type Feature, type Hex, type CycleState } from "../store";
 import { BAR_HARBOR_DEMO_BBOX, DEGRADED_HEALTH_THRESHOLD, calculateCityScore, SCORE_ACTIONS } from "@nightfall/config";
 import { fetchWithRetry } from "../lib/retry";
-import { formatNumber } from "../lib/formatters";
 import { ResourcePoolsPanel } from "./sidebar/ResourcePoolsPanel";
 import { RegionHealthPanel } from "./sidebar/RegionHealthPanel";
 import { OnboardingOverlay } from "./OnboardingOverlay";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { recordResourceValues, clearResourceHistory } from "../lib/resourceHistory";
-import { recordHealthValues, getHealthTrend, clearHealthHistory } from "../lib/healthHistory";
+import { recordHealthValues, clearHealthHistory } from "../lib/healthHistory";
 import { MinigameOverlay } from "./minigames";
 import { Navigation } from "lucide-react";
 import { AdminConsole } from "./admin";
@@ -113,7 +111,8 @@ function ActiveEvents({ deltas, activeTasks, features }: { deltas: ResourceDelta
 
   const getFeatureName = (gersId: string) => {
     const feature = features.find(f => f.gers_id === gersId);
-    return feature?.name || "Road segment";
+    // Use road_class if available, otherwise fallback to "Road segment"
+    return feature?.road_class ? `${feature.road_class.charAt(0).toUpperCase()}${feature.road_class.slice(1)} road` : "Road segment";
   };
 
   const formatTaskType = (taskType: string) => {
@@ -123,7 +122,7 @@ function ActiveEvents({ deltas, activeTasks, features }: { deltas: ResourceDelta
   const hasActivity = deltas.length > 0 || activeTasks.length > 0;
 
   return (
-    <div className="flex flex-col gap-2 rounded-2xl border border-white/20 bg-[rgba(12,16,20,0.45)] px-4 py-3 shadow-[0_12px_30px_rgba(0,0,0,0.35)] backdrop-blur-md max-h-[40vh]">
+    <div className="flex min-h-0 flex-1 flex-col gap-2 rounded-2xl border border-white/20 bg-[rgba(12,16,20,0.45)] px-4 py-3 shadow-[0_12px_30px_rgba(0,0,0,0.35)] backdrop-blur-md">
       <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-white/60 flex-shrink-0">
         <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-[color:var(--night-teal)] shadow-[0_0_8px_var(--night-teal)]" />
         Active Events
@@ -216,6 +215,68 @@ function ActiveEvents({ deltas, activeTasks, features }: { deltas: ResourceDelta
   );
 }
 
+function RadialStat({
+  value,
+  max,
+  label,
+  color,
+  emoji,
+  format = "percent"
+}: {
+  value: number;
+  max: number;
+  label: string;
+  color: string;
+  emoji?: string;
+  format?: "percent" | "fraction" | "number";
+}) {
+  const percent = max > 0 ? (value / max) * 100 : 0;
+  const circumference = 2 * Math.PI * 18; // radius = 18
+  const strokeDashoffset = circumference - (percent / 100) * circumference;
+
+  const displayValue = format === "percent"
+    ? `${Math.round(percent)}%`
+    : format === "fraction"
+      ? `${value}/${max}`
+      : `${value}`;
+
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <div className="relative h-12 w-12">
+        <svg className="h-full w-full -rotate-90" viewBox="0 0 40 40">
+          <circle
+            cx="20"
+            cy="20"
+            r="18"
+            fill="none"
+            stroke="rgba(255,255,255,0.1)"
+            strokeWidth="3"
+          />
+          <circle
+            cx="20"
+            cy="20"
+            r="18"
+            fill="none"
+            stroke={color}
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            strokeDashoffset={strokeDashoffset}
+            className="transition-all duration-500"
+          />
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center text-xs font-bold text-white">
+          {displayValue}
+        </div>
+      </div>
+      <span className="flex items-center gap-1 text-[9px] uppercase tracking-wider text-white/50">
+        {emoji && <span className="text-sm">{emoji}</span>}
+        {label}
+      </span>
+    </div>
+  );
+}
+
 function MapPanel({
   title,
   children,
@@ -285,6 +346,7 @@ export default function Dashboard({
   const userVotes = useStore((state) => state.userVotes);
   const activeMinigame = useStore((state) => state.activeMinigame);
   const minigameResult = useStore((state) => state.minigameResult);
+  const buildingActivations = useStore((state) => state.buildingActivations);
 
   // Get stable action references (actions never change)
   const setRegion = useStore.getState().setRegion;
@@ -507,7 +569,19 @@ export default function Dashboard({
       }
 
       if (pending.resourceDeltas.length > 0) {
-        setResourceDeltas((prev) => [...pending.resourceDeltas, ...prev].slice(0, 6));
+        // Get types that have arrived (positive delta with "Transfer arrived" source)
+        const arrivedTypes = new Set(
+          pending.resourceDeltas
+            .filter(d => d.source === "Transfer arrived")
+            .map(d => d.type)
+        );
+        setResourceDeltas((prev) => {
+          // Filter out "In transit" items for types that have arrived
+          const filtered = arrivedTypes.size > 0
+            ? prev.filter(d => !(d.source === "In transit" && arrivedTypes.has(d.type)))
+            : prev;
+          return [...pending.resourceDeltas, ...filtered].slice(0, 6);
+        });
         pending.resourceDeltas = [];
       }
 
@@ -963,13 +1037,8 @@ export default function Dashboard({
 
   const counts = useMemo(() => {
     let roads = 0;
-    let buildings = 0;
     let healthy = 0;
     let degraded = 0;
-    let foodBuildings = 0;
-    let equipmentBuildings = 0;
-    let energyBuildings = 0;
-    let materialBuildings = 0;
 
     for (const f of features) {
       if (f.feature_type === "road") {
@@ -978,24 +1047,30 @@ export default function Dashboard({
           if (f.health >= DEGRADED_HEALTH_THRESHOLD) healthy += 1;
           else degraded += 1;
         }
-      } else if (f.feature_type === "building") {
-        buildings += 1;
-        if (f.generates_food) foodBuildings += 1;
-        if (f.generates_equipment) equipmentBuildings += 1;
-        if (f.generates_energy) energyBuildings += 1;
-        if (f.generates_materials) materialBuildings += 1;
       }
     }
 
-    return { roads, buildings, healthy, degraded, foodBuildings, equipmentBuildings, energyBuildings, materialBuildings };
-  }, [features]);
+    // Count active building activations from the store
+    const now = Date.now();
+    const activatedBuildings = Object.values(buildingActivations).filter(
+      activation => Date.parse(activation.expires_at) > now
+    ).length;
 
-  const healthPercent = region.stats.health_avg;
-  const rustPercent = region.stats.rust_avg * 100;
-  const cityScore = calculateCityScore(region.stats.health_avg, region.stats.rust_avg);
-  const healthTrend = getHealthTrend();
+    return { roads, healthy, degraded, activatedBuildings };
+  }, [features, buildingActivations]);
 
-  const activeTasks = useMemo(() => region.tasks.filter(t => t.status === "active"), [region.tasks]);
+
+  // Only show tasks where a crew is actively working (not traveling)
+  const activeTasks = useMemo(() => {
+    const workingCrewTaskIds = new Set(
+      region.crews
+        .filter(c => c.status === "working" && c.active_task_id)
+        .map(c => c.active_task_id)
+    );
+    return region.tasks.filter(t => workingCrewTaskIds.has(t.task_id));
+  }, [region.crews, region.tasks]);
+  const busyCrews = useMemo(() => region.crews.filter(c => c.status !== "idle").length, [region.crews]);
+  const totalCrews = region.crews.length;
 
   const SidebarContent = ({ resourceFeed }: { resourceFeed: ResourceDelta[] }) => (
     <>
@@ -1009,10 +1084,6 @@ export default function Dashboard({
             poolEquipment={region.pool_equipment}
             poolEnergy={region.pool_energy}
             poolMaterials={region.pool_materials}
-            foodBuildings={counts.foodBuildings}
-            equipmentBuildings={counts.equipmentBuildings}
-            energyBuildings={counts.energyBuildings}
-            materialBuildings={counts.materialBuildings}
             variant="light"
           />
         </div>
@@ -1149,40 +1220,43 @@ export default function Dashboard({
             </div>
           </div>
 
-          <MapOverlay position="top-right" className="!top-24 hidden w-72 flex-col gap-4 lg:flex">
-            <MapPanel title="Resource Pools">
+          <MapOverlay position="top-right" className="!top-24 !bottom-4 hidden w-72 flex-col gap-4 lg:flex">
+            <MapPanel title="Resource Pools" className="flex-shrink-0">
               <ResourcePoolsPanel
                 poolFood={region.pool_food}
                 poolEquipment={region.pool_equipment}
                 poolEnergy={region.pool_energy}
                 poolMaterials={region.pool_materials}
-                foodBuildings={counts.foodBuildings}
-                equipmentBuildings={counts.equipmentBuildings}
-                energyBuildings={counts.energyBuildings}
-                materialBuildings={counts.materialBuildings}
                 variant="dark"
               />
             </MapPanel>
 
-            <MapPanel title="Region Health">
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-red-500/20 to-orange-500/20 text-sm font-bold text-white">
-                    {cityScore}
-                  </div>
-                  <div className="text-xs">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[color:var(--night-teal)]">{Math.round(healthPercent)}% Health</span>
-                      <span className="text-white/30">|</span>
-                      <span className="text-red-400">{Math.round(rustPercent)}% Rust</span>
-                    </div>
-                    <div className="mt-1 flex items-center gap-2 text-white/50">
-                      <span className="text-[color:var(--night-teal)]">{formatNumber(counts.healthy)}</span> healthy
-                      <span className="text-white/30">|</span>
-                      <span className="text-red-400">{formatNumber(counts.degraded)}</span> degraded
-                    </div>
-                  </div>
-                </div>
+            <MapPanel title="Region Health" className="flex-shrink-0">
+              <div className="flex items-center justify-around">
+                <RadialStat
+                  value={counts.degraded}
+                  max={counts.roads}
+                  label="Degraded"
+                  color="#ef4444"
+                  emoji="🛣️"
+                  format="percent"
+                />
+                <RadialStat
+                  value={busyCrews}
+                  max={totalCrews}
+                  label="Workers"
+                  color="var(--night-teal)"
+                  emoji="👷"
+                  format="fraction"
+                />
+                <RadialStat
+                  value={counts.activatedBuildings}
+                  max={Math.max(counts.activatedBuildings, 1)}
+                  label="Active"
+                  color="#fbbf24"
+                  emoji="🏢"
+                  format="number"
+                />
               </div>
             </MapPanel>
 

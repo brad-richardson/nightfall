@@ -21,10 +21,6 @@ type ResourcePoolsPanelProps = {
   poolEquipment: number;
   poolEnergy: number;
   poolMaterials: number;
-  foodBuildings: number;
-  equipmentBuildings: number;
-  energyBuildings: number;
-  materialBuildings: number;
   variant?: "light" | "dark";
 };
 
@@ -107,10 +103,6 @@ export function ResourcePoolsPanel({
   poolEquipment,
   poolEnergy,
   poolMaterials,
-  foodBuildings,
-  equipmentBuildings,
-  energyBuildings,
-  materialBuildings,
   variant = "dark"
 }: ResourcePoolsPanelProps) {
   const isLight = variant === "light";
@@ -193,30 +185,6 @@ export function ResourcePoolsPanel({
         onLeave={handleLeave}
         onTap={handleTap}
       />
-      <div
-        className={`mt-2 text-[10px] ${isLight ? "text-[color:var(--night-ash)]" : "text-white/50"}`}
-      >
-        {isLight ? (
-          <>
-            <p className="font-semibold text-[color:var(--night-ink)]">
-              Contributing buildings
-            </p>
-            <p>
-              {formatNumber(foodBuildings)} Food •{" "}
-              {formatNumber(equipmentBuildings)} Equipment •{" "}
-              {formatNumber(energyBuildings)} Energy •{" "}
-              {formatNumber(materialBuildings)} Materials
-            </p>
-          </>
-        ) : (
-          <div className="flex flex-wrap gap-x-2">
-            <span>{formatNumber(foodBuildings)} Food</span>
-            <span>{formatNumber(equipmentBuildings)} Equip</span>
-            <span>{formatNumber(energyBuildings)} Energy</span>
-            <span>{formatNumber(materialBuildings)} Mat</span>
-          </div>
-        )}
-      </div>
 
       {/* Trendline tooltip */}
       {activeResource && (
