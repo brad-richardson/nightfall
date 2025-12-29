@@ -123,7 +123,7 @@ export type UserVotes = Record<string, number>;
 
 // Minigame types
 export type MinigameType = "kitchen_rush" | "fresh_check" | "gear_up" | "patch_job" | "power_up" | "crane_drop";
-export type RepairMinigameType = "pothole_patrol" | "road_roller" | "traffic_director";
+export type RepairMinigameType = "pothole_patrol" | "level_out" | "traffic_director";
 export type ResourceType = "food" | "equipment" | "energy" | "materials";
 
 export type MinigameMode = "quick" | "boost";

@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { X } from "lucide-react";
 import { useStore } from "../../../store";
 import PotholePatrol from "./PotholePatrol";
-import RoadRoller from "./RoadRoller";
+import LevelOut from "./LevelOut";
 import TrafficDirector from "./TrafficDirector";
 import RepairMinigameResults from "./RepairMinigameResults";
 
@@ -14,7 +14,7 @@ type RepairMinigameOverlayProps = {
 
 const MINIGAME_LABELS: Record<string, string> = {
   pothole_patrol: "Pothole Patrol",
-  road_roller: "Road Roller",
+  level_out: "Level Out",
   traffic_director: "Traffic Director",
 };
 
@@ -228,8 +228,8 @@ export default function RepairMinigameOverlay({ onClose }: RepairMinigameOverlay
                   onComplete={handleGameComplete}
                 />
               )}
-              {activeRepairMinigame.minigame_type === "road_roller" && (
-                <RoadRoller
+              {activeRepairMinigame.minigame_type === "level_out" && (
+                <LevelOut
                   config={activeRepairMinigame.config}
                   difficulty={activeRepairMinigame.difficulty}
                   onComplete={handleGameComplete}

@@ -85,11 +85,11 @@ export const MINIGAME_CONFIG: Record<string, { maxScore: number; expectedDuratio
 };
 
 // Road repair minigame configuration
-export const REPAIR_MINIGAME_TYPES = ["pothole_patrol", "road_roller", "traffic_director"] as const;
+export const REPAIR_MINIGAME_TYPES = ["pothole_patrol", "level_out", "traffic_director"] as const;
 
 export const REPAIR_MINIGAME_CONFIG: Record<string, { maxScore: number; expectedDurationMs: number; baseRounds: number }> = {
   pothole_patrol: { maxScore: 1000, expectedDurationMs: 20000, baseRounds: 5 },
-  road_roller: { maxScore: 1000, expectedDurationMs: 25000, baseRounds: 3 },
+  level_out: { maxScore: 1000, expectedDurationMs: 18000, baseRounds: 4 },
   traffic_director: { maxScore: 1000, expectedDurationMs: 25000, baseRounds: 8 },
 };
 
