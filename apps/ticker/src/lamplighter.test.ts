@@ -112,8 +112,7 @@ describe("runLamplighter", () => {
     expect(query).not.toHaveBeenCalled();
   });
 
-  it("occasionally activates a building (probabilistic)", async () => {
-    // Mock building query result for contribution action
+  it("activates a building when probability check passes", async () => {
     const mockBuilding = {
       gers_id: "building-1",
       name: "Test Building",
@@ -123,30 +122,49 @@ describe("runLamplighter", () => {
       generates_materials: false,
     };
 
-    // Run multiple times to test probability (~20% chance per run)
-    let activations = 0;
-    for (let i = 0; i < 50; i++) {
-      query.mockClear();
-      query
-        .mockResolvedValueOnce({ rows: mockRegions }) // fetchRegionStates
-        .mockImplementation((sql: string) => {
-          if (typeof sql === "string" && sql.includes("world_features") && sql.includes("generates_food")) {
-            return Promise.resolve({ rows: [mockBuilding] });
-          }
-          if (typeof sql === "string" && sql.includes("INSERT INTO feature_state")) {
-            return Promise.resolve({ rows: [] });
-          }
+    // Mock Math.random to control the 20% probability check
+    const originalRandom = Math.random;
+    let callCount = 0;
+    Math.random = () => {
+      callCount++;
+      // First call is the 20% check - pass it (value <= 0.20)
+      if (callCount === 1) return 0.1;
+      // Subsequent calls for pickRandom and isLamplighter check
+      return 0.5;
+    };
+
+    query
+      .mockResolvedValueOnce({ rows: mockRegions }) // fetchRegionStates
+      .mockImplementation((sql: string) => {
+        if (typeof sql === "string" && sql.includes("world_features") && sql.includes("generates_food")) {
+          return Promise.resolve({ rows: [mockBuilding] });
+        }
+        if (typeof sql === "string" && sql.includes("INSERT INTO feature_state")) {
           return Promise.resolve({ rows: [] });
-        });
+        }
+        return Promise.resolve({ rows: [] });
+      });
 
+    try {
       const result = await runLamplighter({ query }, true, "day");
-      activations += result.contributions;
+      expect(result.contributions).toBe(1);
+    } finally {
+      Math.random = originalRandom;
     }
+  });
 
-    // With 20% probability over 50 runs, we expect ~10 activations
-    // Allow for variance: should be between 2 and 20
-    expect(activations).toBeGreaterThan(1);
-    expect(activations).toBeLessThan(25);
+  it("skips activation when probability check fails", async () => {
+    // Mock Math.random to fail the 20% probability check
+    const originalRandom = Math.random;
+    Math.random = () => 0.5; // > 0.20, so check fails
+
+    try {
+      const result = await runLamplighter({ query }, true, "day");
+      expect(result.contributions).toBe(0);
+      expect(query).not.toHaveBeenCalled();
+    } finally {
+      Math.random = originalRandom;
+    }
   });
 
   it("returns empty when no regions exist", async () => {
@@ -200,19 +218,14 @@ describe("runLamplighter", () => {
     try {
       const result = await runLamplighter({ query }, true, "day");
 
-      // Check that building activation was attempted
-      const activationCalls = query.mock.calls.filter(
-        (call) => typeof call[0] === "string" && call[0].includes("world_features")
-      );
-      expect(activationCalls.length).toBeGreaterThan(0);
+      // With mocked random passing and building found, expect 1 contribution
+      expect(result.contributions).toBe(1);
 
-      // If a building was found, should have a contribution
-      if (result.contributions > 0) {
-        const notifyCalls = query.mock.calls.filter(
-          (call) => typeof call[0] === "string" && call[0].includes("pg_notify")
-        );
-        expect(notifyCalls.length).toBeGreaterThan(0);
-      }
+      // Check that notification was sent
+      const notifyCalls = query.mock.calls.filter(
+        (call) => typeof call[0] === "string" && call[0].includes("pg_notify")
+      );
+      expect(notifyCalls.length).toBe(1);
     } finally {
       Math.random = originalRandom;
     }

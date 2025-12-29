@@ -8,8 +8,8 @@ import { notifyEvent } from "./notify";
  *
  * "The nights are getting longer."
  *
- * This bot makes the world feel alive by activating a building every 15-30
- * seconds, creating subtle signs of life without overwhelming activity.
+ * This bot makes the world feel alive by activating a building on average
+ * once every ~25 seconds, creating subtle signs of life without overwhelming activity.
  */
 
 export type RegionState = {
@@ -66,7 +66,7 @@ export type LamplighterResult = {
 
 /**
  * The Lamplighter makes the world feel alive by occasionally activating buildings.
- * Runs roughly every 15-30 seconds (probabilistically) to create a subtle sense of life.
+ * With a 20% chance per ~5 second tick, averages about once every 25 seconds.
  */
 export async function runLamplighter(
   client: PoolLike,
@@ -83,8 +83,7 @@ export async function runLamplighter(
 
   if (!enabled) return result;
 
-  // Run roughly every 15-30 seconds. With ~5 second tick intervals,
-  // a 20% chance means we average once every 25 seconds (5 ticks).
+  // With ~5 second tick intervals, a 20% chance averages once every 25 seconds.
   if (Math.random() > 0.20) {
     return result;
   }
@@ -135,9 +134,6 @@ async function contributeToRegion(
   region: RegionState,
   phase: PhaseName
 ): Promise<boolean> {
-  // Just activate one building at a time for subtle activity
-  const buildingsToActivate = 1;
-
   // Find a random building in this region that generates resources and isn't already activated.
   const buildingResult = await client.query<{
     gers_id: string;
@@ -166,8 +162,8 @@ async function contributeToRegion(
       )
       AND (fs.last_activated_at IS NULL OR fs.last_activated_at < now() - interval '2 minutes')
     ORDER BY random()
-    LIMIT $2`,
-    [region.region_id, buildingsToActivate]
+    LIMIT 1`,
+    [region.region_id]
   );
 
   if (buildingResult.rows.length === 0) {
