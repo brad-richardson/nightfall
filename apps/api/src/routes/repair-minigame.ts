@@ -354,14 +354,10 @@ export function registerRepairMinigameRoutes(app: FastifyInstance) {
         }
       }
 
-      // Emit feature delta for UI update
+      // Emit feature delta for UI update (ID-only format, client fetches full data)
       await pool.query("SELECT pg_notify($1, $2)", [
         "feature_delta",
-        JSON.stringify({
-          gers_id: session.road_gers_id,
-          health: result.newHealth,
-          status: result.newHealth >= 70 ? 'normal' : 'degraded',
-        }),
+        JSON.stringify({ feature_ids: [session.road_gers_id] }),
       ]);
 
       // Award score for repair attempt

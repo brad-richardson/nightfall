@@ -336,10 +336,10 @@ export default function DemoMap({
       "bottom-left"
     );
 
-    // Auto-retract attribution bubble after 4 seconds
+    // Auto-retract attribution bubble after 4 seconds (set up after load)
     let attribRetractTimeout: ReturnType<typeof setTimeout> | null = null;
-    const attribButton = mapContainer.current.querySelector('.maplibregl-ctrl-attrib-button');
-    const attribContainer = mapContainer.current.querySelector('.maplibregl-ctrl-attrib');
+    let attribButton: Element | null = null;
+    let attribContainer: Element | null = null;
     const handleAttribClick = () => {
       // Clear any existing timeout
       if (attribRetractTimeout) {
@@ -349,14 +349,21 @@ export default function DemoMap({
       // Check if bubble is being expanded (will have class after click completes)
       // Use requestAnimationFrame to check after MapLibre updates the class
       requestAnimationFrame(() => {
-        if (attribContainer?.classList.contains('maplibregl-compact-show')) {
+        const container = attribContainer;
+        if (container?.classList.contains('maplibregl-compact-show')) {
           attribRetractTimeout = setTimeout(() => {
-            attribContainer.classList.remove('maplibregl-compact-show');
+            container.classList.remove('maplibregl-compact-show');
           }, 4000);
         }
       });
     };
-    attribButton?.addEventListener('click', handleAttribClick);
+
+    // Set up attribution listener after a short delay to ensure DOM is ready
+    setTimeout(() => {
+      attribButton = mapContainer.current?.querySelector('.maplibregl-ctrl-attrib-button') ?? null;
+      attribContainer = mapContainer.current?.querySelector('.maplibregl-ctrl-attrib') ?? null;
+      attribButton?.addEventListener('click', handleAttribClick);
+    }, 100);
 
     // Expose for testing
     if (typeof window !== "undefined") {

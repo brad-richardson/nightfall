@@ -1066,6 +1066,21 @@ async function pruneNonLandFeatures(pgPool: Pool, regionId: string) {
     const buildingCount = orphanedFeatures.rows.filter(r => r.feature_type === 'building').length;
     console.log(`Removed ${roadCount} roads and ${buildingCount} buildings with no land hex associations`);
 
+    // Remove hex cells that have no remaining features
+    const orphanedHexes = await client.query(
+      `
+      DELETE FROM hex_cells h
+      WHERE h.region_id = $1
+        AND NOT EXISTS (
+          SELECT 1 FROM world_feature_hex_cells wfhc
+          WHERE wfhc.h3_index = h.h3_index
+        )
+      RETURNING h.h3_index
+      `,
+      [regionId]
+    );
+    console.log(`Removed ${orphanedHexes.rowCount} orphaned hex cells`);
+
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");
