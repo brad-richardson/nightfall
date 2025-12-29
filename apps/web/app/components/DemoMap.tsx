@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from "react"
 import maplibregl from "maplibre-gl";
 import * as pmtiles from "pmtiles";
 import { cellToBoundary, cellToLatLng } from "h3-js";
-import { MapTooltip, type TooltipData } from "./MapTooltip";
+import { MapTooltip, type TooltipData, type CrewData } from "./MapTooltip";
 import {
   type ResourcePackage,
   buildResourcePath,
@@ -101,6 +101,8 @@ export default function DemoMap({
   const fadeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const featuresRef = useRef(features);
   const tasksRef = useRef(tasks);
+  const crewsRef = useRef(crews);
+  const crewPathsRef = useRef<CrewPath[]>([]);
   const resourcePackagesRef = useRef(resourcePackages);
   const hasOvertureSources = !!pmtilesRelease;
   // Initialize with empty Maps - will be updated via useEffect after memos are computed
@@ -258,6 +260,8 @@ export default function DemoMap({
   // Keep refs updated for use in event handlers
   useEffect(() => { featuresRef.current = features; }, [features]);
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
+  useEffect(() => { crewsRef.current = crews; }, [crews]);
+  useEffect(() => { crewPathsRef.current = crewPaths; }, [crewPaths]);
   useEffect(() => { resourcePackagesRef.current = resourcePackages; }, [resourcePackages]);
   useEffect(() => { featuresByGersIdRef.current = featuresByGersId; }, [featuresByGersId]);
   useEffect(() => { tasksByGersIdRef.current = tasksByGersId; }, [tasksByGersId]);
@@ -521,11 +525,12 @@ export default function DemoMap({
     // Only include overture-dependent layers when sources are available
     const tooltipLayers = hasOvertureSources
       ? [
+        "game-crews-icon", "game-crew-path-icon",
         "game-roads-healthy", "game-roads-warning", "game-roads-degraded",
         "roads-low", "roads-mid", "roads-high", "roads-routes",
         "buildings", "buildings-food", "buildings-equipment", "buildings-energy", "buildings-materials", "buildings-hub", "game-hex-fill"
       ]
-      : ["game-hex-fill"];
+      : ["game-crews-icon", "game-crew-path-icon", "game-hex-fill"];
 
     const buildTooltipData = (
       feature: maplibregl.MapGeoJSONFeature,
@@ -533,6 +538,64 @@ export default function DemoMap({
     ): TooltipData | null => {
       const layerId = feature.layer.id;
       const gersId = feature.properties?.id as string | undefined;
+
+      // Handle crew tooltips
+      if (layerId.includes("crew")) {
+        const crewId = feature.properties?.crew_id as string | undefined;
+        if (!crewId) return null;
+
+        const crew = crewsRef.current.find(c => c.crew_id === crewId);
+        if (!crew) return null;
+
+        // Find crew path for destination info
+        const crewPath = crewPathsRef.current.find(cp => cp.crew_id === crewId);
+
+        // Get target road name from task
+        let targetRoadName: string | null = null;
+        let destinationCoord: [number, number] | null = null;
+
+        if (crew.active_task_id) {
+          const task = tasksRef.current.find(t => t.task_id === crew.active_task_id);
+          if (task?.target_gers_id) {
+            const targetFeature = featuresByGersIdRef.current.get(task.target_gers_id);
+            if (targetFeature?.road_class) {
+              targetRoadName = targetFeature.road_class.replace(/_/g, " ");
+              targetRoadName = targetRoadName.charAt(0).toUpperCase() + targetRoadName.slice(1);
+            }
+          }
+        }
+
+        // Get destination from crew path
+        if (crewPath && crewPath.path.length > 0) {
+          destinationCoord = crewPath.path[crewPath.path.length - 1] as [number, number];
+        }
+
+        // Calculate time remaining
+        let timeRemaining: number | null = null;
+        if (crew.busy_until) {
+          const busyUntil = new Date(crew.busy_until).getTime();
+          const remaining = (busyUntil - Date.now()) / 1000;
+          if (remaining > 0) timeRemaining = remaining;
+        }
+
+        const crewData: CrewData = {
+          crew_id: crewId,
+          status: crew.status,
+          targetRoadName,
+          timeRemaining,
+          destinationCoord,
+          onFlyToDestination: destinationCoord && mapInstance ? () => {
+            mapInstance.flyTo({
+              center: destinationCoord!,
+              zoom: 16,
+              duration: 1500
+            });
+            setTooltipData(null);
+          } : undefined
+        };
+
+        return { type: "crew", position: { x: point.x, y: point.y }, data: crewData };
+      }
 
       if (layerId.includes("hex")) {
         const rust = normalizePercent(Number(feature.properties?.rust_level));
@@ -577,8 +640,16 @@ export default function DemoMap({
     const resolveTooltip = (point: maplibregl.Point) => {
       const featuresAtPoint = mapInstance.queryRenderedFeatures(point, { layers: tooltipLayers });
       if (!featuresAtPoint.length) {
-        setTooltipData(null);
+        // Delay clearing for crew tooltips to allow clicking the button
+        if (tooltipDismissRef.current) window.clearTimeout(tooltipDismissRef.current);
+        tooltipDismissRef.current = window.setTimeout(() => setTooltipData(null), 400);
         return;
+      }
+
+      // Cancel any pending dismiss when hovering over a feature
+      if (tooltipDismissRef.current) {
+        window.clearTimeout(tooltipDismissRef.current);
+        tooltipDismissRef.current = null;
       }
 
       const nonHexFeature = featuresAtPoint.find(f => !f.layer.id.includes("hex"));
@@ -1018,6 +1089,45 @@ export default function DemoMap({
 
     window.addEventListener("nightfall:fly_to_convoy", handleFlyToConvoy);
     return () => window.removeEventListener("nightfall:fly_to_convoy", handleFlyToConvoy);
+  }, [isLoaded]);
+
+  // Fly to crew event handler
+  useEffect(() => {
+    const handleFlyToCrew = (e: Event) => {
+      const customEvent = e as CustomEvent<{ crew_id: string }>;
+      const crewId = customEvent.detail.crew_id;
+
+      if (!map.current || !isLoaded) return;
+
+      // Find the crew
+      const crew = crewsRef.current.find(c => c.crew_id === crewId);
+      if (!crew) return;
+
+      // Get current position - interpolate if traveling with waypoints
+      let position: [number, number] | null = null;
+
+      if (crew.status === "traveling" && crew.waypoints && crew.waypoints.length > 0 && crew.path_started_at) {
+        const now = Date.now();
+        position = interpolateWaypoints(crew.waypoints, now);
+      }
+
+      // Fallback to static position
+      if (!position && crew.current_lng != null && crew.current_lat != null) {
+        position = [crew.current_lng, crew.current_lat];
+      }
+
+      if (!position) return;
+
+      map.current.flyTo({
+        center: position,
+        zoom: 17,
+        pitch: 45,
+        duration: 1200
+      });
+    };
+
+    window.addEventListener("nightfall:fly_to_crew", handleFlyToCrew);
+    return () => window.removeEventListener("nightfall:fly_to_crew", handleFlyToCrew);
   }, [isLoaded]);
 
   // Task completion animation
@@ -1468,7 +1578,16 @@ export default function DemoMap({
             transition: prefersReducedMotion ? "none" : "filter 2500ms cubic-bezier(0.4, 0, 0.2, 1)"
           }}
         />
-        <MapTooltip tooltip={tooltipData} containerSize={mapSize} />
+        <MapTooltip
+          tooltip={tooltipData}
+          containerSize={mapSize}
+          onMouseEnter={() => {
+            if (tooltipDismissRef.current) {
+              window.clearTimeout(tooltipDismissRef.current);
+              tooltipDismissRef.current = null;
+            }
+          }}
+        />
         {/* Arrival particle text animations with screen reader support */}
         <div aria-live="polite" aria-atomic="false" className="sr-only">
           {arrivalParticles.slice(0, 1).map(particle => (

@@ -5,9 +5,9 @@ import { getHealthColor, getRustColor } from "../lib/metricColors";
 import { formatLabel } from "../lib/formatters";
 
 export type TooltipData = {
-  type: "road" | "building" | "hex";
+  type: "road" | "building" | "hex" | "crew";
   position: { x: number; y: number };
-  data: RoadData | BuildingData | HexData;
+  data: RoadData | BuildingData | HexData | CrewData;
 };
 
 export type RoadData = {
@@ -28,15 +28,25 @@ export type HexData = {
   rust_level: number;
 };
 
+export type CrewData = {
+  crew_id: string;
+  status: string;
+  targetRoadName: string | null;
+  timeRemaining: number | null; // seconds until busy_until
+  destinationCoord: [number, number] | null;
+  onFlyToDestination?: () => void;
+};
+
 type MapTooltipProps = {
   tooltip: TooltipData | null;
   containerSize: { width: number; height: number };
+  onMouseEnter?: () => void;
 };
 
 const DEFAULT_SIZE = { width: 200, height: 120 };
 const PADDING = 12;
 
-export function MapTooltip({ tooltip, containerSize }: MapTooltipProps) {
+export function MapTooltip({ tooltip, containerSize, onMouseEnter }: MapTooltipProps) {
   const tooltipRef = useRef<HTMLDivElement>(null);
   const [tooltipSize, setTooltipSize] = useState(DEFAULT_SIZE);
 
@@ -73,10 +83,11 @@ export function MapTooltip({ tooltip, containerSize }: MapTooltipProps) {
   if (!tooltip) return null;
 
   return (
-    <div ref={tooltipRef} className="map-tooltip" style={style}>
+    <div ref={tooltipRef} className="map-tooltip" style={style} onMouseEnter={onMouseEnter}>
       {tooltip.type === "road" && <RoadTooltipContent data={tooltip.data as RoadData} />}
       {tooltip.type === "building" && <BuildingTooltipContent data={tooltip.data as BuildingData} />}
       {tooltip.type === "hex" && <HexTooltipContent data={tooltip.data as HexData} />}
+      {tooltip.type === "crew" && <CrewTooltipContent data={tooltip.data as CrewData} />}
     </div>
   );
 }
@@ -144,6 +155,59 @@ function HexTooltipContent({ data }: { data: HexData }) {
           {Math.round(data.rust_level)}%
         </span>
       </div>
+    </>
+  );
+}
+
+function CrewTooltipContent({ data }: { data: CrewData }) {
+  const statusColors: Record<string, string> = {
+    idle: "#888888",
+    traveling: "#f0ddc2",
+    working: "#3eb0c0",
+    returning: "#f08a4e"
+  };
+  const statusColor = statusColors[data.status] || "#888888";
+
+  const formatTimeRemaining = (seconds: number | null) => {
+    if (seconds === null || seconds <= 0) return null;
+    if (seconds < 60) return `${Math.round(seconds)}s`;
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.round(seconds % 60);
+    return `${mins}m ${secs}s`;
+  };
+
+  const timeStr = formatTimeRemaining(data.timeRemaining);
+
+  return (
+    <>
+      <div className="tooltip-header">Repair Crew</div>
+      <div className="tooltip-row">
+        <span className="tooltip-label">Status:</span>
+        <span className="tooltip-value" style={{ color: statusColor }}>
+          {formatLabel(data.status)}
+        </span>
+      </div>
+      {data.targetRoadName && (
+        <div className="tooltip-row">
+          <span className="tooltip-label">Target:</span>
+          <span className="tooltip-value">{data.targetRoadName}</span>
+        </div>
+      )}
+      {timeStr && (
+        <div className="tooltip-row">
+          <span className="tooltip-label">ETA:</span>
+          <span className="tooltip-value">{timeStr}</span>
+        </div>
+      )}
+      {data.destinationCoord && data.onFlyToDestination && (
+        <button
+          type="button"
+          onClick={data.onFlyToDestination}
+          className="tooltip-fly-btn"
+        >
+          Fly to destination
+        </button>
+      )}
     </>
   );
 }

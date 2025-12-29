@@ -32,6 +32,7 @@ type ResourceDelta = {
   source: string;
   ts: number;
   transferId?: string; // For in-transit items, to enable fly-to-convoy
+  arriveAt?: number; // For in-transit items, to show ETA
 };
 
 type PathWaypoint = {
@@ -95,9 +96,16 @@ type ActiveTask = {
   target_gers_id: string;
   task_type: string;
   status: string;
+  busy_until: string | null;
 };
 
-function ActiveEvents({ deltas, activeTasks, features }: { deltas: ResourceDelta[]; activeTasks: ActiveTask[]; features: Feature[] }) {
+type TravelingCrew = {
+  crew_id: string;
+  target_gers_id: string | null;
+  busy_until: string | null;
+};
+
+function ActiveEvents({ deltas, activeTasks, travelingCrews, features }: { deltas: ResourceDelta[]; activeTasks: ActiveTask[]; travelingCrews: TravelingCrew[]; features: Feature[] }) {
   const handleFlyToConvoy = (transferId: string) => {
     window.dispatchEvent(new CustomEvent("nightfall:fly_to_convoy", {
       detail: { transfer_id: transferId }
@@ -107,6 +115,12 @@ function ActiveEvents({ deltas, activeTasks, features }: { deltas: ResourceDelta
   const handleFlyToTask = (gersId: string) => {
     window.dispatchEvent(new CustomEvent("nightfall:fly_to_feature", {
       detail: { gers_id: gersId }
+    }));
+  };
+
+  const handleFlyToCrew = (crewId: string) => {
+    window.dispatchEvent(new CustomEvent("nightfall:fly_to_crew", {
+      detail: { crew_id: crewId }
     }));
   };
 
@@ -120,7 +134,23 @@ function ActiveEvents({ deltas, activeTasks, features }: { deltas: ResourceDelta
     return taskType.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
   };
 
-  const hasActivity = deltas.length > 0 || activeTasks.length > 0;
+  const hasActivity = deltas.length > 0 || activeTasks.length > 0 || travelingCrews.length > 0;
+
+  const formatTimeRemaining = (busyUntil: string | null) => {
+    if (!busyUntil) return null;
+    const remaining = (new Date(busyUntil).getTime() - Date.now()) / 1000;
+    if (remaining <= 0) return null;
+    if (remaining < 60) return `${Math.round(remaining)}s`;
+    return `${Math.floor(remaining / 60)}m ${Math.round(remaining % 60)}s`;
+  };
+
+  const formatEtaFromTimestamp = (arriveAt: number | undefined) => {
+    if (!arriveAt) return null;
+    const remaining = (arriveAt - Date.now()) / 1000;
+    if (remaining <= 0) return null;
+    if (remaining < 60) return `${Math.round(remaining)}s`;
+    return `${Math.floor(remaining / 60)}m ${Math.round(remaining % 60)}s`;
+  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2 rounded-2xl border border-white/20 bg-[rgba(12,16,20,0.45)] px-4 py-3 shadow-[0_12px_30px_rgba(0,0,0,0.35)] backdrop-blur-md">
@@ -133,41 +163,86 @@ function ActiveEvents({ deltas, activeTasks, features }: { deltas: ResourceDelta
           <div className="text-[11px] text-white/40">Awaiting activity...</div>
         ) : (
           <>
-            {/* Active repair tasks */}
-            {activeTasks.map((task) => (
-              <div
-                key={task.task_id}
-                className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2 text-[11px] text-white/80 animate-[fade-in_400ms_ease]"
-              >
-                <div className="flex items-center gap-2">
-                  <span
-                    className="h-6 w-6 rounded-lg text-xs font-bold text-white flex items-center justify-center flex-shrink-0"
-                    style={{
-                      background: "linear-gradient(135deg, #f59e0b99, #f59e0b66)",
-                      boxShadow: "0 0 12px #f59e0b40"
-                    }}
-                  >
-                    ⚙
-                  </span>
-                  <div className="leading-tight min-w-0">
-                    <div className="font-semibold">{formatTaskType(task.task_type)}</div>
-                    <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 truncate">{getFeatureName(task.target_gers_id)}</div>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleFlyToTask(task.target_gers_id)}
-                  className="rounded-full p-1 text-white/40 transition-colors hover:bg-white/10 hover:text-white flex-shrink-0"
-                  title="Fly to repair site"
-                  aria-label="Fly to repair site on map"
+            {/* Traveling crews */}
+            {travelingCrews.map((crew) => {
+              const timeStr = formatTimeRemaining(crew.busy_until);
+              return (
+                <div
+                  key={crew.crew_id}
+                  className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2 text-[11px] text-white/80 animate-[fade-in_400ms_ease]"
                 >
-                  <Navigation className="h-3 w-3" />
-                </button>
-              </div>
-            ))}
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="h-6 w-6 rounded-lg text-xs font-bold text-white flex items-center justify-center flex-shrink-0"
+                      style={{
+                        background: "linear-gradient(135deg, #f0ddc299, #f0ddc266)",
+                        boxShadow: "0 0 12px #f0ddc240"
+                      }}
+                    >
+                      🚚
+                    </span>
+                    <div className="leading-tight min-w-0">
+                      <div className="font-semibold">Crew En Route</div>
+                      <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 truncate">
+                        {crew.target_gers_id ? getFeatureName(crew.target_gers_id) : "Returning to hub"}
+                        {timeStr && <span className="ml-2 text-[color:var(--night-teal)]">ETA {timeStr}</span>}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleFlyToCrew(crew.crew_id)}
+                    className="rounded-full p-1 text-white/40 transition-colors hover:bg-white/10 hover:text-white flex-shrink-0"
+                    title="Fly to crew"
+                    aria-label="Fly to crew on map"
+                  >
+                    <Navigation className="h-3 w-3" />
+                  </button>
+                </div>
+              );
+            })}
+            {/* Active repair tasks */}
+            {activeTasks.map((task) => {
+              const taskEta = formatTimeRemaining(task.busy_until);
+              return (
+                <div
+                  key={task.task_id}
+                  className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2 text-[11px] text-white/80 animate-[fade-in_400ms_ease]"
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="h-6 w-6 rounded-lg text-xs font-bold text-white flex items-center justify-center flex-shrink-0"
+                      style={{
+                        background: "linear-gradient(135deg, #f59e0b99, #f59e0b66)",
+                        boxShadow: "0 0 12px #f59e0b40"
+                      }}
+                    >
+                      ⚙
+                    </span>
+                    <div className="leading-tight min-w-0">
+                      <div className="font-semibold">{formatTaskType(task.task_type)}</div>
+                      <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 truncate">
+                        {getFeatureName(task.target_gers_id)}
+                        {taskEta && <span className="ml-2 text-[color:var(--night-teal)]">ETA {taskEta}</span>}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleFlyToTask(task.target_gers_id)}
+                    className="rounded-full p-1 text-white/40 transition-colors hover:bg-white/10 hover:text-white flex-shrink-0"
+                    title="Fly to repair site"
+                    aria-label="Fly to repair site on map"
+                  >
+                    <Navigation className="h-3 w-3" />
+                  </button>
+                </div>
+              );
+            })}
             {/* Resource transfers */}
             {deltas.map((item, idx) => {
               const color = RESOURCE_COLORS[item.type];
+              const transitEta = item.source === "In transit" ? formatEtaFromTimestamp(item.arriveAt) : null;
               return (
                 <div
                   key={item.ts + idx}
@@ -187,7 +262,10 @@ function ActiveEvents({ deltas, activeTasks, features }: { deltas: ResourceDelta
                       <div className="font-semibold">
                         {RESOURCE_LABELS[item.type]} {item.source === "In transit" ? "in transit" : item.delta > 0 ? "added" : "spent"} {Math.abs(Math.round(item.delta))}
                       </div>
-                      <div className="text-[10px] uppercase tracking-[0.2em] text-white/40">{item.source}</div>
+                      <div className="text-[10px] uppercase tracking-[0.2em] text-white/40">
+                        {item.source}
+                        {transitEta && <span className="ml-2 text-[color:var(--night-teal)]">ETA {transitEta}</span>}
+                      </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
@@ -202,9 +280,11 @@ function ActiveEvents({ deltas, activeTasks, features }: { deltas: ResourceDelta
                         <Navigation className="h-3 w-3" />
                       </button>
                     )}
-                    <span className="text-[10px] text-white/40">
-                      {new Date(item.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                    </span>
+                    {item.source !== "In transit" && (
+                      <span className="text-[10px] text-white/40">
+                        {new Date(item.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    )}
                   </div>
                 </div>
               );
@@ -371,6 +451,7 @@ export default function Dashboard({
   const pendingUpdatesRef = useRef<{
     cycle: Partial<CycleState> | null;
     hexUpdates: Map<string, { h3_index: string; rust_level: number }>;
+    rustBulkUpdate: number | null;
     regionUpdate: { pool_food: number; pool_equipment: number; pool_energy: number; pool_materials: number; rust_avg?: number | null; health_avg?: number | null; score?: number | null } | null;
     featureUpdates: Map<string, { health: number; status: string }>;
     taskUpdates: Map<string, { task_id: string; status: string; priority_score: number; vote_score?: number; cost_food?: number; cost_equipment?: number; cost_energy?: number; cost_materials?: number; duration_s?: number; repair_amount?: number; task_type?: string; target_gers_id?: string; region_id?: string }>;
@@ -380,6 +461,7 @@ export default function Dashboard({
   }>({
     cycle: null,
     hexUpdates: new Map(),
+    rustBulkUpdate: null,
     regionUpdate: null,
     featureUpdates: new Map(),
     taskUpdates: new Map(),
@@ -495,6 +577,13 @@ export default function Dashboard({
           return Array.from(map.values());
         });
         pending.hexUpdates.clear();
+      }
+
+      // Handle bulk rust update (admin console set-rust)
+      if (pending.rustBulkUpdate !== null) {
+        const newRust = pending.rustBulkUpdate;
+        setHexes((prev) => prev.map((h) => ({ ...h, rust_level: newRust })));
+        pending.rustBulkUpdate = null;
       }
 
       if (pending.regionUpdate) {
@@ -682,7 +771,8 @@ export default function Dashboard({
               delta: -transfer.amount,
               source: "In transit",
               ts: Date.now(),
-              transferId: transfer.transfer_id
+              transferId: transfer.transfer_id,
+              arriveAt
             });
             pending.dirty = true;
           }
@@ -738,9 +828,12 @@ export default function Dashboard({
       break;
     case "world_delta": {
       const data = payload.data as {
+        type?: string;
         rust_changed?: string[];
         hex_updates?: { h3_index: string; rust_level: number }[];
         regions_changed?: string[];
+        region_id?: string;
+        rust_level?: number;
         region_updates?: {
           region_id: string;
           pool_food: number;
@@ -752,6 +845,12 @@ export default function Dashboard({
           score?: number | null;
         }[];
       };
+
+      // Handle bulk rust update (admin console)
+      if (data.type === "rust_bulk" && data.region_id === regionRef.current.region_id && data.rust_level !== undefined) {
+        pending.rustBulkUpdate = data.rust_level;
+        pending.dirty = true;
+      }
 
       if (data.hex_updates?.length) {
         for (const update of data.hex_updates) {
@@ -806,7 +905,8 @@ export default function Dashboard({
         delta: -transfer.amount,
         source: "In transit",
         ts: Date.now(),
-        transferId: transfer.transfer_id
+        transferId: transfer.transfer_id,
+        arriveAt: Date.parse(transfer.arrive_at)
       });
       pending.dirty = true;
       break;
@@ -1066,13 +1166,33 @@ export default function Dashboard({
 
   // Only show tasks where a crew is actively working (not traveling)
   const activeTasks = useMemo(() => {
-    const workingCrewTaskIds = new Set(
-      region.crews
-        .filter(c => c.status === "working" && c.active_task_id)
-        .map(c => c.active_task_id)
-    );
-    return region.tasks.filter(t => workingCrewTaskIds.has(t.task_id));
+    const workingCrews = region.crews.filter(c => c.status === "working" && c.active_task_id);
+    const crewByTaskId = new Map(workingCrews.map(c => [c.active_task_id, c]));
+    return region.tasks
+      .filter(t => crewByTaskId.has(t.task_id))
+      .map(t => ({
+        ...t,
+        busy_until: crewByTaskId.get(t.task_id)?.busy_until ?? null
+      }));
   }, [region.crews, region.tasks]);
+
+  // Crews that are traveling to a task or returning to hub
+  const travelingCrews = useMemo(() => {
+    return region.crews
+      .filter(c => c.status === "traveling")
+      .map(c => {
+        // Find the task to get the target road
+        const task = c.active_task_id
+          ? region.tasks.find(t => t.task_id === c.active_task_id)
+          : null;
+        return {
+          crew_id: c.crew_id,
+          target_gers_id: task?.target_gers_id ?? null,
+          busy_until: c.busy_until ?? null
+        };
+      });
+  }, [region.crews, region.tasks]);
+
   const busyCrews = useMemo(() => region.crews.filter(c => c.status !== "idle").length, [region.crews]);
   const totalCrews = region.crews.length;
 
@@ -1093,7 +1213,7 @@ export default function Dashboard({
         </div>
       </div>
 
-      <ActiveEvents deltas={resourceFeed} activeTasks={activeTasks} features={features} />
+      <ActiveEvents deltas={resourceFeed} activeTasks={activeTasks} travelingCrews={travelingCrews} features={features} />
 
       <div className="rounded-3xl border border-[var(--night-outline)] bg-white/60 p-5 shadow-[0_18px_40px_rgba(24,20,14,0.12)]">
         <p className="text-xs uppercase tracking-[0.4em] text-[color:var(--night-ash)]">
@@ -1264,7 +1384,7 @@ export default function Dashboard({
               </div>
             </MapPanel>
 
-            <ActiveEvents deltas={resourceDeltas} activeTasks={activeTasks} features={features} />
+            <ActiveEvents deltas={resourceDeltas} activeTasks={activeTasks} travelingCrews={travelingCrews} features={features} />
           </MapOverlay>
 
 

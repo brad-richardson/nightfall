@@ -12,7 +12,8 @@ import { loadGraphForRegion } from "./resources";
 
 const CREW_TRAVEL_MPS = 10; // Crew travel speed in meters per second
 const CREW_TRAVEL_MIN_S = 5;
-const CREW_TRAVEL_MAX_S = 60;
+// Max crew travel time is 75% of resource max (60s) to ensure crews arrive before convoys
+const CREW_TRAVEL_MAX_S = 45;
 
 export type CrewWaypoint = { coord: Point; arrive_at: string };
 
