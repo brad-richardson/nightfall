@@ -2,11 +2,9 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import {
   runLamplighter,
   fetchRegionStates,
-  fetchCriticalTasks,
   pickRandom,
   formatMessage,
   type RegionState,
-  type CriticalTask,
 } from "./lamplighter";
 
 describe("pickRandom", () => {
@@ -71,29 +69,6 @@ describe("fetchRegionStates", () => {
   });
 });
 
-describe("fetchCriticalTasks", () => {
-  it("queries tasks with health and priority", async () => {
-    const mockTasks: CriticalTask[] = [
-      {
-        task_id: "task-1",
-        region_id: "region-1",
-        road_name: "Main Street",
-        health: 25,
-        priority_score: 80,
-      },
-    ];
-
-    const query = vi.fn().mockResolvedValue({ rows: mockTasks });
-
-    const result = await fetchCriticalTasks({ query });
-
-    expect(result).toEqual(mockTasks);
-    expect(query).toHaveBeenCalledTimes(1);
-    expect(String(query.mock.calls[0][0])).toContain("tasks");
-    expect(String(query.mock.calls[0][0])).toContain("LIMIT 50");
-  });
-});
-
 describe("runLamplighter", () => {
   let query: ReturnType<typeof vi.fn>;
 
@@ -120,16 +95,6 @@ describe("runLamplighter", () => {
     },
   ];
 
-  const mockTasks: CriticalTask[] = [
-    {
-      task_id: "task-1",
-      region_id: "region-2",
-      road_name: "Main Street",
-      health: 20,
-      priority_score: 30,
-    },
-  ];
-
   beforeEach(() => {
     query = vi.fn();
   });
@@ -147,76 +112,7 @@ describe("runLamplighter", () => {
     expect(query).not.toHaveBeenCalled();
   });
 
-  it("processes all regions when enabled", async () => {
-    // Mock the queries in order: fetchRegionStates, fetchCriticalTasks, then various actions
-    query
-      .mockResolvedValueOnce({ rows: mockRegions }) // fetchRegionStates
-      .mockResolvedValueOnce({ rows: mockTasks }) // fetchCriticalTasks
-      .mockResolvedValue({ rows: [] }); // All subsequent queries (updates, notifies)
-
-    const result = await runLamplighter({ query }, true, "day");
-
-    // Should have processed both regions (at least 1 action each)
-    const totalActions =
-      result.regionActivities +
-      result.contributions +
-      result.votes +
-      result.warnings;
-    expect(totalActions).toBeGreaterThanOrEqual(2); // At least 1 per region
-  });
-
-  it("generates more activity for struggling regions", async () => {
-    // A region with high rust and low health should get more attention
-    const strugglingRegion: RegionState = {
-      region_id: "region-struggling",
-      name: "Struggling District",
-      pool_food: 20,
-      pool_equipment: 10,
-      pool_energy: 15,
-      pool_materials: 15,
-      rust_avg: 0.7,
-      health_avg: 35,
-    };
-
-    query
-      .mockResolvedValueOnce({ rows: [strugglingRegion] })
-      .mockResolvedValueOnce({ rows: mockTasks })
-      .mockResolvedValue({ rows: [] });
-
-    // Run multiple times to test probability
-    let totalActions = 0;
-    for (let i = 0; i < 10; i++) {
-      query.mockClear();
-      query
-        .mockResolvedValueOnce({ rows: [strugglingRegion] })
-        .mockResolvedValueOnce({ rows: mockTasks })
-        .mockResolvedValue({ rows: [] });
-
-      const result = await runLamplighter({ query }, true, "night");
-      totalActions +=
-        result.regionActivities +
-        result.contributions +
-        result.votes +
-        result.warnings;
-    }
-
-    // Should average more than 1 action per run for a struggling region
-    expect(totalActions / 10).toBeGreaterThan(1);
-  });
-
-  it("issues contributions that activate buildings", async () => {
-    const singleRegion: RegionState = {
-      region_id: "region-1",
-      name: "Test District",
-      pool_food: 20,
-      pool_equipment: 10,
-      pool_energy: 15,
-      pool_materials: 15,
-      rust_avg: 0.2,
-      health_avg: 80,
-    };
-
-    // Mock building query result for contribution action
+  it("activates a building when probability check passes", async () => {
     const mockBuilding = {
       gers_id: "building-1",
       name: "Test Building",
@@ -226,116 +122,113 @@ describe("runLamplighter", () => {
       generates_materials: false,
     };
 
+    // Mock Math.random to control the 20% probability check
+    const originalRandom = Math.random;
+    let callCount = 0;
+    Math.random = () => {
+      callCount++;
+      // First call is the 20% check - pass it (value <= 0.20)
+      if (callCount === 1) return 0.1;
+      // Subsequent calls for pickRandom and isLamplighter check
+      return 0.5;
+    };
+
     query
-      .mockResolvedValueOnce({ rows: [singleRegion] }) // fetchRegionStates
-      .mockResolvedValueOnce({ rows: [] }) // fetchCriticalTasks
+      .mockResolvedValueOnce({ rows: mockRegions }) // fetchRegionStates
       .mockImplementation((sql: string) => {
-        // Handle building queries for contribution
         if (typeof sql === "string" && sql.includes("world_features") && sql.includes("generates_food")) {
           return Promise.resolve({ rows: [mockBuilding] });
         }
-        // Handle feature_state insert for activation
         if (typeof sql === "string" && sql.includes("INSERT INTO feature_state")) {
           return Promise.resolve({ rows: [] });
         }
         return Promise.resolve({ rows: [] });
       });
 
-    await runLamplighter({ query }, true, "day");
-
-    // Check that query was called (building activation or activity fallback)
-    expect(query).toHaveBeenCalled();
-  });
-
-  it("votes on critical tasks", async () => {
-    const singleRegion: RegionState = {
-      region_id: "region-1",
-      name: "Test District",
-      pool_food: 100,
-      pool_equipment: 100,
-      pool_energy: 100,
-      pool_materials: 100,
-      rust_avg: 0.1,
-      health_avg: 40, // Low health to trigger voting
-    };
-
-    const criticalTask: CriticalTask = {
-      task_id: "task-critical",
-      region_id: "region-1",
-      road_name: "Critical Road",
-      health: 15,
-      priority_score: 20, // Low priority - needs votes
-    };
-
-    query
-      .mockResolvedValueOnce({ rows: [singleRegion] })
-      .mockResolvedValueOnce({ rows: [criticalTask] })
-      .mockResolvedValue({ rows: [] });
-
-    // Run multiple times to increase chance of vote action
-    let votesIssued = 0;
-    for (let i = 0; i < 20; i++) {
-      query.mockClear();
-      query
-        .mockResolvedValueOnce({ rows: [singleRegion] })
-        .mockResolvedValueOnce({ rows: [criticalTask] })
-        .mockResolvedValue({ rows: [] });
-
-      const result = await runLamplighter({ query }, true, "night");
-      votesIssued += result.votes;
+    try {
+      const result = await runLamplighter({ query }, true, "day");
+      expect(result.contributions).toBe(1);
+    } finally {
+      Math.random = originalRandom;
     }
-
-    // Should have issued at least some votes over 20 runs
-    expect(votesIssued).toBeGreaterThan(0);
   });
 
-  it("sends notifications for activities", async () => {
-    query
-      .mockResolvedValueOnce({ rows: mockRegions })
-      .mockResolvedValueOnce({ rows: mockTasks })
-      .mockResolvedValue({ rows: [] });
+  it("skips activation when probability check fails", async () => {
+    // Mock Math.random to fail the 20% probability check
+    const originalRandom = Math.random;
+    Math.random = () => 0.5; // > 0.20, so check fails
 
-    await runLamplighter({ query }, true, "day");
-
-    // Check for pg_notify calls (feed_item notifications)
-    const notifyCalls = query.mock.calls.filter(
-      (call) => typeof call[0] === "string" && call[0].includes("pg_notify")
-    );
-
-    // Should have at least some notifications
-    expect(notifyCalls.length).toBeGreaterThan(0);
+    try {
+      const result = await runLamplighter({ query }, true, "day");
+      expect(result.contributions).toBe(0);
+      expect(query).not.toHaveBeenCalled();
+    } finally {
+      Math.random = originalRandom;
+    }
   });
 
-  it("adapts behavior to night phase", async () => {
+  it("returns empty when no regions exist", async () => {
+    query.mockResolvedValueOnce({ rows: [] });
+
+    // Force the probability check to pass by mocking Math.random
+    const originalRandom = Math.random;
+    Math.random = () => 0.1; // Always passes the 20% check
+
+    try {
+      const result = await runLamplighter({ query }, true, "day");
+      expect(result.contributions).toBe(0);
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
+
+  it("sends notification when building is activated", async () => {
+    const mockBuilding = {
+      gers_id: "building-1",
+      name: "Test Building",
+      generates_food: true,
+      generates_equipment: false,
+      generates_energy: false,
+      generates_materials: false,
+    };
+
+    // Force the probability check to pass
+    const originalRandom = Math.random;
+    let callCount = 0;
+    Math.random = () => {
+      callCount++;
+      // First call is the 20% check - pass it
+      if (callCount === 1) return 0.1;
+      // Subsequent calls for other random selections
+      return 0.5;
+    };
+
     query
-      .mockResolvedValueOnce({ rows: mockRegions })
-      .mockResolvedValueOnce({ rows: mockTasks })
-      .mockResolvedValue({ rows: [] });
+      .mockResolvedValueOnce({ rows: mockRegions }) // fetchRegionStates
+      .mockImplementation((sql: string) => {
+        if (typeof sql === "string" && sql.includes("world_features") && sql.includes("generates_food")) {
+          return Promise.resolve({ rows: [mockBuilding] });
+        }
+        if (typeof sql === "string" && sql.includes("INSERT INTO feature_state")) {
+          return Promise.resolve({ rows: [] });
+        }
+        return Promise.resolve({ rows: [] });
+      });
 
-    const nightResult = await runLamplighter({ query }, true, "night");
+    try {
+      const result = await runLamplighter({ query }, true, "day");
 
-    query.mockClear();
-    query
-      .mockResolvedValueOnce({ rows: mockRegions })
-      .mockResolvedValueOnce({ rows: mockTasks })
-      .mockResolvedValue({ rows: [] });
+      // With mocked random passing and building found, expect 1 contribution
+      expect(result.contributions).toBe(1);
 
-    const dayResult = await runLamplighter({ query }, true, "day");
-
-    // Both should produce some activity
-    const nightTotal =
-      nightResult.regionActivities +
-      nightResult.contributions +
-      nightResult.votes +
-      nightResult.warnings;
-    const dayTotal =
-      dayResult.regionActivities +
-      dayResult.contributions +
-      dayResult.votes +
-      dayResult.warnings;
-
-    expect(nightTotal).toBeGreaterThan(0);
-    expect(dayTotal).toBeGreaterThan(0);
+      // Check that notification was sent
+      const notifyCalls = query.mock.calls.filter(
+        (call) => typeof call[0] === "string" && call[0].includes("pg_notify")
+      );
+      expect(notifyCalls.length).toBe(1);
+    } finally {
+      Math.random = originalRandom;
+    }
   });
 });
 
@@ -344,11 +237,5 @@ describe("Lamplighter message content", () => {
     const template = "Workers in {region} begin their morning rounds.";
     const result = formatMessage(template, { region: "Downtown" });
     expect(result).toBe("Workers in Downtown begin their morning rounds.");
-  });
-
-  it("includes road name in task warnings", () => {
-    const template = "Urgent: {road} requires immediate attention.";
-    const result = formatMessage(template, { road: "Main Street" });
-    expect(result).toBe("Urgent: Main Street requires immediate attention.");
   });
 });
