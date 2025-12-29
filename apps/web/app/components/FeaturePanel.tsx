@@ -1,8 +1,7 @@
 "use client";
 
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { X, Rocket, Clock, Play, CheckCircle2 } from "lucide-react";
-import { toast } from "sonner";
+import { X, Rocket, Play, CheckCircle2 } from "lucide-react";
 import { useStore, type UserVotes } from "../store";
 import VoteButton from "./VoteButton";
 import { BUILDING_ACTIVATION_MS } from "@nightfall/config";
@@ -22,9 +21,8 @@ type Task = {
 };
 
 type FeaturePanelProps = {
-  onActivateBuilding: (buildingGersId: string) => Promise<{ activated_at: string; expires_at: string }>;
   onVote: (taskId: string, weight: number) => Promise<void>;
-  onBoostProduction: (buildingGersId: string, buildingName: string) => void;
+  onStartMinigame: (buildingGersId: string, buildingName: string, mode: "quick" | "boost") => void;
   activeTasks: Task[];
   canContribute: boolean;
   userVotes: UserVotes;
@@ -33,15 +31,13 @@ type FeaturePanelProps = {
 const PANEL_WIDTH = 320;
 const PADDING = 16;
 
-export default function FeaturePanel({ onActivateBuilding, onVote, onBoostProduction, activeTasks, canContribute, userVotes }: FeaturePanelProps) {
+export default function FeaturePanel({ onVote, onStartMinigame, activeTasks, canContribute, userVotes }: FeaturePanelProps) {
   const [selected, setSelected] = useState<SelectedFeature | null>(null);
-  const [isActivating, setIsActivating] = useState(false);
   const [panelPos, setPanelPos] = useState({ x: 0, y: 0 });
   const panelRef = useRef<HTMLDivElement>(null);
   const features = useStore((state) => state.features);
   const buildingBoosts = useStore((state) => state.buildingBoosts);
   const buildingActivations = useStore((state) => state.buildingActivations);
-  const addBuildingActivation = useStore((state) => state.addBuildingActivation);
 
   useEffect(() => {
     const handleSelection = (e: Event) => {
@@ -178,22 +174,18 @@ export default function FeaturePanel({ onActivateBuilding, onVote, onBoostProduc
 
   const isActivated = !!activationState;
 
-  const handleActivateClick = async () => {
-    if (!selected || !canContribute || isActivating || isActivated) return;
-    setIsActivating(true);
-    try {
-      const result = await onActivateBuilding(selected.gers_id);
-      addBuildingActivation({
-        building_gers_id: selected.gers_id,
-        activated_at: result.activated_at,
-        expires_at: result.expires_at
-      });
-      toast.success("Building activated!", { description: "Convoys will be dispatched for the next 2 minutes" });
-    } catch {
-      toast.error("Activation failed", { description: "Please try again" });
-    } finally {
-      setIsActivating(false);
-    }
+  const handleActivateClick = () => {
+    if (!selected || !canContribute || isActivated) return;
+    const buildingName = selectedDetails?.place_category || 'Building';
+    // Quick mode: 1 round minigame for fast activation
+    onStartMinigame(selected.gers_id, buildingName, "quick");
+  };
+
+  const handleBoostClick = () => {
+    if (!selected || !canContribute) return;
+    const buildingName = selectedDetails?.place_category || 'Building';
+    // Boost mode: full minigame for production boost
+    onStartMinigame(selected.gers_id, buildingName, "boost");
   };
 
   const isVisible = !!selected;
@@ -303,11 +295,11 @@ export default function FeaturePanel({ onActivateBuilding, onVote, onBoostProduc
                     {/* Activate button - grayed out if already activated */}
                     <button
                       onClick={handleActivateClick}
-                      disabled={!canContribute || isActivating || isActivated}
+                      disabled={!canContribute || isActivated}
                       className={`flex w-full items-center justify-center gap-2 rounded-2xl p-3 transition-all ${
                         isActivated
                           ? "bg-green-500/10 text-green-400/60 cursor-not-allowed border border-green-500/20"
-                          : !canContribute || isActivating
+                          : !canContribute
                             ? "bg-white/5 text-white/40 cursor-not-allowed"
                             : "bg-white/10 hover:bg-white/15 text-white active:scale-95"
                       }`}
@@ -316,11 +308,6 @@ export default function FeaturePanel({ onActivateBuilding, onVote, onBoostProduc
                         <>
                           <CheckCircle2 className="h-4 w-4" />
                           <span className="text-sm font-semibold">Already Active</span>
-                        </>
-                      ) : isActivating ? (
-                        <>
-                          <Clock className="h-4 w-4 animate-spin" />
-                          <span className="text-sm font-semibold">Activating...</span>
                         </>
                       ) : (
                         <>
@@ -332,7 +319,7 @@ export default function FeaturePanel({ onActivateBuilding, onVote, onBoostProduc
 
                     {/* Boost button - always available */}
                     <button
-                      onClick={() => onBoostProduction(selected.gers_id, selectedDetails?.place_category || 'Building')}
+                      onClick={handleBoostClick}
                       disabled={!canContribute}
                       className={`flex w-full items-center justify-center gap-2 rounded-2xl p-3 transition-all ${
                         canContribute

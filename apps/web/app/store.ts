@@ -125,12 +125,15 @@ export type UserVotes = Record<string, number>;
 export type MinigameType = "kitchen_rush" | "fresh_check" | "gear_up" | "patch_job" | "power_up" | "crane_drop";
 export type ResourceType = "food" | "equipment" | "energy" | "materials";
 
+export type MinigameMode = "quick" | "boost";
+
 export type MinigameDifficulty = {
   speed_mult: number;
   window_mult: number;
   extra_rounds: number;
   rust_level: number;
   phase: Phase;
+  mode?: MinigameMode;
 };
 
 export type MinigameSession = {
@@ -139,6 +142,7 @@ export type MinigameSession = {
   building_name: string;
   minigame_type: MinigameType;
   resource_type: ResourceType;
+  mode: MinigameMode;
   config: {
     base_rounds: number;
     max_score: number;

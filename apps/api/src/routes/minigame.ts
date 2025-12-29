@@ -11,11 +11,13 @@ import {
   MINIGAME_COOLDOWN_MS,
   BASE_BOOST_DURATION_MS,
   BUILDING_ACTIVATION_MS,
+  QUICK_MODE_ROUNDS,
   FOOD_MINIGAMES,
   EQUIPMENT_MINIGAMES,
   ENERGY_MINIGAMES,
   MATERIALS_MINIGAMES,
-  MINIGAME_CONFIG
+  MINIGAME_CONFIG,
+  type MinigameMode
 } from "../utils/constants";
 import { SCORE_ACTIONS } from "@nightfall/config";
 
@@ -52,10 +54,12 @@ export function registerMinigameRoutes(app: FastifyInstance) {
     const body = request.body as {
       client_id?: string;
       building_gers_id?: string;
+      mode?: MinigameMode;
     } | undefined;
 
     const clientId = body?.client_id?.trim();
     const buildingGersId = body?.building_gers_id?.trim();
+    const mode: MinigameMode = body?.mode === "quick" ? "quick" : "boost";
     const authHeader = request.headers["authorization"];
 
     if (!clientId || !buildingGersId) {
@@ -139,12 +143,24 @@ export function registerMinigameRoutes(app: FastifyInstance) {
     const selectedMinigame = availableMinigames[Math.floor(Math.random() * availableMinigames.length)];
     const config = MINIGAME_CONFIG[selectedMinigame];
 
-    // Calculate difficulty modifiers
+    // Calculate difficulty modifiers (only apply extra difficulty for boost mode)
     const isNight = phase === "night";
     const isHighRust = rustLevel > 0.5;
-    const speedMult = 1 + (isNight ? 0.25 : 0) + (isHighRust ? 0.1 : 0);
-    const windowMult = 1 - (isNight ? 0.2 : 0) - (isHighRust ? 0.1 : 0);
-    const extraRounds = isNight ? 2 : 0;
+    const speedMult = mode === "quick" ? 1 : 1 + (isNight ? 0.25 : 0) + (isHighRust ? 0.1 : 0);
+    const windowMult = mode === "quick" ? 1 : 1 - (isNight ? 0.2 : 0) - (isHighRust ? 0.1 : 0);
+    const extraRounds = mode === "quick" ? 0 : (isNight ? 2 : 0);
+
+    // Quick mode uses 1 round; boost mode uses full rounds
+    const effectiveRounds = mode === "quick" ? QUICK_MODE_ROUNDS : config.baseRounds + extraRounds;
+
+    // Scale expected duration and max score for quick mode
+    const roundRatio = effectiveRounds / config.baseRounds;
+    const effectiveMaxScore = mode === "quick"
+      ? Math.round(config.maxScore * roundRatio)
+      : config.maxScore;
+    const effectiveExpectedDuration = mode === "quick"
+      ? Math.round(config.expectedDurationMs * roundRatio * 0.5) // Quick mode is faster per round too
+      : config.expectedDurationMs;
 
     const difficulty = {
       speed_mult: speedMult,
@@ -152,6 +168,7 @@ export function registerMinigameRoutes(app: FastifyInstance) {
       extra_rounds: extraRounds,
       rust_level: rustLevel,
       phase,
+      mode, // Include mode in difficulty for completion handler
     };
 
     // Create minigame session
@@ -168,8 +185,8 @@ export function registerMinigameRoutes(app: FastifyInstance) {
         buildingGersId,
         selectedMinigame,
         JSON.stringify(difficulty),
-        config.maxScore,
-        config.expectedDurationMs,
+        effectiveMaxScore,
+        effectiveExpectedDuration,
       ]
     );
 
@@ -180,10 +197,11 @@ export function registerMinigameRoutes(app: FastifyInstance) {
       session_id: sessionId,
       minigame_type: selectedMinigame,
       resource_type: getResourceTypeForBuilding(building),
+      mode,
       config: {
-        base_rounds: config.baseRounds + extraRounds,
-        max_score: config.maxScore,
-        expected_duration_ms: config.expectedDurationMs,
+        base_rounds: effectiveRounds,
+        max_score: effectiveMaxScore,
+        expected_duration_ms: effectiveExpectedDuration,
       },
       difficulty,
     };
@@ -226,7 +244,7 @@ export function registerMinigameRoutes(app: FastifyInstance) {
       client_id: string;
       building_gers_id: string;
       minigame_type: string;
-      difficulty: { phase: string };
+      difficulty: { phase: string; mode?: MinigameMode };
       max_possible_score: number;
       expected_duration_ms: number;
       status: string;
@@ -264,10 +282,14 @@ export function registerMinigameRoutes(app: FastifyInstance) {
       return { ok: false, error: "duration_too_fast" };
     }
 
-    // Calculate reward
+    // Determine if this is quick mode (activation only) or boost mode
+    const isQuickMode = session.difficulty.mode === "quick";
+
+    // Calculate reward (only used for boost mode, but we still need performance for scoring)
     const reward = calculateMinigameReward(score, session.max_possible_score, session.difficulty.phase);
     const expiresAt = new Date(Date.now() + reward.durationMs);
-    const cooldownAt = new Date(Date.now() + MINIGAME_COOLDOWN_MS);
+    // Quick mode has no cooldown since it's just a simple activation
+    const cooldownAt = isQuickMode ? null : new Date(Date.now() + MINIGAME_COOLDOWN_MS);
 
     await pool.query("BEGIN");
 
@@ -278,55 +300,75 @@ export function registerMinigameRoutes(app: FastifyInstance) {
         [sessionId]
       );
 
-      // Check existing boost - only update if new multiplier is higher
-      const existingBoostResult = await pool.query<{ multiplier: number; expires_at: Date }>(
-        `SELECT multiplier, expires_at FROM production_boosts WHERE building_gers_id = $1`,
-        [session.building_gers_id]
-      );
-
-      const existingBoost = existingBoostResult.rows[0];
       const now = new Date();
-      const existingBoostActive = existingBoost && new Date(existingBoost.expires_at) > now;
-      // Only update boost if new multiplier is strictly higher to preserve existing boost timing
-      const shouldUpdateBoost = !existingBoostActive || reward.multiplier > existingBoost.multiplier;
+      let finalMultiplier: number | null = null;
+      let finalExpiresAt: Date | null = null;
+      let shouldUpdateBoost = false;
 
-      let finalMultiplier = reward.multiplier;
-      let finalExpiresAt = expiresAt;
+      // Only apply boost for boost mode
+      if (!isQuickMode) {
+        // Check existing boost - only update if new multiplier is higher
+        const existingBoostResult = await pool.query<{ multiplier: number; expires_at: Date }>(
+          `SELECT multiplier, expires_at FROM production_boosts WHERE building_gers_id = $1`,
+          [session.building_gers_id]
+        );
 
-      if (shouldUpdateBoost) {
-        // Upsert production boost (one active boost per building)
+        const existingBoost = existingBoostResult.rows[0];
+        const existingBoostActive = existingBoost && new Date(existingBoost.expires_at) > now;
+        // Only update boost if new multiplier is strictly higher to preserve existing boost timing
+        shouldUpdateBoost = !existingBoostActive || reward.multiplier > existingBoost.multiplier;
+
+        finalMultiplier = reward.multiplier;
+        finalExpiresAt = expiresAt;
+
+        if (shouldUpdateBoost) {
+          // Upsert production boost (one active boost per building)
+          await pool.query(
+            `
+            INSERT INTO production_boosts (
+              building_gers_id, client_id, multiplier, expires_at, minigame_type, score, session_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (building_gers_id) DO UPDATE SET
+              client_id = EXCLUDED.client_id,
+              multiplier = EXCLUDED.multiplier,
+              started_at = now(),
+              expires_at = EXCLUDED.expires_at,
+              minigame_type = EXCLUDED.minigame_type,
+              score = EXCLUDED.score,
+              session_id = EXCLUDED.session_id,
+              created_at = now()
+            `,
+            [session.building_gers_id, clientId, reward.multiplier, expiresAt, session.minigame_type, score, sessionId]
+          );
+        } else {
+          // Keep existing boost
+          finalMultiplier = existingBoost.multiplier;
+          finalExpiresAt = existingBoost.expires_at;
+        }
+
+        // Set cooldown (boost mode only)
         await pool.query(
           `
-          INSERT INTO production_boosts (
-            building_gers_id, client_id, multiplier, expires_at, minigame_type, score, session_id
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-          ON CONFLICT (building_gers_id) DO UPDATE SET
-            client_id = EXCLUDED.client_id,
-            multiplier = EXCLUDED.multiplier,
-            started_at = now(),
-            expires_at = EXCLUDED.expires_at,
-            minigame_type = EXCLUDED.minigame_type,
-            score = EXCLUDED.score,
-            session_id = EXCLUDED.session_id,
-            created_at = now()
+          INSERT INTO minigame_cooldowns (client_id, building_gers_id, available_at)
+          VALUES ($1, $2, $3)
+          ON CONFLICT (client_id, building_gers_id) DO UPDATE SET available_at = EXCLUDED.available_at
           `,
-          [session.building_gers_id, clientId, reward.multiplier, expiresAt, session.minigame_type, score, sessionId]
+          [clientId, session.building_gers_id, cooldownAt]
         );
-      } else {
-        // Keep existing boost
-        finalMultiplier = existingBoost.multiplier;
-        finalExpiresAt = existingBoost.expires_at;
-      }
 
-      // Set cooldown
-      await pool.query(
-        `
-        INSERT INTO minigame_cooldowns (client_id, building_gers_id, available_at)
-        VALUES ($1, $2, $3)
-        ON CONFLICT (client_id, building_gers_id) DO UPDATE SET available_at = EXCLUDED.available_at
-        `,
-        [clientId, session.building_gers_id, cooldownAt]
-      );
+        // Emit SSE event for boost via pg_notify (boost mode only)
+        await pool.query("SELECT pg_notify($1, $2)", [
+          "building_boost",
+          JSON.stringify({
+            building_gers_id: session.building_gers_id,
+            multiplier: finalMultiplier,
+            expires_at: finalExpiresAt instanceof Date ? finalExpiresAt.toISOString() : finalExpiresAt,
+            client_id: clientId,
+            minigame_type: session.minigame_type,
+            boost_updated: shouldUpdateBoost,
+          })
+        ]);
+      }
 
       // Always activate the building (set last_activated_at) - this triggers convoy deliveries
       const activationExpiresAt = new Date(now.getTime() + BUILDING_ACTIVATION_MS);
@@ -336,19 +378,6 @@ export function registerMinigameRoutes(app: FastifyInstance) {
          ON CONFLICT (gers_id) DO UPDATE SET last_activated_at = now()`,
         [session.building_gers_id]
       );
-
-      // Emit SSE event for boost via pg_notify (with final multiplier)
-      await pool.query("SELECT pg_notify($1, $2)", [
-        "building_boost",
-        JSON.stringify({
-          building_gers_id: session.building_gers_id,
-          multiplier: finalMultiplier,
-          expires_at: finalExpiresAt instanceof Date ? finalExpiresAt.toISOString() : finalExpiresAt,
-          client_id: clientId,
-          minigame_type: session.minigame_type,
-          boost_updated: shouldUpdateBoost,
-        })
-      ]);
 
       // Emit building activation event
       await pool.query("SELECT pg_notify($1, $2)", [
@@ -386,7 +415,9 @@ export function registerMinigameRoutes(app: FastifyInstance) {
 
       return {
         ok: true,
-        reward: {
+        mode: isQuickMode ? "quick" : "boost",
+        // Reward is only present for boost mode
+        reward: isQuickMode ? null : {
           multiplier: finalMultiplier,
           duration_ms: reward.durationMs,
           expires_at: finalExpiresAt instanceof Date ? finalExpiresAt.toISOString() : finalExpiresAt,
@@ -396,7 +427,7 @@ export function registerMinigameRoutes(app: FastifyInstance) {
           activated_at: now.toISOString(),
           expires_at: activationExpiresAt.toISOString(),
         },
-        new_cooldown_at: cooldownAt.toISOString(),
+        new_cooldown_at: cooldownAt?.toISOString() ?? null,
         performance: Math.round(performance * 100),
         score_awarded: minigameScoreAmount,
         new_total_score: playerScoreResult?.newScore ?? null,
