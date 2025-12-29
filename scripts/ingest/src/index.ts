@@ -913,6 +913,41 @@ async function updateLandRatios(
   }
 }
 
+async function seedInitialRustLevels(pgPool: Pool, regionId: string) {
+  console.log("--- Seeding Initial Rust Levels ---");
+  const client = await pgPool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Get max distance for this region to normalize rust levels
+    const maxDistResult = await client.query<{ max_dist: number }>(
+      "SELECT MAX(distance_from_center) as max_dist FROM hex_cells WHERE region_id = $1",
+      [regionId]
+    );
+    const maxDist = maxDistResult.rows[0]?.max_dist || 1;
+
+    // Seed rust: outer edges get 0.3, center gets 0
+    // Formula: rust_level = min(0.3, distance_from_center / maxDist * 0.3)
+    const result = await client.query(
+      `
+      UPDATE hex_cells
+      SET rust_level = LEAST(0.3, distance_from_center / $1 * 0.3),
+          updated_at = now()
+      WHERE region_id = $2
+      `,
+      [maxDist, regionId]
+    );
+
+    await client.query("COMMIT");
+    console.log(`Seeded rust levels for ${result.rowCount} hex cells (max distance: ${Math.round(maxDist)}m)`);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function pruneNonLandFeatures(pgPool: Pool, regionId: string) {
   const client = await pgPool.connect();
   try {
@@ -1951,6 +1986,9 @@ async function main() {
 
     console.log("--- Land Ratio Update ---");
     await updateLandRatios(pgPool, region, dataDir, regionHexes);
+
+    // Seed initial rust at map edges (distance-based gradient)
+    await seedInitialRustLevels(pgPool, region.regionId);
 
     console.log("--- Pruning Non-Land Features ---");
     await pruneNonLandFeatures(pgPool, region.regionId);
