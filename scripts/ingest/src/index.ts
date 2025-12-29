@@ -658,10 +658,13 @@ export function generateHexCoverageFromBbox(bbox: Bbox, resolution: number): {
   // Get all H3 cells whose centers are within this polygon
   const centerHexes = polygonToCells([ring], resolution);
 
-  // Expand to include neighboring cells that might intersect the bbox
+  // Expand to include neighboring cells that might intersect the bbox.
+  // Memory note: gridDisk(h, 1) returns 7 cells (center + 6 neighbors), so this
+  // creates at most 7*N candidates before deduplication. For typical region sizes
+  // (e.g., Bar Harbor with ~20 hexes at resolution 7), this is bounded and acceptable.
+  // Adjacent hexes share neighbors, so the Set deduplicates effectively.
   const candidateHexes = new Set<string>();
   for (const hex of centerHexes) {
-    // Add the hex and its immediate neighbors
     const neighbors = gridDisk(hex, 1);
     for (const neighbor of neighbors) {
       candidateHexes.add(neighbor);
