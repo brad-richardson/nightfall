@@ -142,16 +142,14 @@ function ActiveEvents({ deltas, activeTasks, travelingCrews, features }: { delta
     if (!busyUntil) return null;
     const remaining = (new Date(busyUntil).getTime() - Date.now()) / 1000;
     if (remaining <= 0) return null;
-    if (remaining < 60) return `${Math.round(remaining)}s`;
-    return `${Math.floor(remaining / 60)}m ${Math.round(remaining % 60)}s`;
+    return `${Math.round(remaining)}s`;
   };
 
   const formatEtaFromTimestamp = (arriveAt: number | undefined) => {
     if (!arriveAt) return null;
     const remaining = (arriveAt - Date.now()) / 1000;
     if (remaining <= 0) return null;
-    if (remaining < 60) return `${Math.round(remaining)}s`;
-    return `${Math.floor(remaining / 60)}m ${Math.round(remaining % 60)}s`;
+    return `${Math.round(remaining)}s`;
   };
 
   return (
@@ -171,9 +169,9 @@ function ActiveEvents({ deltas, activeTasks, travelingCrews, features }: { delta
               return (
                 <div
                   key={crew.crew_id}
-                  className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2 text-[11px] text-white/80 animate-[fade-in_400ms_ease]"
+                  className="flex items-center justify-between gap-2 rounded-xl bg-white/5 px-3 py-2 text-[11px] text-white/80 animate-[fade-in_400ms_ease]"
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
                     <span
                       className="h-6 w-6 rounded-lg text-xs font-bold text-white flex items-center justify-center flex-shrink-0"
                       style={{
@@ -185,9 +183,9 @@ function ActiveEvents({ deltas, activeTasks, travelingCrews, features }: { delta
                     </span>
                     <div className="leading-tight min-w-0">
                       <div className="font-semibold">Crew En Route</div>
-                      <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 truncate">
-                        {crew.target_gers_id && getFeatureName(crew.target_gers_id)}
-                        {timeStr && <span className={crew.target_gers_id ? "ml-2" : ""} style={{ color: "var(--night-teal)" }}>ETA {timeStr}</span>}
+                      <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.2em] text-white/40">
+                        <span className="truncate">{crew.target_gers_id && getFeatureName(crew.target_gers_id)}</span>
+                        {timeStr && <span className="flex-shrink-0" style={{ color: "var(--night-teal)" }}>ETA {timeStr}</span>}
                       </div>
                     </div>
                   </div>
@@ -209,9 +207,9 @@ function ActiveEvents({ deltas, activeTasks, travelingCrews, features }: { delta
               return (
                 <div
                   key={task.task_id}
-                  className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2 text-[11px] text-white/80 animate-[fade-in_400ms_ease]"
+                  className="flex items-center justify-between gap-2 rounded-xl bg-white/5 px-3 py-2 text-[11px] text-white/80 animate-[fade-in_400ms_ease]"
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
                     <span
                       className="h-6 w-6 rounded-lg text-xs font-bold text-white flex items-center justify-center flex-shrink-0"
                       style={{
@@ -223,9 +221,9 @@ function ActiveEvents({ deltas, activeTasks, travelingCrews, features }: { delta
                     </span>
                     <div className="leading-tight min-w-0">
                       <div className="font-semibold">{formatTaskType(task.task_type)}</div>
-                      <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 truncate">
-                        {getFeatureName(task.target_gers_id)}
-                        {taskEta && <span className="ml-2 text-[color:var(--night-teal)]">ETA {taskEta}</span>}
+                      <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.2em] text-white/40">
+                        <span className="truncate">{getFeatureName(task.target_gers_id)}</span>
+                        {taskEta && <span className="flex-shrink-0 text-[color:var(--night-teal)]">ETA {taskEta}</span>}
                       </div>
                     </div>
                   </div>
@@ -248,9 +246,9 @@ function ActiveEvents({ deltas, activeTasks, travelingCrews, features }: { delta
               return (
                 <div
                   key={item.ts + idx}
-                  className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2 text-[11px] text-white/80 animate-[fade-in_400ms_ease]"
+                  className="flex items-center justify-between gap-2 rounded-xl bg-white/5 px-3 py-2 text-[11px] text-white/80 animate-[fade-in_400ms_ease]"
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
                     <span
                       className="h-6 w-6 rounded-lg text-xs font-bold text-white flex items-center justify-center flex-shrink-0"
                       style={{

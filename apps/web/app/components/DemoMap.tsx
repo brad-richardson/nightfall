@@ -120,13 +120,15 @@ export default function DemoMap({
     [fallbackBbox]
   );
 
+  // Roads being actively repaired (crew on-site working, not just dispatched/traveling)
+  // Use feature status 'repairing' instead of task status 'active' since tasks become
+  // 'active' when crew is dispatched but roads only become 'repairing' when crew arrives
   const repairingRoadIds = useMemo(() => {
-    const ids = tasks
-      .filter(t => t.status === "active")
-      .map(t => t.target_gers_id)
-      .filter((id): id is string => Boolean(id));
+    const ids = features
+      .filter(f => f.feature_type === "road" && f.status === "repairing")
+      .map(f => f.gers_id);
     return Array.from(new Set(ids));
-  }, [tasks]);
+  }, [features]);
 
   const roadFeaturesForPath = useMemo(
     () => extractRoadFeaturesForPath(features),
