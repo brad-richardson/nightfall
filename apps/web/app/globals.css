@@ -111,6 +111,65 @@ body {
   height: 100%;
 }
 
+/* Custom attribution control styling */
+.maplibregl-ctrl-attrib {
+  background: rgba(15, 18, 22, 0.8) !important;
+  backdrop-filter: blur(8px);
+  border-radius: 9999px !important;
+  padding: 0 !important;
+  font-size: 10px !important;
+  color: rgba(255, 255, 255, 0.6) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  margin: 0 0 calc(64px + env(safe-area-inset-bottom)) 12px !important;
+}
+
+@media (min-width: 1024px) {
+  .maplibregl-ctrl-attrib {
+    margin: 0 0 12px 12px !important;
+  }
+}
+
+.maplibregl-ctrl-attrib.maplibregl-compact {
+  min-height: 36px;
+  min-width: 36px;
+}
+
+.maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button {
+  background-color: transparent !important;
+  background-image: none !important;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button::after {
+  content: "i";
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.maplibregl-ctrl-attrib.maplibregl-compact-show {
+  border-radius: 16px !important;
+  padding: 8px 12px !important;
+}
+
+.maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-button {
+  display: none;
+}
+
+.maplibregl-ctrl-attrib a {
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+
+.maplibregl-ctrl-attrib a:hover {
+  color: white !important;
+}
+
 .map-shell::after {
   content: "";
   position: absolute;

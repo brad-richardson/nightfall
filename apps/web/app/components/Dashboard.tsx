@@ -1013,12 +1013,12 @@ export default function Dashboard({
           )}
 
           <div className="pointer-events-none absolute left-4 right-4 top-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            {/* Collapsed mobile header */}
+            {/* Collapsed header */}
             <button
               type="button"
               onClick={() => setIsHeaderCollapsed(false)}
               aria-label="Expand header"
-              className={`flex items-center gap-3 rounded-full border border-white/10 bg-[#0f1216]/80 px-4 py-2 text-white shadow-lg backdrop-blur-md transition-all duration-300 lg:hidden ${isHeaderCollapsed ? "opacity-100 pointer-events-auto" : "absolute opacity-0 pointer-events-none"}`}
+              className={`flex items-center gap-3 rounded-full border border-white/10 bg-[#0f1216]/80 px-4 py-2 text-white shadow-lg backdrop-blur-md transition-all duration-300 ${isHeaderCollapsed ? "opacity-100 pointer-events-auto" : "absolute opacity-0 pointer-events-none"}`}
             >
               <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-white/60">Nightfall Console</span>
               <span className="text-white/30">|</span>
@@ -1030,12 +1030,12 @@ export default function Dashboard({
               )}
             </button>
 
-            {/* Full header - always visible on desktop, toggleable on mobile */}
-            <MapPanel className={`max-w-[520px] transition-all duration-300 lg:opacity-100 lg:pointer-events-auto ${isHeaderCollapsed ? "absolute opacity-0 pointer-events-none lg:relative" : "opacity-100 pointer-events-auto"}`}>
+            {/* Full header - toggleable on both mobile and desktop */}
+            <MapPanel className={`max-w-[520px] transition-all duration-300 ${isHeaderCollapsed ? "absolute opacity-0 pointer-events-none" : "opacity-100 pointer-events-auto"}`}>
               <button
                 type="button"
                 onClick={() => setIsHeaderCollapsed(true)}
-                className="absolute right-3 top-3 rounded-full p-1.5 text-white/40 transition-colors hover:bg-white/10 hover:text-white/60 lg:hidden"
+                className="absolute right-3 top-3 rounded-full p-1.5 text-white/40 transition-colors hover:bg-white/10 hover:text-white/60"
                 aria-label="Collapse header"
               >
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1072,6 +1072,9 @@ export default function Dashboard({
               <h2 className="mt-2 text-xs font-medium uppercase tracking-[0.2em] text-[color:var(--night-moss)]">
                 The city endures. The nights get longer.
               </h2>
+              <p className="mt-1 text-[10px] text-white/40">
+                A demonstration of Overture Maps data
+              </p>
             </MapPanel>
 
             <div className="pointer-events-auto flex items-start gap-3">
@@ -1131,21 +1134,6 @@ export default function Dashboard({
             </MapPanel>
           </MapOverlay>
 
-          <MapOverlay position="bottom-left" className="z-40 !bottom-[calc(64px+env(safe-area-inset-bottom))] lg:!bottom-12">
-            <details className="group relative">
-              <summary className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-full border border-white/10 bg-black/40 text-xs font-semibold uppercase tracking-widest text-white/70 shadow-[0_8px_20px_rgba(0,0,0,0.4)] backdrop-blur-sm transition hover:border-white/30 hover:text-white [&::-webkit-details-marker]:hidden">
-                i
-              </summary>
-              <div className="absolute bottom-full left-0 mb-3 w-72 rounded-2xl border border-white/10 bg-[#0f1216]/90 p-4 text-[11px] text-white/70 shadow-[0_14px_28px_rgba(0,0,0,0.5)] backdrop-blur-md">
-                <p className="text-[10px] uppercase tracking-[0.3em] text-white/40">Attribution</p>
-                <p className="mt-2 leading-relaxed">
-                  Data from Overture Maps Foundation (CDLA Permissive v2.0), OpenStreetMap contributors,
-                  and the H3 geospatial indexing system (Apache 2.0).
-                </p>
-                <p className="mt-2 text-white/40">Required software + data provider notice.</p>
-              </div>
-            </details>
-          </MapOverlay>
 
 
           <div
