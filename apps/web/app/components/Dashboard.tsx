@@ -376,6 +376,12 @@ export default function Dashboard({
 
       if (pending.regionUpdate) {
         const update = pending.regionUpdate;
+        console.debug("[Dashboard] Applying pool update:", {
+          pool_food: update.pool_food,
+          pool_equipment: update.pool_equipment,
+          pool_energy: update.pool_energy,
+          pool_materials: update.pool_materials
+        });
         setRegion((prev) => ({
           ...prev,
           pool_food: update.pool_food,
@@ -616,7 +622,15 @@ export default function Dashboard({
       }
 
       if (data.region_updates?.length) {
-        console.debug("[SSE] world_delta region_updates:", data.region_updates.map(r => ({ region_id: r.region_id, health_avg: r.health_avg, rust_avg: r.rust_avg })));
+        console.debug("[SSE] world_delta region_updates:", data.region_updates.map(r => ({
+          region_id: r.region_id,
+          pool_food: r.pool_food,
+          pool_equipment: r.pool_equipment,
+          pool_energy: r.pool_energy,
+          pool_materials: r.pool_materials,
+          health_avg: r.health_avg,
+          rust_avg: r.rust_avg
+        })));
         const match = data.region_updates.find((r) => r.region_id === regionRef.current.region_id);
         if (match) {
           // Calculate resource deltas

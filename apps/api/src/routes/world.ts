@@ -8,12 +8,6 @@ import { loadCycleState } from "../cycle";
 import { parseBBox, parseTypes, getNextReset } from "../utils/helpers";
 import { getFocusHex } from "../services/graph";
 import {
-  FOOD_CATEGORIES,
-  EQUIPMENT_CATEGORIES,
-  ENERGY_CATEGORIES,
-  MATERIALS_CATEGORIES
-} from "../utils/constants";
-import {
   DEGRADED_HEALTH_THRESHOLD,
   calculateCityScore
 } from "@nightfall/config";
@@ -311,11 +305,7 @@ export function registerWorldRoutes(app: FastifyInstance) {
       typesClause = `AND wf.feature_type = ANY($${values.length})`;
     }
 
-    const foodIdx = values.length + 1;
-    const equipmentIdx = values.length + 2;
-    const energyIdx = values.length + 3;
-    const materialsIdx = values.length + 4;
-
+    // Resource generation flags are set at ingest time, no runtime pattern matching needed
     const featuresResult = await pool.query<{
       gers_id: string;
       feature_type: string;
@@ -344,22 +334,10 @@ export function registerWorldRoutes(app: FastifyInstance) {
         fs.status,
         wf.road_class,
         wf.place_category,
-        (
-          wf.generates_food IS TRUE OR
-          LOWER(COALESCE(wf.place_category, '')) LIKE ANY($${foodIdx})
-        ) AS generates_food,
-        (
-          wf.generates_equipment IS TRUE OR
-          LOWER(COALESCE(wf.place_category, '')) LIKE ANY($${equipmentIdx})
-        ) AS generates_equipment,
-        (
-          wf.generates_energy IS TRUE OR
-          LOWER(COALESCE(wf.place_category, '')) LIKE ANY($${energyIdx})
-        ) AS generates_energy,
-        (
-          wf.generates_materials IS TRUE OR
-          LOWER(COALESCE(wf.place_category, '')) LIKE ANY($${materialsIdx})
-        ) AS generates_materials,
+        wf.generates_food,
+        wf.generates_equipment,
+        wf.generates_energy,
+        wf.generates_materials,
         EXISTS (
           SELECT 1 FROM hex_cells hc WHERE hc.hub_building_gers_id = wf.gers_id
         ) AS is_hub,
@@ -372,13 +350,7 @@ export function registerWorldRoutes(app: FastifyInstance) {
         AND wf.bbox_ymax >= $2
       ${typesClause}
       `,
-      [
-        ...values,
-        FOOD_CATEGORIES.map((c) => `%${c}%`),
-        EQUIPMENT_CATEGORIES.map((c) => `%${c}%`),
-        ENERGY_CATEGORIES.map((c) => `%${c}%`),
-        MATERIALS_CATEGORIES.map((c) => `%${c}%`)
-      ]
+      values
     );
 
     return { features: featuresResult.rows };
