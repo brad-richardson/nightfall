@@ -23,6 +23,7 @@ type Task = {
 type FeaturePanelProps = {
   onVote: (taskId: string, weight: number) => Promise<void>;
   onStartMinigame: (buildingGersId: string, buildingName: string, mode: "quick" | "boost") => void;
+  onDirectActivate?: (buildingGersId: string) => Promise<{ activated_at: string; expires_at: string }>;
   activeTasks: Task[];
   canContribute: boolean;
   userVotes: UserVotes;
@@ -31,13 +32,15 @@ type FeaturePanelProps = {
 const PANEL_WIDTH = 320;
 const PADDING = 16;
 
-export default function FeaturePanel({ onVote, onStartMinigame, activeTasks, canContribute, userVotes }: FeaturePanelProps) {
+export default function FeaturePanel({ onVote, onStartMinigame, onDirectActivate, activeTasks, canContribute, userVotes }: FeaturePanelProps) {
   const [selected, setSelected] = useState<SelectedFeature | null>(null);
   const [panelPos, setPanelPos] = useState({ x: 0, y: 0 });
+  const [isActivating, setIsActivating] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const features = useStore((state) => state.features);
   const buildingBoosts = useStore((state) => state.buildingBoosts);
   const buildingActivations = useStore((state) => state.buildingActivations);
+  const addBuildingActivation = useStore((state) => state.addBuildingActivation);
 
   useEffect(() => {
     const handleSelection = (e: Event) => {
@@ -174,10 +177,29 @@ export default function FeaturePanel({ onVote, onStartMinigame, activeTasks, can
 
   const isActivated = !!activationState;
 
-  const handleActivateClick = () => {
-    if (!selected || !canContribute || isActivated) return;
+  const handleActivateClick = async () => {
+    if (!selected || !canContribute || isActivated || isActivating) return;
+
+    // In dev mode with direct activation available, skip the minigame
+    if (onDirectActivate) {
+      setIsActivating(true);
+      try {
+        const result = await onDirectActivate(selected.gers_id);
+        addBuildingActivation({
+          building_gers_id: selected.gers_id,
+          activated_at: result.activated_at,
+          expires_at: result.expires_at
+        });
+      } catch {
+        // Error handling done in Dashboard
+      } finally {
+        setIsActivating(false);
+      }
+      return;
+    }
+
+    // Production mode: use quick minigame
     const buildingName = selectedDetails?.place_category || 'Building';
-    // Quick mode: 1 round minigame for fast activation
     onStartMinigame(selected.gers_id, buildingName, "quick");
   };
 
@@ -295,11 +317,11 @@ export default function FeaturePanel({ onVote, onStartMinigame, activeTasks, can
                     {/* Activate button - grayed out if already activated */}
                     <button
                       onClick={handleActivateClick}
-                      disabled={!canContribute || isActivated}
+                      disabled={!canContribute || isActivated || isActivating}
                       className={`flex w-full items-center justify-center gap-2 rounded-2xl p-3 transition-all ${
                         isActivated
                           ? "bg-green-500/10 text-green-400/60 cursor-not-allowed border border-green-500/20"
-                          : !canContribute
+                          : !canContribute || isActivating
                             ? "bg-white/5 text-white/40 cursor-not-allowed"
                             : "bg-white/10 hover:bg-white/15 text-white active:scale-95"
                       }`}
@@ -308,6 +330,11 @@ export default function FeaturePanel({ onVote, onStartMinigame, activeTasks, can
                         <>
                           <CheckCircle2 className="h-4 w-4" />
                           <span className="text-sm font-semibold">Already Active</span>
+                        </>
+                      ) : isActivating ? (
+                        <>
+                          <Play className="h-4 w-4 animate-pulse" />
+                          <span className="text-sm font-semibold">Activating...</span>
                         </>
                       ) : (
                         <>

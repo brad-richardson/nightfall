@@ -1010,6 +1010,37 @@ export default function Dashboard({
     setShowMinigameOverlay(false);
   }, []);
 
+  // Direct activation handler for dev mode (skips minigame for faster testing)
+  const handleDirectActivate = useCallback(async (buildingGersId: string): Promise<{ activated_at: string; expires_at: string }> => {
+    if (!auth.clientId || !auth.token) {
+      throw new Error("Not authenticated");
+    }
+
+    const res = await fetch(`${apiBaseUrl}/api/building/activate`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${auth.token}`
+      },
+      body: JSON.stringify({
+        client_id: auth.clientId,
+        building_gers_id: buildingGersId
+      })
+    });
+
+    const data = await res.json();
+    if (!data.ok && !data.already_activated) {
+      throw new Error(data.error || "Activation failed");
+    }
+
+    toast.success("Building activated!", { description: "Convoys will be dispatched for 2 minutes" });
+
+    return {
+      activated_at: data.activated_at,
+      expires_at: data.expires_at
+    };
+  }, [apiBaseUrl, auth]);
+
   const counts = useMemo(() => {
     let roads = 0;
     let healthy = 0;
@@ -1254,6 +1285,7 @@ export default function Dashboard({
               activeTasks={region.tasks}
               onVote={handleVote}
               onStartMinigame={handleStartMinigame}
+              onDirectActivate={process.env.NODE_ENV === "development" ? handleDirectActivate : undefined}
               canContribute={Boolean(auth.token && auth.clientId)}
               userVotes={userVotes}
             />
