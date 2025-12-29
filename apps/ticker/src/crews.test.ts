@@ -26,9 +26,20 @@ describe("dispatchCrews", () => {
   it("assigns an affordable task and sets crew to traveling", async () => {
     const query = vi
       .fn()
-      .mockResolvedValueOnce({ rows: [{ crew_id: "crew-1", region_id: "region-1" }] }) // idle crews
-      .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      // idle crews query now returns position fields
+      .mockResolvedValueOnce({
+        rows: [{
+          crew_id: "crew-1",
+          region_id: "region-1",
+          current_lng: -68.25,
+          current_lat: 44.38,
+          hub_lon: -68.25,
+          hub_lat: 44.38
+        }]
+      })
+      .mockResolvedValueOnce({ rows: [] }) // SAVEPOINT
       .mockResolvedValueOnce({ rows: [{ pool_food: 100, pool_equipment: 100, pool_energy: 100, pool_materials: 100 }] }) // region pools
+      // task selection now includes road_lon/road_lat directly
       .mockResolvedValueOnce({
         rows: [
           {
@@ -38,19 +49,19 @@ describe("dispatchCrews", () => {
             cost_equipment: 10,
             cost_energy: 5,
             cost_materials: 10,
-            duration_s: 40
+            duration_s: 40,
+            road_lon: -68.26,
+            road_lat: 44.39
           }
         ]
-      }) // task selection
-      .mockResolvedValueOnce({
-        rows: [{ hub_lon: -68.25, hub_lat: 44.38, road_lon: -68.26, road_lat: 44.39 }]
-      }) // coordinate query for travel time
+      })
       .mockResolvedValueOnce({ rows: [] }) // region update
       .mockResolvedValueOnce({
         rows: [{ task_id: "task-1", status: "active", priority_score: 10 }]
       }) // task update
       .mockResolvedValueOnce({ rows: [] }) // crew update to 'traveling'
-      .mockResolvedValueOnce({ rows: [] }); // COMMIT
+      .mockResolvedValueOnce({ rows: [] }) // insert event
+      .mockResolvedValueOnce({ rows: [] }); // RELEASE SAVEPOINT
 
     const result = await dispatchCrews({ query });
 
@@ -75,11 +86,20 @@ describe("dispatchCrews", () => {
   it("rolls back when no tasks are affordable", async () => {
     const query = vi
       .fn()
-      .mockResolvedValueOnce({ rows: [{ crew_id: "crew-1", region_id: "region-1" }] })
-      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [{
+          crew_id: "crew-1",
+          region_id: "region-1",
+          current_lng: -68.25,
+          current_lat: 44.38,
+          hub_lon: -68.25,
+          hub_lat: 44.38
+        }]
+      })
+      .mockResolvedValueOnce({ rows: [] }) // SAVEPOINT
       .mockResolvedValueOnce({ rows: [{ pool_food: 5, pool_equipment: 5, pool_energy: 5, pool_materials: 5 }] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] });
+      .mockResolvedValueOnce({ rows: [] }) // No affordable tasks
+      .mockResolvedValueOnce({ rows: [] }); // ROLLBACK TO SAVEPOINT
 
     const result = await dispatchCrews({ query });
 
@@ -90,45 +110,56 @@ describe("dispatchCrews", () => {
     expect(rollbackCall).toBeTruthy();
   });
 
-  it("selects tasks ordered by priority_score DESC (votes affect dispatch order)", async () => {
+  it("selects tasks ordered by distance first (nearest task to crew)", async () => {
     const query = vi
       .fn()
-      .mockResolvedValueOnce({ rows: [{ crew_id: "crew-1", region_id: "region-1" }] })
-      .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      .mockResolvedValueOnce({
+        rows: [{
+          crew_id: "crew-1",
+          region_id: "region-1",
+          current_lng: -68.25,
+          current_lat: 44.38,
+          hub_lon: -68.25,
+          hub_lat: 44.38
+        }]
+      })
+      .mockResolvedValueOnce({ rows: [] }) // SAVEPOINT
       .mockResolvedValueOnce({ rows: [{ pool_food: 100, pool_equipment: 100, pool_energy: 100, pool_materials: 100 }] })
       .mockResolvedValueOnce({
-        // This returns the highest priority task
         rows: [
           {
-            task_id: "high-priority-task",
+            task_id: "nearest-task",
             target_gers_id: "road-1",
             cost_food: 10,
             cost_equipment: 10,
             cost_energy: 10,
             cost_materials: 10,
-            duration_s: 30
+            duration_s: 30,
+            road_lon: -68.26,
+            road_lat: 44.39
           }
         ]
       })
-      .mockResolvedValueOnce({
-        rows: [{ hub_lon: -68.25, hub_lat: 44.38, road_lon: -68.26, road_lat: 44.39 }]
-      }) // coordinate query for travel time
       .mockResolvedValueOnce({ rows: [] }) // region update
       .mockResolvedValueOnce({
-        rows: [{ task_id: "high-priority-task", status: "active", priority_score: 50 }]
+        rows: [{ task_id: "nearest-task", status: "active", priority_score: 50 }]
       })
       .mockResolvedValueOnce({ rows: [] }) // crew update
-      .mockResolvedValueOnce({ rows: [] }); // COMMIT
+      .mockResolvedValueOnce({ rows: [] }) // insert event
+      .mockResolvedValueOnce({ rows: [] }); // RELEASE SAVEPOINT
 
     await dispatchCrews({ query });
 
-    // Find the task selection query and verify it orders by priority_score DESC
+    // Find the task selection query and verify it orders by distance first
     const taskSelectCall = query.mock.calls.find(
       (call) => typeof call[0] === "string" && call[0].includes("FROM tasks") && call[0].includes("status = 'queued'")
     );
     expect(taskSelectCall).toBeTruthy();
     const taskSelectSql = String(taskSelectCall![0]);
-    expect(taskSelectSql).toContain("ORDER BY priority_score DESC");
+    // Should order by distance (POW for squared distance), then road class, then health
+    expect(taskSelectSql).toContain("POW(");
+    expect(taskSelectSql).toContain("ORDER BY");
+    expect(taskSelectSql).toContain("CASE wf.road_class");
   });
 });
 

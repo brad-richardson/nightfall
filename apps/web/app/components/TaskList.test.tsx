@@ -9,15 +9,13 @@ const mockResourcePools = {
   materials: 100
 };
 
-const mockUserVotes = {};
-
 const tasks = [
   {
     task_id: "task-1",
     target_gers_id: "road-alpha-1234",
     priority_score: 90,
     status: "queued",
-    vote_score: 10,
+    vote_score: 0,
     cost_food: 5,
     cost_equipment: 2,
     cost_energy: 2,
@@ -31,7 +29,7 @@ const tasks = [
     target_gers_id: "road-bravo-5678",
     priority_score: 40,
     status: "active",
-    vote_score: 50,
+    vote_score: 0,
     cost_food: 20,
     cost_equipment: 10,
     cost_energy: 10,
@@ -45,7 +43,7 @@ const tasks = [
     target_gers_id: "road-charlie-9999",
     priority_score: 75,
     status: "queued",
-    vote_score: 5,
+    vote_score: 0,
     cost_food: 1,
     cost_equipment: 1,
     cost_energy: 1,
@@ -60,7 +58,7 @@ describe("TaskList", () => {
   it("filters tasks by search query", () => {
     vi.useFakeTimers();
 
-    render(<TaskList tasks={tasks} crews={[]} features={[]} userVotes={mockUserVotes} resourcePools={mockResourcePools} onVote={vi.fn()} />);
+    render(<TaskList tasks={tasks} crews={[]} features={[]} resourcePools={mockResourcePools} />);
 
     // Open the collapsible filters section first
     const filtersButton = screen.getByRole("button", { name: /filters & sort/i });
@@ -85,7 +83,7 @@ describe("TaskList", () => {
   });
 
   it("filters queued tasks from filter chips", () => {
-    render(<TaskList tasks={tasks} crews={[]} features={[]} userVotes={mockUserVotes} resourcePools={mockResourcePools} onVote={vi.fn()} />);
+    render(<TaskList tasks={tasks} crews={[]} features={[]} resourcePools={mockResourcePools} />);
 
     // Open the collapsible filters section first
     const filtersButton = screen.getByRole("button", { name: /filters & sort/i });
@@ -101,7 +99,7 @@ describe("TaskList", () => {
   });
 
   it("sorts tasks by total cost", () => {
-    render(<TaskList tasks={tasks} crews={[]} features={[]} userVotes={mockUserVotes} resourcePools={mockResourcePools} onVote={vi.fn()} />);
+    render(<TaskList tasks={tasks} crews={[]} features={[]} resourcePools={mockResourcePools} />);
 
     // Open the collapsible filters section first
     const filtersButton = screen.getByRole("button", { name: /filters & sort/i });

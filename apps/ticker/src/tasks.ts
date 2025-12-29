@@ -7,8 +7,6 @@ import {
   type ResourceType,
 } from "@nightfall/config";
 
-const DEFAULT_LAMBDA = 0.1;
-
 /**
  * Generate SQL CASE expression for hash-based cost calculation.
  * Cost = baseCost + offset, where offset is in [-costVariance, +costVariance]
@@ -132,41 +130,35 @@ export async function spawnDegradedRoadTasks(pool: PoolLike) {
   return result.rows;
 }
 
-export async function updateTaskPriorities(pool: PoolLike, lambda = DEFAULT_LAMBDA) {
+/**
+ * Update task priorities based on road health and class.
+ * Priority is for display purposes only - task selection is distance-based.
+ */
+export async function updateTaskPriorities(pool: PoolLike) {
   const weightCases = Object.entries(ROAD_CLASSES)
     .map(([cls, info]) => `WHEN '${cls}' THEN ${info.priorityWeight}`)
     .join("\n          ");
 
   const result = await pool.query<TaskDelta>(
     `
-    WITH vote_scores AS (
-      SELECT
-        task_id,
-        SUM(weight * EXP(-$1::float * EXTRACT(EPOCH FROM (now() - created_at::timestamptz)) / 3600.0)) AS vote_score
-      FROM task_votes
-      GROUP BY task_id
-    ),
-    task_info AS (
+    WITH task_info AS (
       SELECT
         t.task_id,
-        COALESCE(v.vote_score, 0) AS vote_score,
         fs.health,
         wf.road_class
       FROM tasks AS t
       JOIN world_features AS wf ON wf.gers_id = t.target_gers_id
       JOIN feature_state AS fs ON fs.gers_id = t.target_gers_id
-      LEFT JOIN vote_scores AS v ON v.task_id = t.task_id
       WHERE t.status IN ('queued', 'active')
     )
     UPDATE tasks AS t
     SET
-      vote_score = task_info.vote_score,
       priority_score = (100 - task_info.health) * (
         CASE task_info.road_class
           ${weightCases}
           ELSE 1
         END
-      ) + task_info.vote_score
+      )
     FROM task_info
     WHERE t.task_id = task_info.task_id
     RETURNING
@@ -183,8 +175,7 @@ export async function updateTaskPriorities(pool: PoolLike, lambda = DEFAULT_LAMB
       t.task_type,
       t.target_gers_id,
       t.region_id
-    `,
-    [lambda]
+    `
   );
 
   return result.rows;

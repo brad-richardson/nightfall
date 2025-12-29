@@ -10,7 +10,7 @@ import {
 } from "@nightfall/pathfinding";
 import { loadGraphForRegion } from "./resources";
 
-const CREW_TRAVEL_MPS = 10; // Crew travel speed in meters per second
+const CREW_TRAVEL_MPS = 15; // Crew travel speed in meters per second (50% faster)
 const CREW_TRAVEL_MIN_S = 5;
 // Max crew travel time is 75% of resource max (60s) to ensure crews arrive before convoys
 const CREW_TRAVEL_MAX_S = 45;
@@ -128,6 +128,19 @@ export async function dispatchCrews(pool: PoolLike): Promise<DispatchResult> {
       const poolEnergy = Number(region.pool_energy ?? 0);
       const poolMaterials = Number(region.pool_materials ?? 0);
 
+      // Get crew's starting position for distance calculation
+      const crewLng = crew.current_lng ?? crew.hub_lon;
+      const crewLat = crew.current_lat ?? crew.hub_lat;
+
+      if (crewLng == null || crewLat == null) {
+        await pool.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+        continue;
+      }
+
+      // Select nearest affordable task, prioritizing by:
+      // 1. Distance from crew (closest first)
+      // 2. Road class importance (motorway > residential)
+      // 3. Road damage (lower health = more urgent)
       const taskResult = await pool.query<{
         task_id: string;
         target_gers_id: string;
@@ -136,28 +149,50 @@ export async function dispatchCrews(pool: PoolLike): Promise<DispatchResult> {
         cost_energy: number;
         cost_materials: number;
         duration_s: number;
+        road_lon: number;
+        road_lat: number;
       }>(
         `
         SELECT
-          task_id,
-          target_gers_id,
-          cost_food,
-          cost_equipment,
-          cost_energy,
-          cost_materials,
-          duration_s
-        FROM tasks
-        WHERE region_id = $1
-          AND status = 'queued'
-          AND cost_food <= $2
-          AND cost_equipment <= $3
-          AND cost_energy <= $4
-          AND cost_materials <= $5
-        ORDER BY priority_score DESC, created_at ASC
-        FOR UPDATE SKIP LOCKED
+          t.task_id,
+          t.target_gers_id,
+          t.cost_food,
+          t.cost_equipment,
+          t.cost_energy,
+          t.cost_materials,
+          t.duration_s,
+          (wf.bbox_xmin + wf.bbox_xmax) / 2 AS road_lon,
+          (wf.bbox_ymin + wf.bbox_ymax) / 2 AS road_lat
+        FROM tasks t
+        JOIN world_features wf ON wf.gers_id = t.target_gers_id
+        LEFT JOIN feature_state fs ON fs.gers_id = t.target_gers_id
+        WHERE t.region_id = $1
+          AND t.status = 'queued'
+          AND t.cost_food <= $2
+          AND t.cost_equipment <= $3
+          AND t.cost_energy <= $4
+          AND t.cost_materials <= $5
+        ORDER BY
+          -- Distance squared (no need for sqrt since we just need ordering)
+          POW((wf.bbox_xmin + wf.bbox_xmax) / 2 - $6, 2) +
+          POW((wf.bbox_ymin + wf.bbox_ymax) / 2 - $7, 2) ASC,
+          -- Road class priority (higher = more important)
+          CASE wf.road_class
+            WHEN 'motorway' THEN 10
+            WHEN 'trunk' THEN 8
+            WHEN 'primary' THEN 6
+            WHEN 'secondary' THEN 4
+            WHEN 'tertiary' THEN 3
+            WHEN 'residential' THEN 2
+            WHEN 'service' THEN 1
+            ELSE 0
+          END DESC,
+          -- Most damaged first
+          COALESCE(fs.health, 100) ASC
+        FOR UPDATE OF t SKIP LOCKED
         LIMIT 1
         `,
-        [crew.region_id, poolFood, poolEquipment, poolEnergy, poolMaterials]
+        [crew.region_id, poolFood, poolEquipment, poolEnergy, poolMaterials, crewLng, crewLat]
       );
 
       const task = taskResult.rows[0];
@@ -166,73 +201,56 @@ export async function dispatchCrews(pool: PoolLike): Promise<DispatchResult> {
         continue;
       }
 
-      // Get road center for destination
-      const roadResult = await pool.query<{
-        road_lon: number;
-        road_lat: number;
-      }>(
-        `SELECT
-          (bbox_xmin + bbox_xmax) / 2 AS road_lon,
-          (bbox_ymin + bbox_ymax) / 2 AS road_lat
-        FROM world_features WHERE gers_id = $1`,
-        [task.target_gers_id]
-      );
-      const road = roadResult.rows[0];
-      if (!road) {
-        await pool.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
-        continue;
-      }
+      // Road coordinates already fetched in task query
+      const road = { road_lon: task.road_lon, road_lat: task.road_lat };
 
-      // Determine crew's starting position (current position or hub)
-      const startLng = crew.current_lng ?? crew.hub_lon;
-      const startLat = crew.current_lat ?? crew.hub_lat;
+      // Crew starting position already calculated above as crewLng/crewLat
+      const startLng = crewLng;
+      const startLat = crewLat;
 
       // Calculate travel time and waypoints using pathfinding
       let travelTimeS = CREW_TRAVEL_MIN_S;
       let waypoints: CrewWaypoint[] | null = null;
       const departAt = Date.now();
+      const startPoint: Point = [startLng, startLat];
+      const roadPoint: Point = [road.road_lon, road.road_lat];
 
-      if (startLng != null && startLat != null) {
-        const graphData = await loadGraphForRegion(pool, crew.region_id);
-        const startPoint: Point = [startLng, startLat];
-        const roadPoint: Point = [road.road_lon, road.road_lat];
+      const graphData = await loadGraphForRegion(pool, crew.region_id);
+      if (graphData) {
+        const startConnector = findNearestConnector(graphData.coords, startPoint);
+        const endConnector = findNearestConnector(graphData.coords, roadPoint);
 
-        if (graphData) {
-          const startConnector = findNearestConnector(graphData.coords, startPoint);
-          const endConnector = findNearestConnector(graphData.coords, roadPoint);
-
-          if (startConnector && endConnector) {
-            const pathResult = findPath(
-              graphData.graph,
-              graphData.coords,
-              startConnector,
-              endConnector
-            );
-            if (pathResult) {
-              // Build waypoints with timestamps, including actual start/end points
-              waypoints = buildWaypoints(pathResult, graphData.coords, departAt, CREW_TRAVEL_MPS, {
-                actualStart: startPoint,
-                actualEnd: roadPoint,
-              });
-              if (waypoints.length > 1) {
-                const lastWaypoint = waypoints[waypoints.length - 1];
-                travelTimeS = (Date.parse(lastWaypoint.arrive_at) - departAt) / 1000;
-              }
-            } else {
-              // Pathfinding failed - use straight-line fallback
-              travelTimeS = haversineDistanceMeters(startPoint, roadPoint) / CREW_TRAVEL_MPS;
-              waypoints = buildStraightLineWaypoints(startPoint, roadPoint, departAt, travelTimeS);
+        if (startConnector && endConnector) {
+          const pathResult = findPath(
+            graphData.graph,
+            graphData.coords,
+            startConnector,
+            endConnector
+          );
+          if (pathResult) {
+            // Build waypoints with timestamps, including actual start/end points
+            waypoints = buildWaypoints(pathResult, graphData.coords, departAt, CREW_TRAVEL_MPS, {
+              actualStart: startPoint,
+              actualEnd: roadPoint,
+            });
+            if (waypoints.length > 1) {
+              const lastWaypoint = waypoints[waypoints.length - 1];
+              travelTimeS = (Date.parse(lastWaypoint.arrive_at) - departAt) / 1000;
             }
           } else {
-            // No connectors found - use straight-line fallback
+            // Pathfinding failed - use straight-line fallback
             travelTimeS = haversineDistanceMeters(startPoint, roadPoint) / CREW_TRAVEL_MPS;
             waypoints = buildStraightLineWaypoints(startPoint, roadPoint, departAt, travelTimeS);
           }
         } else {
-          // No graph data - use straight-line fallback
+          // No connectors found - use straight-line fallback
           travelTimeS = haversineDistanceMeters(startPoint, roadPoint) / CREW_TRAVEL_MPS;
           waypoints = buildStraightLineWaypoints(startPoint, roadPoint, departAt, travelTimeS);
         }
+      } else {
+        // No graph data - use straight-line fallback
+        travelTimeS = haversineDistanceMeters(startPoint, roadPoint) / CREW_TRAVEL_MPS;
+        waypoints = buildStraightLineWaypoints(startPoint, roadPoint, departAt, travelTimeS);
       }
 
       // Clamp travel time to min/max bounds

@@ -27,9 +27,9 @@ const STEPS: Step[] = [
     icon: "📦"
   },
   {
-    title: "Vote on Priorities",
-    description: "Repair crews tackle degraded roads automatically. Use the Operations Queue to upvote or downvote tasks—your votes influence what gets fixed first.",
-    icon: "🗳️"
+    title: "Crew Efficiency",
+    description: "Repair crews automatically select the nearest degraded roads. Higher-class roads (motorways, trunks) are prioritized over residential streets.",
+    icon: "🚚"
   },
   {
     title: "Contribute & Repair",

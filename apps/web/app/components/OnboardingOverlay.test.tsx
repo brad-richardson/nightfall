@@ -120,7 +120,7 @@ describe("OnboardingOverlay", () => {
       stepIndicators[3].focus();
       await user.keyboard(" ");
 
-      expect(screen.getByText("Vote on Priorities")).toBeInTheDocument();
+      expect(screen.getByText("Crew Efficiency")).toBeInTheDocument();
     });
   });
 

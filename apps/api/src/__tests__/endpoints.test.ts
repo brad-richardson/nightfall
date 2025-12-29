@@ -343,60 +343,7 @@ describe("api endpoints", () => {
     await app.close();
   });
 
-  it("accepts task votes", async () => {
-    queryMock.mockImplementation((text: string) => {
-      // Check for existing vote (returns existing = vote change, not new)
-      if (text.includes("FROM task_votes WHERE task_id") && text.includes("AND client_id")) {
-        return Promise.resolve({ rows: [{ weight: 1 }], rowCount: 1 });
-      }
-      if (text.includes("INSERT INTO task_votes")) {
-        return Promise.resolve({ rows: [] });
-      }
-      if (text.includes("SUM(weight * EXP")) {
-        return Promise.resolve({ rows: [{ vote_score: 2 }] });
-      }
-      if (text.includes("UPDATE tasks")) {
-        return Promise.resolve({
-          rows: [{
-            task_id: "task-1",
-            status: "queued",
-            priority_score: 5,
-            vote_score: 2,
-            cost_food: 10,
-            cost_equipment: 5,
-            cost_energy: 5,
-            cost_materials: 10,
-            duration_s: 30,
-            repair_amount: 5,
-            task_type: "repair_road",
-            target_gers_id: "road-1",
-            region_id: "region-1"
-          }]
-        });
-      }
-      return Promise.resolve({ rows: [] });
-    });
-
-    const app = buildServer();
-    const response = await app.inject({
-      method: "POST",
-      url: "/api/vote",
-      headers: { authorization: `Bearer ${getTestToken("client-1")}` },
-      payload: { client_id: "client-1", task_id: "task-1", weight: 1 }
-    });
-
-    expect(response.statusCode).toBe(200);
-    const payload = response.json();
-    expect(payload.ok).toBe(true);
-    expect(payload.new_vote_score).toBe(2);
-    expect(payload.priority_score).toBe(5);
-    // Score tracking fields (vote change, not new vote, so no score awarded)
-    expect(payload.score_awarded).toBe(0);
-    expect(payload.new_total_score).toBe(null);
-    expect(payload.new_tier).toBe(null);
-
-    await app.close();
-  });
+  // Note: Voting functionality removed - crews now automatically select nearest tasks
 
   it("returns overture latest and caches it", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
@@ -453,7 +400,6 @@ describe("api endpoints", () => {
               target_gers_id: "road-1",
               task_type: "repair_road",
               priority_score: 10,
-              vote_score: 2,
               status: "queued",
               duration_s: 50,
               created_at: "2025-01-01T00:00:00Z",
@@ -462,9 +408,6 @@ describe("api endpoints", () => {
             }
           ]
         });
-      }
-      if (text.includes("FROM task_votes")) {
-        return Promise.resolve({ rows: [{ vote_score: 2 }] });
       }
       if (text.includes("FROM crews")) {
         return Promise.resolve({ rows: [{ busy_until: null }] });
@@ -478,7 +421,7 @@ describe("api endpoints", () => {
     expect(response.statusCode).toBe(200);
     const payload = response.json();
     expect(payload.task_id).toBe("task-1");
-    expect(payload.votes).toBe(2);
+    expect(payload.priority_score).toBe(10);
 
     await app.close();
   });

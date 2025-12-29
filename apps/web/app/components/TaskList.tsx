@@ -3,8 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Clock, AlertTriangle, Search, X, Users, CheckCircle2, Timer, Navigation, ChevronDown } from "lucide-react";
 import { formatLabel } from "../lib/formatters";
-import type { Task, Crew, Feature, UserVotes } from "../store";
-import VoteButton from "./VoteButton";
+import type { Task, Crew, Feature } from "../store";
 
 type ResourcePools = {
   food: number;
@@ -17,13 +16,11 @@ type TaskListProps = {
   tasks: Task[];
   crews: Crew[];
   features: Feature[];
-  userVotes: UserVotes;
   resourcePools: ResourcePools;
-  onVote: (taskId: string, weight: number) => Promise<void>;
 };
 
 type TaskFilter = "all" | "queued" | "in_progress" | "high_priority";
-type TaskSort = "priority" | "votes" | "cost" | "duration";
+type TaskSort = "priority" | "cost" | "duration";
 
 // Resource colors matching ResourcePoolsPanel
 const RESOURCE_COLORS = {
@@ -33,7 +30,7 @@ const RESOURCE_COLORS = {
   materials: { label: "rgba(129, 140, 248, 0.6)", value: "rgba(129, 140, 248, 0.9)", insufficient: "rgba(239, 68, 68, 0.9)" }
 };
 
-export default function TaskList({ tasks, crews, features, userVotes, resourcePools, onVote }: TaskListProps) {
+export default function TaskList({ tasks, crews, features, resourcePools }: TaskListProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<TaskFilter>("all");
@@ -108,8 +105,6 @@ export default function TaskList({ tasks, crews, features, userVotes, resourcePo
       switch (sortBy) {
         case "priority":
           return b.priority_score - a.priority_score;
-        case "votes":
-          return b.vote_score - a.vote_score;
         case "cost":
           return (b.cost_food + b.cost_equipment + b.cost_energy + b.cost_materials) - (a.cost_food + a.cost_equipment + a.cost_energy + a.cost_materials);
         case "duration":
@@ -242,7 +237,6 @@ export default function TaskList({ tasks, crews, features, userVotes, resourcePo
                 className="flex-1 rounded-lg border border-white/10 bg-black/20 px-2 py-1.5 text-[10px] text-white/80 focus:outline-none focus:ring-2 focus:ring-[color:var(--night-teal)]"
               >
                 <option value="priority">Priority</option>
-                <option value="votes">Community Votes</option>
                 <option value="cost">Total Cost</option>
                 <option value="duration">Duration</option>
               </select>
@@ -351,27 +345,14 @@ export default function TaskList({ tasks, crews, features, userVotes, resourcePo
                   </div>
                 </div>
 
-                <div className="mt-4 flex items-center justify-between border-t border-white/5 pt-3">
-                  {task.status !== "active" ? (
-                    <VoteButton
-                      taskId={task.task_id}
-                      currentVoteScore={task.vote_score}
-                      userVote={userVotes[task.task_id]}
-                      onVote={onVote}
-                      size="sm"
-                    />
-                  ) : (
-                    <>
-                      <span className="text-[10px] font-bold tabular-nums text-white/60">
-                        {Math.round(task.vote_score)} votes
-                      </span>
-                      <div className="flex items-center gap-1.5 text-[color:var(--night-teal)]">
-                        <Timer className="h-3.5 w-3.5 animate-pulse" />
-                        <span className="text-[10px] font-bold uppercase tracking-wider">Working</span>
-                      </div>
-                    </>
-                  )}
-                </div>
+                {task.status === "active" && (
+                  <div className="mt-4 flex items-center justify-end border-t border-white/5 pt-3">
+                    <div className="flex items-center gap-1.5 text-[color:var(--night-teal)]">
+                      <Timer className="h-3.5 w-3.5 animate-pulse" />
+                      <span className="text-[10px] font-bold uppercase tracking-wider">Working</span>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })

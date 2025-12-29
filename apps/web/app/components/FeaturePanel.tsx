@@ -1,9 +1,8 @@
 "use client";
 
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { X, Rocket, Play, CheckCircle2, Wrench } from "lucide-react";
-import { useStore, type UserVotes } from "../store";
-import VoteButton from "./VoteButton";
+import { X, Rocket, Play, CheckCircle2, Wrench, Clock } from "lucide-react";
+import { useStore } from "../store";
 import { BUILDING_ACTIVATION_MS } from "@nightfall/config";
 
 type SelectedFeature = {
@@ -17,23 +16,20 @@ type Task = {
   target_gers_id: string;
   priority_score: number;
   status: string;
-  vote_score: number;
 };
 
 type FeaturePanelProps = {
-  onVote: (taskId: string, weight: number) => Promise<void>;
   onStartMinigame: (buildingGersId: string, buildingName: string, mode: "quick" | "boost") => void;
   onDirectActivate?: (buildingGersId: string) => Promise<{ activated_at: string; expires_at: string }>;
   onManualRepair: (roadGersId: string, roadClass: string) => void;
   activeTasks: Task[];
   canContribute: boolean;
-  userVotes: UserVotes;
 };
 
 const PANEL_WIDTH = 320;
 const PADDING = 16;
 
-export default function FeaturePanel({ onVote, onStartMinigame, onDirectActivate, onManualRepair, activeTasks, canContribute, userVotes }: FeaturePanelProps) {
+export default function FeaturePanel({ onStartMinigame, onDirectActivate, onManualRepair, activeTasks, canContribute }: FeaturePanelProps) {
   const [selected, setSelected] = useState<SelectedFeature | null>(null);
   const [panelPos, setPanelPos] = useState({ x: 0, y: 0 });
   const [isActivating, setIsActivating] = useState(false);
@@ -405,16 +401,10 @@ export default function FeaturePanel({ onVote, onStartMinigame, onDirectActivate
 
               {task ? (
                 <div className="rounded-2xl bg-[color:var(--night-teal)]/10 p-4 border border-[color:var(--night-teal)]/20 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--night-teal)] mb-3">Active Task</p>
-                  <div className="flex flex-col gap-3">
-                    <span className="text-xs text-white/80 font-medium">Repair needed - vote to prioritize</span>
-                    <VoteButton
-                      taskId={task.task_id}
-                      currentVoteScore={task.vote_score}
-                      userVote={userVotes[task.task_id]}
-                      onVote={onVote}
-                      size="md"
-                    />
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--night-teal)] mb-3">Queued for Repair</p>
+                  <div className="flex items-center gap-2 text-xs text-white/80">
+                    <Clock className="h-4 w-4 text-[color:var(--night-teal)]" />
+                    <span>A crew will repair this road soon</span>
                   </div>
                 </div>
               ) : (selectedDetails?.health ?? 100) >= 100 ? (

@@ -118,9 +118,6 @@ export type AuthState = {
   token: string;
 };
 
-// Track user's votes: taskId -> weight (1 or -1)
-export type UserVotes = Record<string, number>;
-
 // Minigame types
 export type MinigameType = "kitchen_rush" | "fresh_check" | "gear_up" | "patch_job" | "power_up" | "crane_drop";
 export type RepairMinigameType = "pothole_patrol" | "road_roller" | "traffic_director";
@@ -228,7 +225,6 @@ type State = {
   availableRegions: { region_id: string; name: string }[];
   auth: AuthState;
   feedItems: FeedItem[];
-  userVotes: UserVotes;
   // Minigame state
   activeMinigame: MinigameSession | null;
   minigameResult: MinigameResult | null;
@@ -250,8 +246,6 @@ type Actions = {
   setCycle: (cycle: CycleState | ((prev: CycleState) => CycleState)) => void;
   setAuth: (auth: AuthState) => void;
   addFeedItem: (item: FeedItem) => void;
-  setUserVote: (taskId: string, weight: number) => void;
-  clearUserVote: (taskId: string) => void;
   // Minigame actions
   startMinigame: (session: MinigameSession) => void;
   completeMinigame: (result: MinigameResult) => void;
@@ -310,7 +304,6 @@ export const useStore = create<State & Actions>()(
       availableRegions: [],
       auth: { clientId: "", token: "" },
       feedItems: [],
-      userVotes: {},
       // Minigame initial state
       activeMinigame: null,
       minigameResult: null,
@@ -351,16 +344,6 @@ export const useStore = create<State & Actions>()(
         set((state) => ({
           feedItems: [item, ...state.feedItems].slice(0, 50)
         })),
-      setUserVote: (taskId, weight) =>
-        set((state) => ({
-          userVotes: { ...state.userVotes, [taskId]: weight }
-        })),
-      clearUserVote: (taskId) =>
-        set((state) => {
-          const { [taskId]: _removed, ...rest } = state.userVotes;
-          void _removed; // Silence unused variable warning
-          return { userVotes: rest };
-        }),
       // Minigame actions
       startMinigame: (session) => set({ activeMinigame: session, minigameResult: null }),
       completeMinigame: (result) => set({ activeMinigame: null, minigameResult: result }),

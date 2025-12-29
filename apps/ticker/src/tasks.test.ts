@@ -29,39 +29,25 @@ describe("spawnDegradedRoadTasks", () => {
 });
 
 describe("updateTaskPriorities", () => {
-  it("updates tasks with vote decay and base priority", async () => {
+  it("updates tasks with health and road class based priority", async () => {
     const query = vi.fn().mockResolvedValue({ rows: [{ task_id: "task-1", status: "queued", priority_score: 10 }] });
 
-    const result = await updateTaskPriorities({ query }, 0.1);
+    const result = await updateTaskPriorities({ query });
 
     expect(result).toEqual([{ task_id: "task-1", status: "queued", priority_score: 10 }]);
     expect(query).toHaveBeenCalledTimes(1);
     expect(String(query.mock.calls[0][0])).toContain("UPDATE tasks");
-    expect(query.mock.calls[0][1]).toEqual([0.1]);
   });
 
-  it("includes vote_score in priority calculation", async () => {
+  it("calculates priority based on health and road class", async () => {
     const query = vi.fn().mockResolvedValue({ rows: [] });
 
-    await updateTaskPriorities({ query }, 0.1);
+    await updateTaskPriorities({ query });
 
     const sql = String(query.mock.calls[0][0]);
-    // Verify vote_score is added to priority_score
-    expect(sql).toContain("+ task_info.vote_score");
-    // Verify vote decay formula is used
-    expect(sql).toContain("EXP(-$1::float");
-    expect(sql).toContain("FROM task_votes");
-  });
-
-  it("applies exponential decay to older votes", async () => {
-    const query = vi.fn().mockResolvedValue({ rows: [] });
-
-    await updateTaskPriorities({ query }, 0.1);
-
-    const sql = String(query.mock.calls[0][0]);
-    // Verify the decay formula includes time-based calculation
-    expect(sql).toContain("EXTRACT(EPOCH FROM (now() - created_at");
-    expect(sql).toContain("/ 3600.0"); // Hourly decay
+    // Verify priority calculation uses health and road class
+    expect(sql).toContain("(100 - task_info.health)");
+    expect(sql).toContain("CASE task_info.road_class");
   });
 });
 

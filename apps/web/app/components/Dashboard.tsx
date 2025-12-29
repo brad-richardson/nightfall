@@ -426,7 +426,6 @@ export default function Dashboard({
   const hexes = useStore((state) => state.hexes);
   const cycle = useStore((state) => state.cycle);
   const auth = useStore((state) => state.auth);
-  const userVotes = useStore((state) => state.userVotes);
   const activeMinigame = useStore((state) => state.activeMinigame);
   const minigameResult = useStore((state) => state.minigameResult);
   const activeRepairMinigame = useStore((state) => state.activeRepairMinigame);
@@ -439,12 +438,9 @@ export default function Dashboard({
   const setHexes = useStore.getState().setHexes;
   const setCycle = useStore.getState().setCycle;
   const setAuth = useStore.getState().setAuth;
-  const setUserVote = useStore.getState().setUserVote;
-  const clearUserVote = useStore.getState().clearUserVote;
   const startMinigame = useStore.getState().startMinigame;
   const startRepairMinigame = useStore.getState().startRepairMinigame;
   const setCooldown = useStore.getState().setCooldown;
-  const addVoteScore = useStore.getState().addVoteScore;
 
   const [resourceDeltas, setResourceDeltas] = useState<ResourceDelta[]>([]);
   const [showMinigameOverlay, setShowMinigameOverlay] = useState(false);
@@ -1296,69 +1292,6 @@ export default function Dashboard({
 
   useEventStream(apiBaseUrl, handleEvent);
 
-  const handleVote = useCallback(async (taskId: string, weight: number): Promise<void> => {
-    if (!auth.clientId || !auth.token) return;
-
-    const currentVote = userVotes[taskId];
-    const isTogglingOff = currentVote === weight;
-
-    try {
-      const res = await fetch(`${apiBaseUrl}/api/vote`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${auth.token}`
-        },
-        body: JSON.stringify({ client_id: auth.clientId, task_id: taskId, weight })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setRegion(prev => ({
-          ...prev,
-          tasks: prev.tasks.map(t =>
-            t.task_id === taskId ? {
-              ...t,
-              vote_score: data.new_vote_score,
-              priority_score: data.priority_score ?? t.priority_score
-            } : t
-          )
-        }));
-
-        // Track user's vote state
-        if (isTogglingOff) {
-          // Toggling off - clear the vote (they clicked same button again)
-          clearUserVote(taskId);
-        } else {
-          // Award score only for genuinely new votes (not changing existing votes)
-          const isNewVote = currentVote === undefined;
-          if (isNewVote) {
-            addVoteScore(SCORE_ACTIONS.voteSubmitted);
-          }
-          setUserVote(taskId, weight);
-        }
-
-        // Show feedback toast
-        const action = isTogglingOff
-          ? "Vote removed"
-          : weight > 0
-            ? "Upvoted!"
-            : "Downvoted";
-        const description = isTogglingOff
-          ? "Your vote has been withdrawn"
-          : weight > 0
-            ? "This task will be prioritized higher"
-            : "This task will be prioritized lower";
-        toast.success(action, { description });
-      } else {
-        throw new Error("Vote failed");
-      }
-    } catch (err) {
-      console.error("Failed to vote", err);
-      toast.error("Vote failed", { description: "Please try again" });
-      throw err;
-    }
-  }, [apiBaseUrl, auth, userVotes, setRegion, setUserVote, clearUserVote, addVoteScore]);
-
   // Unified handler for both quick activation and boost production minigames
   const handleStartMinigame = useCallback(async (buildingGersId: string, buildingName: string, mode: "quick" | "boost") => {
     if (!auth.clientId || !auth.token) return;
@@ -1754,12 +1687,10 @@ export default function Dashboard({
           <div className="pointer-events-auto">
             <FeaturePanel
               activeTasks={region.tasks}
-              onVote={handleVote}
               onStartMinigame={handleStartMinigame}
               onDirectActivate={process.env.NODE_ENV === "development" ? handleDirectActivate : undefined}
               onManualRepair={handleManualRepair}
               canContribute={Boolean(auth.token && auth.clientId)}
-              userVotes={userVotes}
             />
           </div>
         </div>

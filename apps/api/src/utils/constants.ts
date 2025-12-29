@@ -2,7 +2,6 @@
  * Shared constants used across API routes
  */
 
-export const LAMBDA = 0.1;
 export const CONTRIBUTION_LIMIT = 40000;
 export const TAX_MULTIPLIER = 0.8;
 export const MAX_CLIENT_ID_LENGTH = 64;
