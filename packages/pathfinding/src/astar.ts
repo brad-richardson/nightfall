@@ -4,13 +4,12 @@ import type { Graph, GraphEdge, PathResult, Point, ConnectorCoords } from "./typ
  * Calculate health-based slowdown multiplier.
  * - Healthy roads (100%): 1x speed
  * - Degraded roads (70%): ~1.4x slower
- * - Very damaged roads (25%): 4x slower
- * - Nearly impassable (1%): 5x slower (capped)
+ * - Very damaged roads (33%): 3x slower (capped)
  */
 export function healthSlowdownMultiplier(health: number): number {
   const baseMultiplier = 100 / Math.max(1, health);
-  // Cap at 5x slowdown to ensure paths can always be found
-  return Math.min(5, baseMultiplier);
+  // Cap at 3x slowdown to ensure paths can always be found
+  return Math.min(3, baseMultiplier);
 }
 
 /**

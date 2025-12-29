@@ -108,6 +108,8 @@ export async function spawnDegradedRoadTasks(pool: PoolLike) {
     WHERE wf.feature_type = 'road'
       AND fs.health < ${DEGRADED_HEALTH_THRESHOLD}
       AND fs.status != 'repairing'
+      -- Only spawn tasks for roads that have connectors in the road graph
+      AND EXISTS (SELECT 1 FROM road_edges e WHERE e.segment_gers_id = wf.gers_id)
     ON CONFLICT (target_gers_id) WHERE status IN ('queued', 'active') DO NOTHING
     RETURNING
       task_id,

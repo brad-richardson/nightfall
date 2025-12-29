@@ -116,12 +116,12 @@ export function registerRepairMinigameRoutes(app: FastifyInstance) {
       return { ok: false, error: "road_not_found" };
     }
 
-    // Get current health from feature_state
+    // Get current health from feature_state (health is REAL, round to integer)
     const healthResult = await pool.query<{ health: number }>(
       "SELECT health FROM feature_state WHERE gers_id = $1",
       [roadGersId]
     );
-    const currentHealth = healthResult.rows[0]?.health ?? 100;
+    const currentHealth = Math.round(healthResult.rows[0]?.health ?? 100);
 
     // Don't allow repair if already at 100%
     if (currentHealth >= 100) {

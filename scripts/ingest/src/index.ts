@@ -1243,7 +1243,8 @@ async function assignHubBuildings(pgPool: Pool, region: RegionConfig) {
 async function ingestRoadGraph(
   pgPool: Pool,
   region: RegionConfig,
-  dataDir: string
+  dataDir: string,
+  hexCoverageWkt?: string
 ) {
   console.log("--- Starting Road Graph Ingest ---");
 
@@ -1257,6 +1258,11 @@ async function ingestRoadGraph(
 
   const segmentsPath = resolveOverturePath(dataDir, { theme: "transportation", type: "segment" });
   const classFilter = ROAD_CLASS_FILTER.map((roadClass) => `'${roadClass}'`).join(", ");
+
+  // Use same containment filter as road ingest to ensure we query the same roads
+  const containmentFilter = hexCoverageWkt
+    ? `AND ST_Contains(ST_GeomFromText('${hexCoverageWkt}'), geometry)`
+    : "";
 
   // Query segments with full geometry coordinates for interpolation
   // Use TO_JSON to properly serialize the connectors array
@@ -1274,6 +1280,7 @@ async function ingestRoadGraph(
       bbox.ymax < ${region.bbox.ymax} AND
       subtype = 'road' AND
       class IN (${classFilter})
+      ${containmentFilter}
   `);
 
   console.log(`DuckDB returned ${segmentsWithConnectors.length} segments`);
@@ -1283,34 +1290,88 @@ async function ingestRoadGraph(
   console.log(`Filtered to ${validSegments.length} segments that exist in database`);
 
   // Extract unique connectors with their positions
+  // Also create synthetic connectors for road endpoints to ensure all roads are connected
   const connectorMap = new Map<string, { lng: number; lat: number }>();
 
+  // Track which segments need synthetic connectors (roads with < 2 connectors)
+  const segmentConnectors = new Map<string, Array<{ connector_id: string; at: number }>>();
+
+  // Diagnostic counters
+  let skippedInvalidGeometry = 0;
+  let segmentsWithNoConnectors = 0;
+  let segmentsWithSyntheticStart = 0;
+  let segmentsWithSyntheticEnd = 0;
+
   for (const segment of validSegments) {
-    // connectors_json is already parsed by DuckDB's JSON output
-    const connectors = segment.connectors_json;
-    if (!Array.isArray(connectors) || connectors.length === 0) continue;
-
-    // geometry_json is already parsed by DuckDB's JSON output
-    const geom = segment.geometry_json;
-    if (!geom || geom.type !== "LineString" || !Array.isArray(geom.coordinates)) continue;
+    // ST_AsGeoJSON returns VARCHAR, so we may need to parse it
+    const geom = typeof segment.geometry_json === 'string'
+      ? JSON.parse(segment.geometry_json)
+      : segment.geometry_json;
+    if (!geom || geom.type !== "LineString" || !Array.isArray(geom.coordinates)) {
+      skippedInvalidGeometry++;
+      continue;
+    }
     const coords: number[][] = geom.coordinates;
-    if (coords.length === 0) continue;
+    if (coords.length === 0) {
+      skippedInvalidGeometry++;
+      continue;
+    }
 
-    for (const conn of connectors) {
-      if (!conn.connector_id) continue;
+    // TO_JSON returns JSON type, which should be parsed by DuckDB's JSON output
+    // but handle string case for safety
+    const connectors = typeof segment.connectors_json === 'string'
+      ? JSON.parse(segment.connectors_json)
+      : segment.connectors_json;
+    const segmentConns: Array<{ connector_id: string; at: number }> = [];
 
-      // Interpolate position along the line using `at` value
-      const at = conn.at ?? 0;
-      const [lng, lat] = interpolateLineString(coords, at);
+    if (Array.isArray(connectors)) {
+      for (const conn of connectors) {
+        if (!conn.connector_id) continue;
 
-      // Only store if we don't have it yet (first occurrence wins)
-      if (!connectorMap.has(conn.connector_id)) {
-        connectorMap.set(conn.connector_id, { lng, lat });
+        // Interpolate position along the line using `at` value
+        const at = conn.at ?? 0;
+        const [lng, lat] = interpolateLineString(coords, at);
+
+        // Only store if we don't have it yet (first occurrence wins)
+        if (!connectorMap.has(conn.connector_id)) {
+          connectorMap.set(conn.connector_id, { lng, lat });
+        }
+        segmentConns.push({ connector_id: conn.connector_id, at });
       }
     }
+
+    // Track segments with no original connectors
+    if (segmentConns.length === 0) {
+      segmentsWithNoConnectors++;
+    }
+
+    // Create synthetic connectors at start/end if the segment has < 2 connectors
+    // This ensures dead-ends and isolated roads can still be part of the graph
+    const hasStart = segmentConns.some(c => c.at <= 0.01);
+    const hasEnd = segmentConns.some(c => c.at >= 0.99);
+
+    if (!hasStart) {
+      const syntheticId = `syn_start_${segment.id}`;
+      const [lng, lat] = coords[0];
+      connectorMap.set(syntheticId, { lng, lat });
+      segmentConns.push({ connector_id: syntheticId, at: 0 });
+      segmentsWithSyntheticStart++;
+    }
+
+    if (!hasEnd) {
+      const syntheticId = `syn_end_${segment.id}`;
+      const [lng, lat] = coords[coords.length - 1];
+      connectorMap.set(syntheticId, { lng, lat });
+      segmentConns.push({ connector_id: syntheticId, at: 1 });
+      segmentsWithSyntheticEnd++;
+    }
+
+    segmentConnectors.set(segment.id, segmentConns);
   }
 
-  console.log(`Extracted ${connectorMap.size} unique connectors`);
+  console.log(`Extracted ${connectorMap.size} connectors (including synthetic endpoints)`);
+  console.log(`Diagnostics: ${skippedInvalidGeometry} segments skipped (invalid geometry), ${segmentsWithNoConnectors} had no original connectors`);
+  console.log(`Diagnostics: ${segmentsWithSyntheticStart} synthetic starts, ${segmentsWithSyntheticEnd} synthetic ends added`);
 
   const client = await pgPool.connect();
   try {
@@ -1350,8 +1411,10 @@ async function ingestRoadGraph(
 
     console.log(`\nInserted ${connectorMap.size} connectors`);
 
-    // Insert edges
+    // Insert edges using the segmentConnectors map (which includes synthetic connectors)
     let edgeCount = 0;
+    let segmentsWithEdges = 0;
+    let segmentsWithoutEdges = 0;
     const edgeBatch: Array<{
       segmentId: string;
       fromConnector: string;
@@ -1361,15 +1424,16 @@ async function ingestRoadGraph(
     }> = [];
 
     for (const segment of validSegments) {
-      const connectors = segment.connectors_json;
-      if (!Array.isArray(connectors)) continue;
+      // Use the segmentConnectors map which includes synthetic start/end connectors
+      const connectors = segmentConnectors.get(segment.id);
+      if (!connectors || connectors.length < 2) {
+        segmentsWithoutEdges++;
+        continue;
+      }
+      segmentsWithEdges++;
 
       // Sort connectors by `at` value to get from -> to order
-      const sortedConnectors = [...connectors]
-        .filter((c: any) => c.connector_id)
-        .sort((a: any, b: any) => (a.at ?? 0) - (b.at ?? 0));
-
-      if (sortedConnectors.length < 2) continue;
+      const sortedConnectors = [...connectors].sort((a, b) => a.at - b.at);
 
       // Create edges between CONSECUTIVE connectors (not just first-to-last)
       // This ensures all intermediate intersections are connected
@@ -1389,18 +1453,10 @@ async function ingestRoadGraph(
           H3_RESOLUTION
         );
 
-        // Add both directions (bidirectional graph)
         edgeBatch.push({
           segmentId: segment.id,
           fromConnector,
           toConnector,
-          lengthMeters,
-          h3Index
-        });
-        edgeBatch.push({
-          segmentId: segment.id,
-          fromConnector: toConnector,
-          toConnector: fromConnector,
           lengthMeters,
           h3Index
         });
@@ -1430,7 +1486,8 @@ async function ingestRoadGraph(
     }
 
     await client.query("COMMIT");
-    console.log(`\nSuccess! Inserted ${edgeCount} edges (${edgeBatch.length / 2} segments × 2 directions)`);
+    console.log(`\nSuccess! Inserted ${edgeCount} edges`);
+    console.log(`Segments with edges: ${segmentsWithEdges}, without edges: ${segmentsWithoutEdges}`);
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -1876,7 +1933,52 @@ async function main() {
 
     console.log(`Processing ${roads.length} roads...`);
 
+    // Collect current road IDs
+    const currentRoadIds = new Set(roads.map((r: any) => r.id));
+
     const client = await pgPool.connect();
+
+    // Clean up stale roads that no longer exist in current Overture data
+    // This prevents edge mismatches where roads exist in DB but not in DuckDB query
+    const staleRoadsResult = await client.query<{ gers_id: string }>(
+      `SELECT gers_id FROM world_features
+       WHERE region_id = $1 AND feature_type = 'road'
+       AND gers_id != ALL($2::text[])`,
+      [region.regionId, Array.from(currentRoadIds)]
+    );
+
+    if (staleRoadsResult.rows.length > 0) {
+      const staleIds = staleRoadsResult.rows.map(r => r.gers_id);
+      console.log(`Removing ${staleIds.length} stale roads from previous ingest...`);
+
+      // Delete in order: edges -> feature_hex_cells -> feature_state -> crew refs -> tasks -> world_features
+      await client.query(
+        `DELETE FROM road_edges WHERE segment_gers_id = ANY($1::text[])`,
+        [staleIds]
+      );
+      await client.query(
+        `DELETE FROM world_feature_hex_cells WHERE gers_id = ANY($1::text[])`,
+        [staleIds]
+      );
+      await client.query(
+        `DELETE FROM feature_state WHERE gers_id = ANY($1::text[])`,
+        [staleIds]
+      );
+      // Clear crew task references before deleting tasks
+      await client.query(
+        `UPDATE crews SET active_task_id = NULL
+         WHERE active_task_id IN (SELECT task_id FROM tasks WHERE target_gers_id = ANY($1::text[]))`,
+        [staleIds]
+      );
+      await client.query(
+        `DELETE FROM tasks WHERE target_gers_id = ANY($1::text[])`,
+        [staleIds]
+      );
+      await client.query(
+        `DELETE FROM world_features WHERE gers_id = ANY($1::text[])`,
+        [staleIds]
+      );
+    }
 
     // Create region entry using the hex coverage polygon as the boundary
     // This ensures the fog of war mask matches the actual hex coverage area
@@ -2022,7 +2124,7 @@ async function main() {
     await assignHubBuildings(pgPool, region);
 
     // Build road connectivity graph for pathfinding
-    await ingestRoadGraph(pgPool, region, dataDir);
+    await ingestRoadGraph(pgPool, region, dataDir, hexCoverageWkt);
 
     if (shouldSeedDemo()) {
       await seedDemoData(pgPool, region);

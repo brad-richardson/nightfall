@@ -9,6 +9,7 @@ import {
   buildWaypoints,
 } from "@nightfall/pathfinding";
 import { loadGraphForRegion } from "./resources";
+import { logger } from "./logger";
 
 const CREW_TRAVEL_MPS = 20; // Crew travel speed in meters per second
 const CREW_TRAVEL_MIN_S = 5;
@@ -268,16 +269,19 @@ export async function dispatchCrews(pool: PoolLike): Promise<DispatchResult> {
             }
           } else {
             // Pathfinding failed - use straight-line fallback
+            logger.warn({ startConnector, endConnector, graphSize: graphData.graph.size }, "[crews] pathfinding failed - no path found");
             travelTimeS = haversineDistanceMeters(startPoint, roadPoint) / CREW_TRAVEL_MPS;
             waypoints = buildStraightLineWaypoints(startPoint, roadPoint, departAt, travelTimeS);
           }
         } else {
           // No connectors found - use straight-line fallback
+          logger.warn({ startConnector, endConnector, coordsSize: graphData.coords.size, startPoint, roadPoint }, "[crews] pathfinding failed - no connectors found");
           travelTimeS = haversineDistanceMeters(startPoint, roadPoint) / CREW_TRAVEL_MPS;
           waypoints = buildStraightLineWaypoints(startPoint, roadPoint, departAt, travelTimeS);
         }
       } else {
         // No graph data - use straight-line fallback
+        logger.warn({ regionId: crew.region_id }, "[crews] pathfinding failed - no graph data");
         travelTimeS = haversineDistanceMeters(startPoint, roadPoint) / CREW_TRAVEL_MPS;
         waypoints = buildStraightLineWaypoints(startPoint, roadPoint, departAt, travelTimeS);
       }
@@ -772,7 +776,7 @@ export async function completeFinishedTasks(
     const poolEnergy = Number(region.pool_energy ?? 0);
     const poolMaterials = Number(region.pool_materials ?? 0);
 
-    // Look for next task
+    // Look for next task - prioritize by distance from crew's current position
     const nextTaskResult = await pool.query<{
       task_id: string;
       target_gers_id: string;
@@ -782,19 +786,23 @@ export async function completeFinishedTasks(
       cost_materials: number;
     }>(
       `
-      SELECT task_id, target_gers_id, cost_food, cost_equipment, cost_energy, cost_materials
-      FROM tasks
-      WHERE region_id = $1
-        AND status = 'queued'
-        AND cost_food <= $2
-        AND cost_equipment <= $3
-        AND cost_energy <= $4
-        AND cost_materials <= $5
-      ORDER BY priority_score DESC, created_at ASC
-      FOR UPDATE SKIP LOCKED
+      SELECT t.task_id, t.target_gers_id, t.cost_food, t.cost_equipment, t.cost_energy, t.cost_materials
+      FROM tasks t
+      JOIN world_features wf ON wf.gers_id = t.target_gers_id
+      WHERE t.region_id = $1
+        AND t.status = 'queued'
+        AND t.cost_food <= $2
+        AND t.cost_equipment <= $3
+        AND t.cost_energy <= $4
+        AND t.cost_materials <= $5
+      ORDER BY
+        -- Distance from crew's current position (closest first)
+        POW((wf.bbox_xmin + wf.bbox_xmax) / 2 - $6, 2) +
+        POW((wf.bbox_ymin + wf.bbox_ymax) / 2 - $7, 2) ASC
+      FOR UPDATE OF t SKIP LOCKED
       LIMIT 1
       `,
-      [crew.region_id, poolFood, poolEquipment, poolEnergy, poolMaterials]
+      [crew.region_id, poolFood, poolEquipment, poolEnergy, poolMaterials, crew.current_lng, crew.current_lat]
     );
 
     const nextTask = nextTaskResult.rows[0];

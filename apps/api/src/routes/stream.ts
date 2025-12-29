@@ -6,6 +6,10 @@ import type { FastifyInstance } from "fastify";
 import type { RouteContext } from "./types";
 import { writeSseEvent } from "../utils/helpers";
 
+// Heartbeat interval for SSE clients (15 seconds)
+// This is shorter than the client's stale threshold to ensure timely detection
+const SSE_HEARTBEAT_INTERVAL_MS = 15000;
+
 export function registerStreamRoutes(app: FastifyInstance, ctx: RouteContext) {
   const { config, eventStream, corsOrigin, getSseClients, setSseClients } = ctx;
 
@@ -36,8 +40,13 @@ export function registerStreamRoutes(app: FastifyInstance, ctx: RouteContext) {
 
     setSseClients(getSseClients() + 1);
     let unsubscribe = () => {};
+    let heartbeatInterval: NodeJS.Timeout | null = null;
 
     const cleanup = () => {
+      if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+        heartbeatInterval = null;
+      }
       unsubscribe();
       setSseClients(getSseClients() - 1);
     };
@@ -46,6 +55,21 @@ export function registerStreamRoutes(app: FastifyInstance, ctx: RouteContext) {
 
     try {
       await eventStream.start?.();
+
+      // Send heartbeat events to detect dead connections on both desktop and mobile
+      // SSE comments (: prefix) are ignored by EventSource but keep the connection alive
+      // We also send a proper event so the client can track activity
+      heartbeatInterval = setInterval(() => {
+        try {
+          // SSE comment for keep-alive (doesn't trigger client event handler)
+          reply.raw.write(":heartbeat\n\n");
+          // Also send a proper heartbeat event the client can track
+          writeSseEvent(reply.raw, "heartbeat", { ts: Date.now() });
+        } catch {
+          // Connection is dead, cleanup will be triggered by 'close' event
+        }
+      }, SSE_HEARTBEAT_INTERVAL_MS);
+
       unsubscribe = eventStream.subscribe((payload) => {
         // Debug logging for rust_bulk
         if ((payload.data as Record<string, unknown>)?.type === "rust_bulk") {

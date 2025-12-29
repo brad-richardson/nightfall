@@ -186,8 +186,8 @@ function ActiveEvents({ deltas, activeTasks, travelingCrews, features }: { delta
                     <div className="leading-tight min-w-0">
                       <div className="font-semibold">Crew En Route</div>
                       <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 truncate">
-                        {crew.target_gers_id ? getFeatureName(crew.target_gers_id) : "Returning to hub"}
-                        {timeStr && <span className="ml-2 text-[color:var(--night-teal)]">ETA {timeStr}</span>}
+                        {crew.target_gers_id && getFeatureName(crew.target_gers_id)}
+                        {timeStr && <span className={crew.target_gers_id ? "ml-2" : ""} style={{ color: "var(--night-teal)" }}>ETA {timeStr}</span>}
                       </div>
                     </div>
                   </div>

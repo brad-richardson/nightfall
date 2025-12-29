@@ -364,6 +364,8 @@ export default function DemoMap({
       attribButton = mapContainer.current?.querySelector('.maplibregl-ctrl-attrib-button') ?? null;
       attribContainer = mapContainer.current?.querySelector('.maplibregl-ctrl-attrib') ?? null;
       attribButton?.addEventListener('click', handleAttribClick);
+      // Start collapsed by default (MapLibre expands it initially)
+      attribContainer?.classList.remove('maplibregl-compact-show');
     }, 100);
 
     // Expose for testing

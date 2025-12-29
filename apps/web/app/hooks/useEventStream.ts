@@ -7,9 +7,14 @@ export type EventPayload = {
   data: unknown;
 };
 
-// Threshold for considering SSE connection stale (no events received)
+// Server sends heartbeats every 15 seconds
+// We consider the connection stale if we miss 2 heartbeats (30 seconds)
 // Exported so Dashboard can use the same value for polling fallback
 export const SSE_STALE_THRESHOLD_MS = 30000;
+
+// Shorter threshold for visibility change - reconnect faster when returning to tab
+// Desktop browsers throttle/freeze background tabs, so reconnect immediately
+const VISIBILITY_STALE_THRESHOLD_MS = 5000;
 
 export function useEventStream(
   baseUrl: string,
@@ -50,7 +55,8 @@ export function useEventStream(
       const eventSource = new EventSource(url);
       eventSourceRef.current = eventSource;
 
-      const handlers = [
+      // Game event handlers
+      const gameHandlers = [
         "phase_change",
         "world_delta",
         "feature_delta",
@@ -60,7 +66,7 @@ export function useEventStream(
         "reset"
       ];
 
-      handlers.forEach((eventName) => {
+      gameHandlers.forEach((eventName) => {
         eventSource?.addEventListener(eventName, (e: MessageEvent) => {
           // Track last event time to detect stale connections
           lastEventTimeRef.current = Date.now();
@@ -76,6 +82,12 @@ export function useEventStream(
           }
           onEventRef.current({ event: eventName, data });
         });
+      });
+
+      // Heartbeat handler - server sends every 15s to detect dead connections
+      eventSource?.addEventListener("heartbeat", () => {
+        lastEventTimeRef.current = Date.now();
+        // Don't forward heartbeats to the event handler - they're just for connection health
       });
 
       eventSource.onerror = (err) => {
@@ -100,16 +112,17 @@ export function useEventStream(
       };
     }
 
-    // Handle page visibility changes - critical for mobile
-    // When the page becomes visible after being hidden, the SSE connection
-    // may have been silently dropped by the mobile browser
+    // Handle page visibility changes - critical for both mobile AND desktop
+    // When switching tabs on desktop, browsers throttle/freeze JavaScript
+    // When the page becomes visible, the SSE connection may have silently dropped
     const handleVisibilityChange = () => {
       if (!active) return;
 
       if (document.visibilityState === "visible") {
         const timeSinceLastEvent = Date.now() - lastEventTimeRef.current;
         const isConnectionMissing = !eventSourceRef.current;
-        const isConnectionStale = timeSinceLastEvent > SSE_STALE_THRESHOLD_MS;
+        // Use shorter threshold for visibility change - be more aggressive
+        const isConnectionStale = timeSinceLastEvent > VISIBILITY_STALE_THRESHOLD_MS;
 
         if (isConnectionMissing || isConnectionStale) {
           reconnect(isConnectionMissing ? "connection missing after visibility change" : "connection stale after visibility change");
@@ -119,7 +132,7 @@ export function useEventStream(
       }
     };
 
-    // Handle online/offline events - mobile networks are unreliable
+    // Handle online/offline events - networks can be unreliable
     const handleOnline = () => {
       if (!active) return;
       console.debug("[SSE] Network came online");
@@ -132,7 +145,7 @@ export function useEventStream(
 
     connect();
 
-    // Add visibility change listener for mobile background/foreground
+    // Add visibility change listener for background/foreground on mobile AND desktop
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("online", handleOnline);
 
