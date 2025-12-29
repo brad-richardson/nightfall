@@ -332,6 +332,28 @@ export default function DemoMap({
       "bottom-left"
     );
 
+    // Auto-retract attribution bubble after 4 seconds
+    const attribContainer = mapContainer.current.querySelector('.maplibregl-ctrl-attrib');
+    if (attribContainer) {
+      let retractTimeout: ReturnType<typeof setTimeout> | null = null;
+      const observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+            const target = mutation.target as HTMLElement;
+            if (target.classList.contains('maplibregl-compact-show')) {
+              // Clear any existing timeout
+              if (retractTimeout) clearTimeout(retractTimeout);
+              // Auto-retract after 4 seconds
+              retractTimeout = setTimeout(() => {
+                target.classList.remove('maplibregl-compact-show');
+              }, 4000);
+            }
+          }
+        }
+      });
+      observer.observe(attribContainer, { attributes: true, attributeFilter: ['class'] });
+    }
+
     // Expose for testing
     if (typeof window !== "undefined") {
       (window as unknown as { __MAP_INSTANCE__: maplibregl.Map }).__MAP_INSTANCE__ = mapInstance;
