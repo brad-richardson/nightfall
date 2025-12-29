@@ -11,8 +11,8 @@ import {
 import { loadGraphForRegion } from "./resources";
 
 const CREW_TRAVEL_MPS = 10; // Crew travel speed in meters per second
-const CREW_TRAVEL_MIN_S = 4;
-const CREW_TRAVEL_MAX_S = 120;
+const CREW_TRAVEL_MIN_S = 5;
+const CREW_TRAVEL_MAX_S = 60;
 
 export type CrewWaypoint = { coord: Point; arrive_at: string };
 
@@ -208,8 +208,11 @@ export async function dispatchCrews(pool: PoolLike): Promise<DispatchResult> {
               endConnector
             );
             if (pathResult) {
-              // Build waypoints with timestamps
-              waypoints = buildWaypoints(pathResult, graphData.coords, departAt, CREW_TRAVEL_MPS);
+              // Build waypoints with timestamps, including actual start/end points
+              waypoints = buildWaypoints(pathResult, graphData.coords, departAt, CREW_TRAVEL_MPS, {
+                actualStart: startPoint,
+                actualEnd: roadPoint,
+              });
               if (waypoints.length > 1) {
                 const lastWaypoint = waypoints[waypoints.length - 1];
                 travelTimeS = (Date.parse(lastWaypoint.arrive_at) - departAt) / 1000;
@@ -806,7 +809,10 @@ async function dispatchCrewToTask(
       if (startConnector && endConnector) {
         const pathResult = findPath(graphData.graph, graphData.coords, startConnector, endConnector);
         if (pathResult) {
-          waypoints = buildWaypoints(pathResult, graphData.coords, departAt, CREW_TRAVEL_MPS);
+          waypoints = buildWaypoints(pathResult, graphData.coords, departAt, CREW_TRAVEL_MPS, {
+            actualStart: startPoint,
+            actualEnd: roadPoint,
+          });
           if (waypoints.length > 1) {
             const lastWaypoint = waypoints[waypoints.length - 1];
             travelTimeS = (Date.parse(lastWaypoint.arrive_at) - departAt) / 1000;
@@ -920,7 +926,10 @@ async function returnCrewToHub(
     if (startConnector && endConnector) {
       const pathResult = findPath(graphData.graph, graphData.coords, startConnector, endConnector);
       if (pathResult) {
-        waypoints = buildWaypoints(pathResult, graphData.coords, departAt, CREW_TRAVEL_MPS);
+        waypoints = buildWaypoints(pathResult, graphData.coords, departAt, CREW_TRAVEL_MPS, {
+          actualStart: startPoint,
+          actualEnd: hubPoint,
+        });
         if (waypoints.length > 1) {
           const lastWaypoint = waypoints[waypoints.length - 1];
           travelTimeS = (Date.parse(lastWaypoint.arrive_at) - departAt) / 1000;

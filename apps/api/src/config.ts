@@ -34,8 +34,8 @@ const configSchema = z.object({
       { message: 'JWT_SECRET must be set to a secure value in production (not the default)' }
     ),
   RESOURCE_TRAVEL_MPS: z.coerce.number().positive().default(10),
-  RESOURCE_TRAVEL_MIN_S: z.coerce.number().positive().default(4),
-  RESOURCE_TRAVEL_MAX_S: z.coerce.number().positive().default(45),
+  RESOURCE_TRAVEL_MIN_S: z.coerce.number().positive().default(5),
+  RESOURCE_TRAVEL_MAX_S: z.coerce.number().positive().default(60),
   RESOURCE_DISTANCE_MULTIPLIER: z.coerce.number().positive().default(1.25)
 });
 

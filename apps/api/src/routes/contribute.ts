@@ -297,7 +297,11 @@ export function registerContributeRoutes(app: FastifyInstance, ctx: RouteContext
               pathResult,
               coords,
               departAtMs,
-              config.RESOURCE_TRAVEL_MPS
+              config.RESOURCE_TRAVEL_MPS,
+              {
+                actualStart: sourceCenter as Point,
+                actualEnd: hubCenter as Point,
+              }
             );
             pathfindingDebug += `, path=${pathResult.connectorIds.length} waypoints`;
           } else {
