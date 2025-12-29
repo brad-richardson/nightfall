@@ -1,85 +1,96 @@
 import type { PoolLike } from "./ticker";
 import { logger } from "./logger";
 
+type SyncResult = { added: number; removed: number };
+
 /**
  * Syncs the number of crews per region to match the hex cell count.
- * Goal: 1 worker per hex cell.
+ * Goal: 1 worker per hex cell (minimum 1 per region).
  *
  * - Adds new idle crews if hex count exceeds crew count
  * - Removes idle crews if crew count exceeds hex count (never removes active crews)
  * - Updates the crew_count column on the regions table
+ *
+ * All operations are performed in a single transaction for consistency.
  */
-export async function syncRegionWorkers(pool: PoolLike): Promise<{ added: number; removed: number }> {
-  let totalAdded = 0;
-  let totalRemoved = 0;
-
-  // Get regions with their hex count and current crew count
-  const regionsResult = await pool.query<{
-    region_id: string;
-    hex_count: number;
-    current_crews: number;
-    idle_crews: number;
-  }>(`
+export async function syncRegionWorkers(pool: PoolLike): Promise<SyncResult> {
+  // Use a single query with CTEs to handle everything atomically
+  // This avoids N+1 queries and ensures transaction safety
+  const result = await pool.query<SyncResult>(`
+    WITH region_stats AS (
+      -- Calculate target crew count for each region
+      SELECT
+        r.region_id,
+        GREATEST(1, COALESCE(h.hex_count, 1))::int AS target_crews,
+        COALESCE(c.crew_count, 0)::int AS current_crews,
+        COALESCE(c.idle_count, 0)::int AS idle_crews
+      FROM regions r
+      LEFT JOIN (
+        SELECT region_id, COUNT(*) AS hex_count
+        FROM hex_cells
+        GROUP BY region_id
+      ) h ON h.region_id = r.region_id
+      LEFT JOIN (
+        SELECT region_id,
+               COUNT(*) AS crew_count,
+               COUNT(*) FILTER (WHERE status = 'idle') AS idle_count
+        FROM crews
+        GROUP BY region_id
+      ) c ON c.region_id = r.region_id
+    ),
+    regions_needing_crews AS (
+      -- Regions that need more crews
+      SELECT region_id, (target_crews - current_crews) AS crews_to_add
+      FROM region_stats
+      WHERE target_crews > current_crews
+    ),
+    crews_to_remove AS (
+      -- Select idle crews to remove (excess crews, only idle ones)
+      SELECT c.crew_id, c.region_id
+      FROM crews c
+      JOIN region_stats rs ON rs.region_id = c.region_id
+      WHERE rs.current_crews > rs.target_crews
+        AND c.status = 'idle'
+        AND c.crew_id IN (
+          SELECT crew_id FROM crews c2
+          WHERE c2.region_id = c.region_id AND c2.status = 'idle'
+          ORDER BY c2.crew_id
+          LIMIT GREATEST(0, rs.current_crews - rs.target_crews)
+        )
+    ),
+    inserted_crews AS (
+      -- Add new crews where needed
+      INSERT INTO crews (region_id, status)
+      SELECT r.region_id, 'idle'
+      FROM regions_needing_crews r
+      CROSS JOIN LATERAL generate_series(1, r.crews_to_add)
+      RETURNING crew_id
+    ),
+    deleted_crews AS (
+      -- Remove excess idle crews
+      DELETE FROM crews
+      WHERE crew_id IN (SELECT crew_id FROM crews_to_remove)
+      RETURNING crew_id
+    ),
+    updated_regions AS (
+      -- Update crew_count only for regions where it changed
+      UPDATE regions r
+      SET crew_count = rs.target_crews
+      FROM region_stats rs
+      WHERE r.region_id = rs.region_id
+        AND r.crew_count != rs.target_crews
+      RETURNING r.region_id
+    )
     SELECT
-      r.region_id,
-      COALESCE(h.hex_count, 0)::int AS hex_count,
-      COALESCE(c.crew_count, 0)::int AS current_crews,
-      COALESCE(c.idle_count, 0)::int AS idle_crews
-    FROM regions r
-    LEFT JOIN (
-      SELECT region_id, COUNT(*) AS hex_count
-      FROM hex_cells
-      GROUP BY region_id
-    ) h ON h.region_id = r.region_id
-    LEFT JOIN (
-      SELECT region_id,
-             COUNT(*) AS crew_count,
-             COUNT(*) FILTER (WHERE status = 'idle') AS idle_count
-      FROM crews
-      GROUP BY region_id
-    ) c ON c.region_id = r.region_id
+      (SELECT COUNT(*)::int FROM inserted_crews) AS added,
+      (SELECT COUNT(*)::int FROM deleted_crews) AS removed
   `);
 
-  for (const region of regionsResult.rows) {
-    const targetCrews = Math.max(1, region.hex_count); // At least 1 crew per region
-    const diff = targetCrews - region.current_crews;
+  const { added, removed } = result.rows[0] ?? { added: 0, removed: 0 };
 
-    if (diff > 0) {
-      // Need to add crews
-      await pool.query(
-        `INSERT INTO crews (region_id, status)
-         SELECT $1, 'idle'
-         FROM generate_series(1, $2)`,
-        [region.region_id, diff]
-      );
-      totalAdded += diff;
-    } else if (diff < 0) {
-      // Need to remove crews - only remove idle ones
-      const toRemove = Math.min(-diff, region.idle_crews);
-      if (toRemove > 0) {
-        await pool.query(
-          `DELETE FROM crews
-           WHERE crew_id IN (
-             SELECT crew_id FROM crews
-             WHERE region_id = $1 AND status = 'idle'
-             LIMIT $2
-           )`,
-          [region.region_id, toRemove]
-        );
-        totalRemoved += toRemove;
-      }
-    }
-
-    // Update the crew_count column on the region
-    await pool.query(
-      `UPDATE regions SET crew_count = $2 WHERE region_id = $1`,
-      [region.region_id, targetCrews]
-    );
+  if (added > 0 || removed > 0) {
+    logger.info({ added, removed }, "worker sync complete");
   }
 
-  if (totalAdded > 0 || totalRemoved > 0) {
-    logger.info({ added: totalAdded, removed: totalRemoved }, "worker sync complete");
-  }
-
-  return { added: totalAdded, removed: totalRemoved };
+  return { added, removed };
 }
