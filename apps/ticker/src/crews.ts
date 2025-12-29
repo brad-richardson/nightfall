@@ -102,7 +102,8 @@ export async function dispatchCrews(pool: PoolLike): Promise<DispatchResult> {
   );
 
   for (const crew of idleResult.rows) {
-    await pool.query("BEGIN");
+    const savepointName = `dispatch_crew_${crew.crew_id.replace(/-/g, '_')}`;
+    await pool.query(`SAVEPOINT ${savepointName}`);
 
     try {
       const regionResult = await pool.query<{
@@ -117,7 +118,7 @@ export async function dispatchCrews(pool: PoolLike): Promise<DispatchResult> {
       const region = regionResult.rows[0];
 
       if (!region) {
-        await pool.query("ROLLBACK");
+        await pool.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
         continue;
       }
 
@@ -160,7 +161,7 @@ export async function dispatchCrews(pool: PoolLike): Promise<DispatchResult> {
 
       const task = taskResult.rows[0];
       if (!task) {
-        await pool.query("ROLLBACK");
+        await pool.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
         continue;
       }
 
@@ -177,7 +178,7 @@ export async function dispatchCrews(pool: PoolLike): Promise<DispatchResult> {
       );
       const road = roadResult.rows[0];
       if (!road) {
-        await pool.query("ROLLBACK");
+        await pool.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
         continue;
       }
 
@@ -289,7 +290,7 @@ export async function dispatchCrews(pool: PoolLike): Promise<DispatchResult> {
         })]
       );
 
-      await pool.query("COMMIT");
+      await pool.query(`RELEASE SAVEPOINT ${savepointName}`);
 
       const taskDelta = taskUpdate.rows[0];
       if (taskDelta) {
@@ -305,7 +306,7 @@ export async function dispatchCrews(pool: PoolLike): Promise<DispatchResult> {
         task_id: task.task_id
       });
     } catch (error) {
-      await pool.query("ROLLBACK");
+      await pool.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
       throw error;
     }
   }
@@ -351,7 +352,8 @@ export async function arriveCrews(
   );
 
   for (const crew of travelingResult.rows) {
-    await pool.query("BEGIN");
+    const savepointName = `arrive_crew_${crew.crew_id.replace(/-/g, '_')}`;
+    await pool.query(`SAVEPOINT ${savepointName}`);
 
     try {
       const repairDurationS = Math.max(
@@ -416,7 +418,7 @@ export async function arriveCrews(
         })]
       );
 
-      await pool.query("COMMIT");
+      await pool.query(`RELEASE SAVEPOINT ${savepointName}`);
 
       const featureDelta = featureUpdate.rows[0];
       if (featureDelta) {
@@ -432,7 +434,7 @@ export async function arriveCrews(
         task_id: crew.active_task_id
       });
     } catch (error) {
-      await pool.query("ROLLBACK");
+      await pool.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
       throw error;
     }
   }

@@ -61,8 +61,9 @@ describe("dispatchCrews", () => {
     expect(result.featureDeltas).toEqual([]);
     expect(result.regionIds).toEqual(["region-1"]);
 
-    const commitCall = query.mock.calls.find((call) => call[0] === "COMMIT");
-    expect(commitCall).toBeTruthy();
+    // Verify savepoint was released (equivalent to commit in nested transaction context)
+    const releaseCall = query.mock.calls.find((call) => typeof call[0] === "string" && call[0].includes("RELEASE SAVEPOINT"));
+    expect(releaseCall).toBeTruthy();
 
     // Verify crew was set to 'traveling' not 'working'
     const crewUpdateCall = query.mock.calls.find(
@@ -84,7 +85,8 @@ describe("dispatchCrews", () => {
 
     expect(result).toEqual({ taskDeltas: [], featureDeltas: [], regionIds: [], crewEvents: [] });
 
-    const rollbackCall = query.mock.calls.find((call) => call[0] === "ROLLBACK");
+    // Verify savepoint was rolled back (not the full transaction)
+    const rollbackCall = query.mock.calls.find((call) => typeof call[0] === "string" && call[0].includes("ROLLBACK TO SAVEPOINT"));
     expect(rollbackCall).toBeTruthy();
   });
 
@@ -160,11 +162,11 @@ describe("arriveCrews", () => {
     ]);
     expect(result.regionIds).toEqual(["region-1"]);
 
-    // Verify transaction was used
-    const beginCall = query.mock.calls.find((call) => call[0] === "BEGIN");
-    expect(beginCall).toBeTruthy();
-    const commitCall = query.mock.calls.find((call) => call[0] === "COMMIT");
-    expect(commitCall).toBeTruthy();
+    // Verify savepoint was used (for nested transaction safety)
+    const savepointCall = query.mock.calls.find((call) => typeof call[0] === "string" && call[0].includes("SAVEPOINT"));
+    expect(savepointCall).toBeTruthy();
+    const releaseCall = query.mock.calls.find((call) => typeof call[0] === "string" && call[0].includes("RELEASE SAVEPOINT"));
+    expect(releaseCall).toBeTruthy();
 
     // Verify crew was set to 'working'
     const crewUpdateCall = query.mock.calls.find(

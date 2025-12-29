@@ -334,12 +334,20 @@ export async function enqueueResourceTransfers(
             // Build waypoints with per-segment timing
             waypoints = buildWaypoints(pathResult, graphData.coords, departAt, RESOURCE_TRAVEL_MPS);
 
-            // Calculate travel time from waypoints - don't clamp since waypoints have real timestamps
+            // Calculate travel time from waypoints and clamp to min/max
             if (waypoints.length > 1) {
               const lastWaypoint = waypoints[waypoints.length - 1];
-              travelSeconds = (Date.parse(lastWaypoint.arrive_at) - departAt) / 1000;
-              // Only apply minimum, not maximum - waypoint timing is authoritative
-              travelSeconds = Math.max(RESOURCE_TRAVEL_MIN_S, travelSeconds);
+              const rawTravelSeconds = (Date.parse(lastWaypoint.arrive_at) - departAt) / 1000;
+              travelSeconds = Math.max(RESOURCE_TRAVEL_MIN_S, Math.min(RESOURCE_TRAVEL_MAX_S, rawTravelSeconds));
+
+              // If we clamped the travel time, scale all waypoint timestamps proportionally
+              if (travelSeconds !== rawTravelSeconds && rawTravelSeconds > 0) {
+                const scale = travelSeconds / rawTravelSeconds;
+                waypoints = waypoints.map(wp => ({
+                  coord: wp.coord,
+                  arrive_at: new Date(departAt + (Date.parse(wp.arrive_at) - departAt) * scale).toISOString()
+                }));
+              }
             } else {
               travelSeconds = RESOURCE_TRAVEL_MIN_S;
             }
@@ -441,6 +449,7 @@ export async function enqueueResourceTransfers(
         hub_gers_id,
         resource_type,
         amount,
+        status,
         depart_at::text,
         arrive_at::text,
         path_waypoints`,

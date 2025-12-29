@@ -170,6 +170,7 @@ async function runTick(client: PoolLike) {
   const decayFeatureDeltas = await applyRoadDecay(client, multipliers);
   const newTransfers = await enqueueResourceTransfers(client, multipliers);
   const arrivalResult = await applyArrivedResourceTransfers(client);
+
   const spawnedTasks = await spawnDegradedRoadTasks(client);
   const priorityUpdates = await updateTaskPriorities(client);
   const dispatchResult = await dispatchCrews(client);
