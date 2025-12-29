@@ -482,6 +482,12 @@ export default function PatchJob({ config, difficulty, onComplete }: PatchJobPro
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     if (phase !== "playing") return;
     e.preventDefault();
+    e.stopPropagation();
+
+    // Capture pointer for reliable touch tracking across the element
+    const target = e.currentTarget as HTMLElement;
+    target.setPointerCapture(e.pointerId);
+
     const pos = getRelativePosition(e.clientX, e.clientY);
     if (pos) {
       setIsWelding(true);
@@ -492,14 +498,38 @@ export default function PatchJob({ config, difficulty, onComplete }: PatchJobPro
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!isWelding || phase !== "playing") return;
     e.preventDefault();
+    e.stopPropagation();
     const pos = getRelativePosition(e.clientX, e.clientY);
     if (pos) {
       setWeldPosition(pos);
     }
   }, [isWelding, phase, getRelativePosition]);
 
-  const handlePointerUp = useCallback(() => {
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    // Release pointer capture
+    const target = e.currentTarget as HTMLElement;
+    if (target.hasPointerCapture(e.pointerId)) {
+      target.releasePointerCapture(e.pointerId);
+    }
     setIsWelding(false);
+  }, []);
+
+  const handlePointerCancel = useCallback((e: React.PointerEvent) => {
+    // Handle pointer cancel (e.g., system interruption)
+    const target = e.currentTarget as HTMLElement;
+    if (target.hasPointerCapture(e.pointerId)) {
+      target.releasePointerCapture(e.pointerId);
+    }
+    setIsWelding(false);
+  }, []);
+
+  const handlePointerLeave = useCallback((e: React.PointerEvent) => {
+    // Only stop welding on leave if we don't have pointer capture
+    // (pointer capture keeps tracking even when cursor/finger leaves the element)
+    const target = e.currentTarget as HTMLElement;
+    if (!target.hasPointerCapture(e.pointerId)) {
+      setIsWelding(false);
+    }
   }, []);
 
   // Keyboard accessibility - arrow keys move weld position
@@ -571,7 +601,7 @@ export default function PatchJob({ config, difficulty, onComplete }: PatchJobPro
   // Render countdown
   if (phase === "ready") {
     return (
-      <div className="flex flex-col items-center justify-center">
+      <div className="flex flex-col items-center justify-center select-none" style={{ WebkitUserSelect: "none" }}>
         <p className="mb-4 text-lg text-white/60">Trace the crack to weld it!</p>
         <div className="flex h-24 w-24 items-center justify-center rounded-full bg-[#f97316]/20 text-5xl font-bold text-[#f97316]">
           {countdown}
@@ -585,7 +615,7 @@ export default function PatchJob({ config, difficulty, onComplete }: PatchJobPro
   const spreadPercent = Math.round(spreadProgress * 100);
 
   return (
-    <div className="flex w-full max-w-md flex-col items-center">
+    <div className="flex w-full max-w-md flex-col items-center select-none" style={{ WebkitUserSelect: "none" }}>
       {/* Status bar */}
       <div className="mb-4 flex w-full items-center justify-between text-sm">
         <div className="text-white/60">
@@ -643,12 +673,21 @@ export default function PatchJob({ config, difficulty, onComplete }: PatchJobPro
         role="application"
         aria-label="Welding game area. Use arrow keys or WASD to move, Space or Enter to weld."
         tabIndex={0}
-        className="relative mb-4 overflow-hidden rounded-2xl border-2 border-white/10 bg-gradient-to-b from-[#374151] to-[#1f2937] focus:outline-none focus:ring-2 focus:ring-[#f97316] focus:ring-offset-2 focus:ring-offset-[#1a1d21]"
-        style={{ width: gameWidth, height: gameHeight, touchAction: "none" }}
+        className="relative mb-4 overflow-hidden rounded-2xl border-2 border-white/10 bg-gradient-to-b from-[#374151] to-[#1f2937] select-none focus:outline-none focus:ring-2 focus:ring-[#f97316] focus:ring-offset-2 focus:ring-offset-[#1a1d21]"
+        style={{
+          width: gameWidth,
+          height: gameHeight,
+          touchAction: "none",
+          WebkitTouchCallout: "none",
+          WebkitUserSelect: "none",
+          WebkitTapHighlightColor: "transparent",
+        }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
-        onPointerLeave={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
+        onPointerLeave={handlePointerLeave}
+        onContextMenu={(e) => e.preventDefault()}
         onKeyDown={handleKeyDown}
         onKeyUp={handleKeyUp}
       >
