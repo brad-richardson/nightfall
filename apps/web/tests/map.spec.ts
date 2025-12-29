@@ -3,6 +3,12 @@ import { setupApiMocks } from "./test-utils";
 
 test("attribution bubble auto-retracts after 4 seconds", async ({ page }) => {
   await setupApiMocks(page);
+
+  // Dismiss onboarding modal by setting localStorage before navigation
+  await page.addInitScript(() => {
+    localStorage.setItem("nightfall_onboarding_seen", "true");
+  });
+
   await page.goto("/");
 
   // Wait for map to load
@@ -30,6 +36,12 @@ test("attribution bubble auto-retracts after 4 seconds", async ({ page }) => {
 
 test("attribution bubble clears timeout on manual collapse", async ({ page }) => {
   await setupApiMocks(page);
+
+  // Dismiss onboarding modal by setting localStorage before navigation
+  await page.addInitScript(() => {
+    localStorage.setItem("nightfall_onboarding_seen", "true");
+  });
+
   await page.goto("/");
 
   // Wait for map to load
