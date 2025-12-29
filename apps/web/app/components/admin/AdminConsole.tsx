@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { toast } from "sonner";
 import { useStore, type Phase } from "../../store";
 
@@ -10,10 +10,47 @@ const RESOURCE_KEYS: ResourceType[] = ["food", "equipment", "energy", "materials
 
 const PHASE_OPTIONS: Phase[] = ["dawn", "day", "dusk", "night"];
 
+const ADMIN_SECRET_KEY = "nightfall_admin_secret";
+
 export function AdminConsole() {
   const [isOpen, setIsOpen] = useState(false);
   const [adminSecret, setAdminSecret] = useState("");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+
+  // Check for saved admin secret on mount
+  useEffect(() => {
+    const savedSecret = localStorage.getItem(ADMIN_SECRET_KEY);
+    if (savedSecret) {
+      // Validate the saved secret
+      fetch("/api/admin/demo-mode", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${savedSecret}`,
+        },
+        body: JSON.stringify({ enabled: false }),
+      })
+        .then((response) => {
+          if (response.status !== 401) {
+            setAdminSecret(savedSecret);
+            setIsAuthenticated(true);
+          } else {
+            // Invalid saved secret, clear it
+            localStorage.removeItem(ADMIN_SECRET_KEY);
+          }
+        })
+        .catch(() => {
+          // Network error, keep the secret but don't auto-auth
+          setAdminSecret(savedSecret);
+        })
+        .finally(() => {
+          setIsCheckingAuth(false);
+        });
+    } else {
+      setIsCheckingAuth(false);
+    }
+  }, []);
   const region = useStore((s) => s.region);
   const cycle = useStore((s) => s.cycle);
   const setRegion = useStore((s) => s.setRegion);
@@ -258,6 +295,8 @@ export function AdminConsole() {
         return;
       }
 
+      // Save to localStorage on successful auth
+      localStorage.setItem(ADMIN_SECRET_KEY, adminSecret);
       setIsAuthenticated(true);
       toast.success("Authenticated");
     } catch {
@@ -266,6 +305,7 @@ export function AdminConsole() {
   }, [adminSecret]);
 
   const handleLogout = useCallback(() => {
+    localStorage.removeItem(ADMIN_SECRET_KEY);
     setAdminSecret("");
     setIsAuthenticated(false);
   }, []);
@@ -300,26 +340,34 @@ export function AdminConsole() {
 
           <h2 className="mb-6 font-[family-name:var(--font-display)] text-2xl text-white">Admin Login</h2>
 
-          <div className="mb-4">
-            <label className="mb-2 block text-sm text-white/60">Admin Secret</label>
-            <input
-              type="password"
-              value={adminSecret}
-              onChange={(e) => setAdminSecret(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-              placeholder="Enter admin secret"
-              className="w-full rounded-lg border border-white/20 bg-white/10 px-4 py-3 text-white placeholder-white/40 focus:border-amber-500 focus:outline-none"
-              autoFocus
-            />
-          </div>
+          {isCheckingAuth ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-amber-500" />
+            </div>
+          ) : (
+            <>
+              <div className="mb-4">
+                <label className="mb-2 block text-sm text-white/60">Admin Secret</label>
+                <input
+                  type="password"
+                  value={adminSecret}
+                  onChange={(e) => setAdminSecret(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                  placeholder="Enter admin secret"
+                  className="w-full rounded-lg border border-white/20 bg-white/10 px-4 py-3 text-white placeholder-white/40 focus:border-amber-500 focus:outline-none"
+                  autoFocus
+                />
+              </div>
 
-          <button
-            onClick={handleLogin}
-            disabled={!adminSecret}
-            className="w-full rounded-lg bg-amber-600 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Authenticate
-          </button>
+              <button
+                onClick={handleLogin}
+                disabled={!adminSecret}
+                className="w-full rounded-lg bg-amber-600 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Authenticate
+              </button>
+            </>
+          )}
         </div>
       </div>
     );

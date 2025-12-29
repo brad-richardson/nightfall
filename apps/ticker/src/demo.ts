@@ -6,11 +6,11 @@ export type DemoConfig = {
   cycle_speed: number;
 };
 
-// Default demo config for local development
-const DEV_DEFAULTS: DemoConfig = {
-  enabled: true,
-  tick_multiplier: 5,
-  cycle_speed: 5
+// Default config when no DB config exists
+const DEFAULT_CONFIG: DemoConfig = {
+  enabled: false,
+  tick_multiplier: 1,
+  cycle_speed: 1
 };
 
 export async function getDemoConfig(client: PoolLike): Promise<DemoConfig> {
@@ -26,14 +26,13 @@ export async function getDemoConfig(client: PoolLike): Promise<DemoConfig> {
 
   const raw = result.rows[0]?.value;
 
-  // If no config in DB and we're in dev, use dev defaults
-  if (!raw && process.env.NODE_ENV !== 'production') {
-    return DEV_DEFAULTS;
+  if (!raw) {
+    return DEFAULT_CONFIG;
   }
 
   return {
-    enabled: !!raw?.enabled,
-    tick_multiplier: Number(raw?.tick_multiplier || 1),
-    cycle_speed: Number(raw?.cycle_speed || 1)
+    enabled: !!raw.enabled,
+    tick_multiplier: Number(raw.tick_multiplier || 1),
+    cycle_speed: Number(raw.cycle_speed || 1)
   };
 }
