@@ -334,35 +334,25 @@ export default function DemoMap({
 
     // Auto-retract attribution bubble after 4 seconds
     let attribRetractTimeout: ReturnType<typeof setTimeout> | null = null;
-    let attribObserver: MutationObserver | null = null;
-    // Defer observer setup to ensure DOM is updated after addControl
-    const attribSetupTimeout = setTimeout(() => {
-      const attribContainer = mapContainer.current?.querySelector('.maplibregl-ctrl-attrib');
-      if (attribContainer) {
-        attribObserver = new MutationObserver((mutations) => {
-          for (const mutation of mutations) {
-            if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
-              const target = mutation.target as HTMLElement;
-              if (target.classList.contains('maplibregl-compact-show')) {
-                // Clear any existing timeout
-                if (attribRetractTimeout) clearTimeout(attribRetractTimeout);
-                // Auto-retract after 4 seconds
-                attribRetractTimeout = setTimeout(() => {
-                  target.classList.remove('maplibregl-compact-show');
-                }, 4000);
-              } else {
-                // User manually collapsed - clear any pending timeout
-                if (attribRetractTimeout) {
-                  clearTimeout(attribRetractTimeout);
-                  attribRetractTimeout = null;
-                }
-              }
-            }
-          }
-        });
-        attribObserver.observe(attribContainer, { attributes: true, attributeFilter: ['class'] });
+    const attribButton = mapContainer.current.querySelector('.maplibregl-ctrl-attrib-button');
+    const attribContainer = mapContainer.current.querySelector('.maplibregl-ctrl-attrib');
+    const handleAttribClick = () => {
+      // Clear any existing timeout
+      if (attribRetractTimeout) {
+        clearTimeout(attribRetractTimeout);
+        attribRetractTimeout = null;
       }
-    }, 0);
+      // Check if bubble is being expanded (will have class after click completes)
+      // Use requestAnimationFrame to check after MapLibre updates the class
+      requestAnimationFrame(() => {
+        if (attribContainer?.classList.contains('maplibregl-compact-show')) {
+          attribRetractTimeout = setTimeout(() => {
+            attribContainer.classList.remove('maplibregl-compact-show');
+          }, 4000);
+        }
+      });
+    };
+    attribButton?.addEventListener('click', handleAttribClick);
 
     // Expose for testing
     if (typeof window !== "undefined") {
@@ -537,9 +527,8 @@ export default function DemoMap({
     }
 
     return () => {
-      // Clean up attribution observer and timeouts
-      clearTimeout(attribSetupTimeout);
-      if (attribObserver) attribObserver.disconnect();
+      // Clean up attribution listener and timeout
+      attribButton?.removeEventListener('click', handleAttribClick);
       if (attribRetractTimeout) clearTimeout(attribRetractTimeout);
 
       mapInstance.remove();
