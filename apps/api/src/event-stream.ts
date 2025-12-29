@@ -23,6 +23,8 @@ const DEFAULT_CHANNELS = [
   "task_delta",
   "feed_item",
   "resource_transfer",
+  "building_activation",
+  "building_boost",
   "reset_warning",
   "reset"
 ];

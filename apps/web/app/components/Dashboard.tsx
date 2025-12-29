@@ -903,6 +903,34 @@ export default function Dashboard({
     setShowMinigameOverlay(false);
   }, []);
 
+  const handleActivateBuilding = useCallback(async (buildingGersId: string): Promise<{ activated_at: string; expires_at: string }> => {
+    if (!auth.clientId || !auth.token) {
+      throw new Error("Not authenticated");
+    }
+
+    const res = await fetch(`${apiBaseUrl}/api/building/activate`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${auth.token}`
+      },
+      body: JSON.stringify({
+        client_id: auth.clientId,
+        building_gers_id: buildingGersId
+      })
+    });
+
+    const data = await res.json();
+    if (!data.ok && !data.already_activated) {
+      throw new Error(data.error || "Activation failed");
+    }
+
+    return {
+      activated_at: data.activated_at,
+      expires_at: data.expires_at
+    };
+  }, [apiBaseUrl, auth]);
+
   const counts = useMemo(() => {
     let roads = 0;
     let buildings = 0;
@@ -1171,7 +1199,7 @@ export default function Dashboard({
             <FeaturePanel
               activeTasks={region.tasks}
               onVote={handleVote}
-              onContribute={handleContribute}
+              onActivateBuilding={handleActivateBuilding}
               onBoostProduction={handleBoostProduction}
               canContribute={Boolean(auth.token && auth.clientId)}
               userVotes={userVotes}

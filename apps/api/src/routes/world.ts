@@ -331,6 +331,7 @@ export function registerWorldRoutes(app: FastifyInstance) {
       generates_energy: boolean;
       generates_materials: boolean;
       is_hub: boolean;
+      last_activated_at: string | null;
     }>(
       `
       SELECT
@@ -361,7 +362,8 @@ export function registerWorldRoutes(app: FastifyInstance) {
         ) AS generates_materials,
         EXISTS (
           SELECT 1 FROM hex_cells hc WHERE hc.hub_building_gers_id = wf.gers_id
-        ) AS is_hub
+        ) AS is_hub,
+        fs.last_activated_at::text
       FROM world_features AS wf
       LEFT JOIN feature_state AS fs ON fs.gers_id = wf.gers_id
       WHERE wf.bbox_xmin <= $3

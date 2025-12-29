@@ -10,6 +10,7 @@ import { awardPlayerScore } from "../services/score";
 import {
   MINIGAME_COOLDOWN_MS,
   BASE_BOOST_DURATION_MS,
+  BUILDING_ACTIVATION_MS,
   FOOD_MINIGAMES,
   EQUIPMENT_MINIGAMES,
   ENERGY_MINIGAMES,
@@ -277,24 +278,45 @@ export function registerMinigameRoutes(app: FastifyInstance) {
         [sessionId]
       );
 
-      // Upsert production boost (one active boost per building)
-      await pool.query(
-        `
-        INSERT INTO production_boosts (
-          building_gers_id, client_id, multiplier, expires_at, minigame_type, score, session_id
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-        ON CONFLICT (building_gers_id) DO UPDATE SET
-          client_id = EXCLUDED.client_id,
-          multiplier = EXCLUDED.multiplier,
-          started_at = now(),
-          expires_at = EXCLUDED.expires_at,
-          minigame_type = EXCLUDED.minigame_type,
-          score = EXCLUDED.score,
-          session_id = EXCLUDED.session_id,
-          created_at = now()
-        `,
-        [session.building_gers_id, clientId, reward.multiplier, expiresAt, session.minigame_type, score, sessionId]
+      // Check existing boost - only update if new multiplier is higher
+      const existingBoostResult = await pool.query<{ multiplier: number; expires_at: Date }>(
+        `SELECT multiplier, expires_at FROM production_boosts WHERE building_gers_id = $1`,
+        [session.building_gers_id]
       );
+
+      const existingBoost = existingBoostResult.rows[0];
+      const now = new Date();
+      const existingBoostActive = existingBoost && new Date(existingBoost.expires_at) > now;
+      // Only update boost if new multiplier is strictly higher to preserve existing boost timing
+      const shouldUpdateBoost = !existingBoostActive || reward.multiplier > existingBoost.multiplier;
+
+      let finalMultiplier = reward.multiplier;
+      let finalExpiresAt = expiresAt;
+
+      if (shouldUpdateBoost) {
+        // Upsert production boost (one active boost per building)
+        await pool.query(
+          `
+          INSERT INTO production_boosts (
+            building_gers_id, client_id, multiplier, expires_at, minigame_type, score, session_id
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+          ON CONFLICT (building_gers_id) DO UPDATE SET
+            client_id = EXCLUDED.client_id,
+            multiplier = EXCLUDED.multiplier,
+            started_at = now(),
+            expires_at = EXCLUDED.expires_at,
+            minigame_type = EXCLUDED.minigame_type,
+            score = EXCLUDED.score,
+            session_id = EXCLUDED.session_id,
+            created_at = now()
+          `,
+          [session.building_gers_id, clientId, reward.multiplier, expiresAt, session.minigame_type, score, sessionId]
+        );
+      } else {
+        // Keep existing boost
+        finalMultiplier = existingBoost.multiplier;
+        finalExpiresAt = existingBoost.expires_at;
+      }
 
       // Set cooldown
       await pool.query(
@@ -306,15 +328,36 @@ export function registerMinigameRoutes(app: FastifyInstance) {
         [clientId, session.building_gers_id, cooldownAt]
       );
 
-      // Emit SSE event for boost via pg_notify
+      // Always activate the building (set last_activated_at) - this triggers convoy deliveries
+      const activationExpiresAt = new Date(now.getTime() + BUILDING_ACTIVATION_MS);
+      await pool.query(
+        `INSERT INTO feature_state (gers_id, last_activated_at)
+         VALUES ($1, now())
+         ON CONFLICT (gers_id) DO UPDATE SET last_activated_at = now()`,
+        [session.building_gers_id]
+      );
+
+      // Emit SSE event for boost via pg_notify (with final multiplier)
       await pool.query("SELECT pg_notify($1, $2)", [
         "building_boost",
         JSON.stringify({
           building_gers_id: session.building_gers_id,
-          multiplier: reward.multiplier,
-          expires_at: expiresAt.toISOString(),
+          multiplier: finalMultiplier,
+          expires_at: finalExpiresAt instanceof Date ? finalExpiresAt.toISOString() : finalExpiresAt,
           client_id: clientId,
           minigame_type: session.minigame_type,
+          boost_updated: shouldUpdateBoost,
+        })
+      ]);
+
+      // Emit building activation event
+      await pool.query("SELECT pg_notify($1, $2)", [
+        "building_activation",
+        JSON.stringify({
+          building_gers_id: session.building_gers_id,
+          activated_at: now.toISOString(),
+          expires_at: activationExpiresAt.toISOString(),
+          client_id: clientId,
         })
       ]);
 
@@ -344,9 +387,14 @@ export function registerMinigameRoutes(app: FastifyInstance) {
       return {
         ok: true,
         reward: {
-          multiplier: reward.multiplier,
+          multiplier: finalMultiplier,
           duration_ms: reward.durationMs,
-          expires_at: expiresAt.toISOString(),
+          expires_at: finalExpiresAt instanceof Date ? finalExpiresAt.toISOString() : finalExpiresAt,
+        },
+        boost_updated: shouldUpdateBoost,
+        activation: {
+          activated_at: now.toISOString(),
+          expires_at: activationExpiresAt.toISOString(),
         },
         new_cooldown_at: cooldownAt.toISOString(),
         performance: Math.round(performance * 100),

@@ -26,6 +26,7 @@ export default function MinigameOverlay({ onClose }: MinigameOverlayProps) {
   const abandonMinigame = useStore((s) => s.abandonMinigame);
   const setMinigameResult = useStore((s) => s.setMinigameResult);
   const addBuildingBoost = useStore((s) => s.addBuildingBoost);
+  const addBuildingActivation = useStore((s) => s.addBuildingActivation);
   const addMinigameScore = useStore((s) => s.addMinigameScore);
   const auth = useStore((s) => s.auth);
 
@@ -109,6 +110,14 @@ export default function MinigameOverlay({ onClose }: MinigameOverlayProps) {
           expires_at: data.reward.expires_at,
           minigame_type: activeMinigame.minigame_type,
         });
+        // Update building activation state (minigame always activates the building)
+        if (data.activation) {
+          addBuildingActivation({
+            building_gers_id: activeMinigame.building_gers_id,
+            activated_at: data.activation.activated_at,
+            expires_at: data.activation.expires_at,
+          });
+        }
         completeMinigame({
           score,
           performance: data.performance,
@@ -130,7 +139,7 @@ export default function MinigameOverlay({ onClose }: MinigameOverlayProps) {
       abandonMinigame();
       handleExit();
     }
-  }, [activeMinigame, auth, completeMinigame, abandonMinigame, addBuildingBoost, addMinigameScore, handleExit]);
+  }, [activeMinigame, auth, completeMinigame, abandonMinigame, addBuildingBoost, addBuildingActivation, addMinigameScore, handleExit]);
 
   const handleResultsDismiss = useCallback(() => {
     setMinigameResult(null);

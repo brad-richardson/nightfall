@@ -29,6 +29,7 @@ export type Feature = {
   generates_energy?: boolean;
   generates_materials?: boolean;
   is_hub?: boolean;
+  last_activated_at?: string | null;
 };
 
 export type Task = {
@@ -167,6 +168,12 @@ export type MinigameCooldown = {
   available_at: string;
 };
 
+export type BuildingActivation = {
+  building_gers_id: string;
+  activated_at: string;
+  expires_at: string;
+};
+
 // Player score tracking
 // SECURITY NOTE: Scores are currently stored client-side only (localStorage).
 // This means scores can be manipulated by users and are not synchronized across devices.
@@ -197,6 +204,8 @@ type State = {
   minigameResult: MinigameResult | null;
   buildingBoosts: Record<string, BuildingBoost>;
   minigameCooldowns: Record<string, MinigameCooldown>;
+  // Building activation state
+  buildingActivations: Record<string, BuildingActivation>;
   // Player score tracking (persisted)
   playerScore: PlayerScore;
 };
@@ -218,6 +227,9 @@ type Actions = {
   addBuildingBoost: (boost: BuildingBoost) => void;
   removeBuildingBoost: (buildingGersId: string) => void;
   setCooldown: (cooldown: MinigameCooldown) => void;
+  // Building activation actions
+  addBuildingActivation: (activation: BuildingActivation) => void;
+  removeBuildingActivation: (buildingGersId: string) => void;
   // Score actions
   addContributionScore: (amount: number) => void;
   addVoteScore: (amount: number) => void;
@@ -266,6 +278,8 @@ export const useStore = create<State & Actions>()(
       minigameResult: null,
       buildingBoosts: {},
       minigameCooldowns: {},
+      // Building activation initial state
+      buildingActivations: {},
       // Player score initial state
       playerScore: {
         totalScore: 0,
@@ -325,6 +339,17 @@ export const useStore = create<State & Actions>()(
         set((state) => ({
           minigameCooldowns: { ...state.minigameCooldowns, [cooldown.building_gers_id]: cooldown }
         })),
+      // Building activation actions
+      addBuildingActivation: (activation) =>
+        set((state) => ({
+          buildingActivations: { ...state.buildingActivations, [activation.building_gers_id]: activation }
+        })),
+      removeBuildingActivation: (buildingGersId) =>
+        set((state) => {
+          const { [buildingGersId]: _removed, ...rest } = state.buildingActivations;
+          void _removed;
+          return { buildingActivations: rest };
+        }),
       // Score actions
       addContributionScore: (amount) =>
         set((state) => ({

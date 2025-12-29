@@ -57,6 +57,9 @@ export const MATERIALS_CATEGORIES = [
   "nursery_and_gardening"
 ];
 
+// Building activation - re-exported from shared config
+export { BUILDING_ACTIVATION_MS } from "@nightfall/config";
+
 // Minigame configuration
 export const MINIGAME_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
 export const BASE_BOOST_DURATION_MS = 3 * 60 * 1000; // 3 minutes base

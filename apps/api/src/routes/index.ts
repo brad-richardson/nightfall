@@ -9,5 +9,6 @@ export { registerWorldRoutes } from "./world";
 export { registerContributeRoutes } from "./contribute";
 export { registerVoteRoutes } from "./vote";
 export { registerMinigameRoutes } from "./minigame";
+export { registerBuildingRoutes } from "./building";
 export { registerAdminRoutes } from "./admin";
 export type { RouteContext } from "./types";

@@ -341,3 +341,13 @@ export const SCORE_ACTIONS = {
   minigamePerfect: 25, // Bonus for perfect minigame performance
   taskCompleted: 50 // When a task the player voted on is completed
 } as const;
+
+// =============================================================================
+// Building Activation
+// =============================================================================
+
+/**
+ * Duration in milliseconds that a building remains activated after activation.
+ * During this time, the building will auto-generate convoys to the regional hub.
+ */
+export const BUILDING_ACTIVATION_MS = 2 * 60 * 1000; // 2 minutes
