@@ -39,6 +39,7 @@ import {
   getCentralHubLayers,
   getCrewPathLayers,
   getResourcePackageLayers,
+  getBackboneLayers,
   BASE_ROAD_FILTER
 } from "./map/layers";
 import {
@@ -66,7 +67,8 @@ export default function DemoMap({
   children,
   className,
   selectedCrewId,
-  onSelectCrew
+  onSelectCrew,
+  backbone
 }: DemoMapProps) {
   const mapShellRef = useRef<HTMLDivElement>(null);
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -412,6 +414,18 @@ export default function DemoMap({
         });
       }
 
+      // Add backbone roads source and layers (below other game layers, above base tiles)
+      map.current?.addSource("game-backbone", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] }
+      });
+
+      // Add backbone layers before road layers (if available)
+      const backboneBeforeLayer = pmtilesBase ? "game-roads-healthy-glow" : undefined;
+      for (const layer of getBackboneLayers()) {
+        map.current?.addLayer(layer as maplibregl.AddLayerObject, backboneBeforeLayer);
+      }
+
       // Add hex source and layers
       map.current?.addSource("game-hexes", {
         type: "geojson",
@@ -493,7 +507,7 @@ export default function DemoMap({
     // Click handler
     mapInstance.on("click", (e) => {
       // Check for crew marker click first
-      const crewLayers = ["game-crew-path-icon", "game-crew-markers"];
+      const crewLayers = ["game-crew-path-icon", "game-crew-path-shadow"];
       const crewFeatures = mapInstance.queryRenderedFeatures(e.point, { layers: crewLayers });
 
       if (crewFeatures && crewFeatures.length > 0) {
@@ -829,6 +843,22 @@ export default function DemoMap({
       features: hubPoints
     });
   }, [features, isLoaded]);
+
+  // Sync backbone roads data
+  useEffect(() => {
+    if (!isLoaded || !map.current) return;
+
+    const source = map.current.getSource("game-backbone") as maplibregl.GeoJSONSource | undefined;
+    if (!source) return;
+
+    if (!backbone || backbone.features.length === 0) {
+      source.setData({ type: "FeatureCollection", features: [] });
+      return;
+    }
+
+    // Pass through the GeoJSON directly - it already has the correct structure
+    source.setData(backbone as GeoJSON.FeatureCollection);
+  }, [backbone, isLoaded]);
 
   // Sync hex data
   useEffect(() => {

@@ -245,6 +245,69 @@ export function registerWorldRoutes(app: FastifyInstance) {
     };
   });
 
+  // Get backbone road geometries for a region (tier 1 roads with health info)
+  // Returns GeoJSON FeatureCollection for client overlay rendering
+  app.get<{ Params: { region_id: string } }>("/api/region/:region_id/backbone", async (request, reply) => {
+    const regionId = request.params.region_id;
+    const pool = getPool();
+
+    // Verify region exists
+    const regionCheck = await pool.query(
+      "SELECT 1 FROM regions WHERE region_id = $1",
+      [regionId]
+    );
+    if (regionCheck.rows.length === 0) {
+      reply.status(404);
+      return { ok: false, error: "region_not_found" };
+    }
+
+    // Get tier 1 backbone roads with their geometries and health info
+    // Uses the geom column (LineString) for rendering the backbone overlay
+    const backboneResult = await pool.query<{
+      gers_id: string;
+      road_class: string | null;
+      health: number;
+      status: string | null;
+      geometry: unknown;
+    }>(
+      `
+      SELECT
+        wf.gers_id,
+        wf.road_class,
+        COALESCE(fs.health, 100)::float AS health,
+        fs.status,
+        ST_AsGeoJSON(wf.geom)::json AS geometry
+      FROM world_features wf
+      LEFT JOIN feature_state fs ON fs.gers_id = wf.gers_id
+      WHERE wf.region_id = $1
+        AND wf.feature_type = 'road'
+        AND wf.backbone_tier = 1
+        AND wf.geom IS NOT NULL
+      `,
+      [regionId]
+    );
+
+    // Return as GeoJSON FeatureCollection
+    const features = backboneResult.rows.map(row => ({
+      type: "Feature" as const,
+      properties: {
+        gers_id: row.gers_id,
+        road_class: row.road_class,
+        health: row.health,
+        status: row.status
+      },
+      geometry: row.geometry
+    }));
+
+    // Set long cache TTL since backbone doesn't change during gameplay
+    reply.header("Cache-Control", "public, max-age=300");
+
+    return {
+      type: "FeatureCollection",
+      features
+    };
+  });
+
   // Get all crews with their current positions and animation state
   app.get("/api/crews", async () => {
     const pool = getPool();
@@ -322,6 +385,7 @@ export function registerWorldRoutes(app: FastifyInstance) {
       generates_materials: boolean;
       is_hub: boolean;
       last_activated_at: string | null;
+      backbone_tier: number | null;
     }>(
       `
       SELECT
@@ -341,7 +405,8 @@ export function registerWorldRoutes(app: FastifyInstance) {
         EXISTS (
           SELECT 1 FROM hex_cells hc WHERE hc.hub_building_gers_id = wf.gers_id
         ) AS is_hub,
-        fs.last_activated_at::text
+        fs.last_activated_at::text,
+        wf.backbone_tier::int
       FROM world_features AS wf
       LEFT JOIN feature_state AS fs ON fs.gers_id = wf.gers_id
       WHERE wf.bbox_xmin <= $3

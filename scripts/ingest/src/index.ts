@@ -1890,6 +1890,176 @@ async function ingestBuildings(
   }
 }
 
+// Major road classes that should never be trimmed from backbone
+const PROTECTED_ROAD_CLASSES = new Set([
+  'motorway', 'trunk', 'primary', 'secondary', 'tertiary'
+]);
+
+/**
+ * Compute backbone tiers using iterative leaf trimming algorithm.
+ *
+ * Algorithm:
+ * 1. Build adjacency graph from road_edges (connector -> Set<segment>)
+ * 2. Find all connectors with degree=1 (only connected to one segment)
+ * 3. Mark those segments and remove from graph (unless protected class)
+ * 4. Repeat until no more leaves
+ * 5. Remaining segments = tier 1 (core backbone)
+ * 6. Segments removed in first pass = tier 2 (secondary)
+ *
+ * Protected road classes (motorway, trunk, primary, secondary, tertiary)
+ * are never trimmed, ensuring major thoroughfares stay in tier 1.
+ */
+async function computeBackboneTiers(pgPool: Pool, regionId: string) {
+  console.log("--- Computing Backbone Tiers ---");
+
+  // Fetch all edges for this region, including road class for protection
+  const edgesResult = await pgPool.query<{
+    segment_gers_id: string;
+    from_connector: string;
+    to_connector: string;
+    road_class: string | null;
+  }>(`
+    SELECT e.segment_gers_id, e.from_connector, e.to_connector, wf.road_class
+    FROM road_edges e
+    JOIN world_features wf ON wf.gers_id = e.segment_gers_id
+    WHERE wf.region_id = $1
+  `, [regionId]);
+
+  if (edgesResult.rows.length === 0) {
+    console.log("No road edges found, skipping backbone computation");
+    return;
+  }
+
+  console.log(`Processing ${edgesResult.rows.length} edges`);
+
+  // Build adjacency: connector -> Set<segment>
+  // A connector with degree 1 means only one segment touches it (dead end)
+  const connectorToSegments = new Map<string, Set<string>>();
+  const segmentToConnectors = new Map<string, Set<string>>();
+  const segmentToClass = new Map<string, string | null>();
+  const protectedSegments = new Set<string>();
+
+  for (const edge of edgesResult.rows) {
+    // Track road class for protection
+    segmentToClass.set(edge.segment_gers_id, edge.road_class);
+    if (edge.road_class && PROTECTED_ROAD_CLASSES.has(edge.road_class)) {
+      protectedSegments.add(edge.segment_gers_id);
+    }
+
+    // Track which segments touch each connector
+    if (!connectorToSegments.has(edge.from_connector)) {
+      connectorToSegments.set(edge.from_connector, new Set());
+    }
+    connectorToSegments.get(edge.from_connector)!.add(edge.segment_gers_id);
+
+    if (!connectorToSegments.has(edge.to_connector)) {
+      connectorToSegments.set(edge.to_connector, new Set());
+    }
+    connectorToSegments.get(edge.to_connector)!.add(edge.segment_gers_id);
+
+    // Track which connectors belong to each segment
+    if (!segmentToConnectors.has(edge.segment_gers_id)) {
+      segmentToConnectors.set(edge.segment_gers_id, new Set());
+    }
+    segmentToConnectors.get(edge.segment_gers_id)!.add(edge.from_connector);
+    segmentToConnectors.get(edge.segment_gers_id)!.add(edge.to_connector);
+  }
+
+  console.log(`Built graph with ${connectorToSegments.size} connectors and ${segmentToConnectors.size} segments`);
+  console.log(`Protected ${protectedSegments.size} segments (${Array.from(PROTECTED_ROAD_CLASSES).join(', ')})`);
+
+  // Track which segments are removed and in which tier
+  const removedSegments = new Map<string, number>(); // segment -> tier (2 = first pass removed)
+  const activeSegments = new Set(segmentToConnectors.keys());
+
+  let iteration = 0;
+  let removedThisPass: Set<string>;
+
+  // Iteratively remove leaves until stable
+  do {
+    iteration++;
+    removedThisPass = new Set<string>();
+
+    // Find connectors with degree 1 (only one active segment)
+    for (const [connector, segments] of connectorToSegments.entries()) {
+      // Count active segments for this connector
+      let activeCount = 0;
+      let activeSegment: string | null = null;
+
+      for (const seg of segments) {
+        if (activeSegments.has(seg)) {
+          activeCount++;
+          activeSegment = seg;
+        }
+      }
+
+      // If degree 1, this connector is a leaf - mark its segment for removal
+      // But never remove protected road classes (major thoroughfares)
+      if (activeCount === 1 && activeSegment && !protectedSegments.has(activeSegment)) {
+        removedThisPass.add(activeSegment);
+      }
+    }
+
+    // Remove marked segments
+    for (const segment of removedThisPass) {
+      activeSegments.delete(segment);
+      // First iteration = tier 2, subsequent = null (not backbone at all)
+      removedSegments.set(segment, iteration === 1 ? 2 : 0);
+    }
+
+    if (removedThisPass.size > 0) {
+      console.log(`Iteration ${iteration}: Removed ${removedThisPass.size} leaf segments`);
+    }
+  } while (removedThisPass.size > 0 && activeSegments.size > 0);
+
+  console.log(`Backbone computation complete: ${activeSegments.size} tier 1 segments, ${removedSegments.size} removed`);
+
+  // Update database with backbone tiers
+  const client = await pgPool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Reset all backbone_tier values for this region
+    await client.query(`
+      UPDATE world_features
+      SET backbone_tier = NULL
+      WHERE region_id = $1 AND feature_type = 'road'
+    `, [regionId]);
+
+    // Set tier 1 (core backbone - survived all iterations)
+    if (activeSegments.size > 0) {
+      const tier1Ids = Array.from(activeSegments);
+      await client.query(`
+        UPDATE world_features
+        SET backbone_tier = 1
+        WHERE gers_id = ANY($1::text[])
+      `, [tier1Ids]);
+      console.log(`Set ${tier1Ids.length} segments to tier 1 (core backbone)`);
+    }
+
+    // Set tier 2 (secondary - removed in first pass)
+    const tier2Ids = Array.from(removedSegments.entries())
+      .filter(([, tier]) => tier === 2)
+      .map(([id]) => id);
+
+    if (tier2Ids.length > 0) {
+      await client.query(`
+        UPDATE world_features
+        SET backbone_tier = 2
+        WHERE gers_id = ANY($1::text[])
+      `, [tier2Ids]);
+      console.log(`Set ${tier2Ids.length} segments to tier 2 (secondary)`);
+    }
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function main() {
   const pgPool = new Pool(DB_CONFIG);
 
@@ -1927,7 +2097,9 @@ async function main() {
         class,
         -- Calculate length in meters from WGS84 geometry
         -- ST_Length gives degrees, convert using lat-adjusted factor
-        ST_Length(geometry) * 111320 * cos(radians((bbox.ymin + bbox.ymax) / 2)) as length_meters
+        ST_Length(geometry) * 111320 * cos(radians((bbox.ymin + bbox.ymax) / 2)) as length_meters,
+        -- Export geometry as GeoJSON for backbone overlay rendering
+        ST_AsGeoJSON(geometry) as geometry_json
       FROM roads_raw
     `);
 
@@ -2012,7 +2184,7 @@ async function main() {
       const hexesToCreate = new Set<string>();
       
       chunk.forEach((r: any, idx: number) => {
-        const offset = idx * 9;
+        const offset = idx * 10;
         const bbox = { xmin: r.xmin, ymin: r.ymin, xmax: r.xmax, ymax: r.ymax };
         const cells = bboxToCells(bbox, H3_RESOLUTION);
 
@@ -2023,7 +2195,7 @@ async function main() {
         });
 
         placeHolders.push(
-          `($${offset + 1}, 'road', $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9})`
+          `($${offset + 1}, 'road', $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, ST_GeomFromGeoJSON($${offset + 10}))`
         );
         values.push(
           r.id,
@@ -2034,7 +2206,8 @@ async function main() {
           r.ymax,
           JSON.stringify({ original_class: r.class }),
           r.class,
-          r.length_meters
+          r.length_meters,
+          r.geometry_json
         );
       });
 
@@ -2057,7 +2230,8 @@ async function main() {
           bbox_ymax,
           properties,
           road_class,
-          length_meters
+          length_meters,
+          geom
         ) VALUES ${placeHolders.join(", ")}
         ON CONFLICT (gers_id) DO UPDATE SET
           bbox_xmin = EXCLUDED.bbox_xmin,
@@ -2066,7 +2240,8 @@ async function main() {
           bbox_ymax = EXCLUDED.bbox_ymax,
           properties = EXCLUDED.properties,
           road_class = EXCLUDED.road_class,
-          length_meters = EXCLUDED.length_meters
+          length_meters = EXCLUDED.length_meters,
+          geom = EXCLUDED.geom
       `;
       
       await client.query(query, values);
@@ -2125,6 +2300,9 @@ async function main() {
 
     // Build road connectivity graph for pathfinding
     await ingestRoadGraph(pgPool, region, dataDir, hexCoverageWkt);
+
+    // Compute backbone tiers using leaf trimming algorithm
+    await computeBackboneTiers(pgPool, region.regionId);
 
     if (shouldSeedDemo()) {
       await seedDemoData(pgPool, region);

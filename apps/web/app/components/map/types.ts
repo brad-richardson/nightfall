@@ -18,6 +18,26 @@ export type Feature = {
   generates_energy?: boolean;
   generates_materials?: boolean;
   is_hub?: boolean;
+  backbone_tier?: number | null;
+};
+
+export type BackboneFeature = {
+  type: "Feature";
+  properties: {
+    gers_id: string;
+    road_class: string | null;
+    health: number;
+    status: string | null;
+  };
+  geometry: {
+    type: "LineString" | "MultiLineString";
+    coordinates: number[][] | number[][][];
+  };
+};
+
+export type BackboneGeoJSON = {
+  type: "FeatureCollection";
+  features: BackboneFeature[];
 };
 
 export type Crew = {
@@ -105,4 +125,6 @@ export type DemoMapProps = {
   selectedCrewId?: string | null;
   /** Callback when a crew is selected/deselected on the map */
   onSelectCrew?: (crewId: string | null) => void;
+  /** Backbone road GeoJSON for overlay rendering (fetched separately) */
+  backbone?: BackboneGeoJSON | null;
 };

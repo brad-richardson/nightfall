@@ -1,5 +1,5 @@
 import type maplibregl from "maplibre-gl";
-import { ROAD_CLASS_FILTER } from "@nightfall/config";
+import { ROAD_CLASS_FILTER, CRITICAL_HEALTH_THRESHOLD } from "@nightfall/config";
 import { COLORS, CREW_COLORS, RUST_FILL_OPACITY_BASE, RUST_LINE_OPACITY_BASE } from "./mapConfig";
 
 // Base road filter - roads in our class list
@@ -713,6 +713,48 @@ export function getResourcePackageLayers(): maplibregl.LayerSpecification[] {
         "circle-stroke-color": "#ffffff",
         "circle-opacity": ["get", "opacity"],
         "circle-stroke-opacity": ["get", "opacity"]
+      }
+    }
+  ];
+}
+
+/**
+ * Backbone road overlay layers.
+ * These render tier 1 roads from the computed backbone network
+ * to supplement PMTiles styling and fill visual gaps.
+ *
+ * Positioned below other game layers but above base tiles.
+ * Uses same health threshold as main road layers (CRITICAL_HEALTH_THRESHOLD = 30).
+ */
+export function getBackboneLayers(): maplibregl.LayerSpecification[] {
+  return [
+    // Backbone road outline (slightly darker, for depth)
+    {
+      id: "game-backbone-outline",
+      type: "line",
+      source: "game-backbone",
+      paint: {
+        "line-color": "#1a1f28",
+        "line-width": 4,
+        "line-opacity": 0.8
+      }
+    },
+    // Backbone road fill with health-based coloring
+    // Uses same binary threshold as game-roads layers: > 30 = healthy, <= 30 = degraded
+    {
+      id: "game-backbone-fill",
+      type: "line",
+      source: "game-backbone",
+      paint: {
+        "line-color": [
+          "step",
+          ["get", "health"],
+          COLORS.degraded,                    // health <= threshold = red
+          CRITICAL_HEALTH_THRESHOLD + 0.01,   // Just above 30
+          COLORS.healthy                      // health > threshold = teal
+        ],
+        "line-width": 2.5,
+        "line-opacity": 0.85
       }
     }
   ];

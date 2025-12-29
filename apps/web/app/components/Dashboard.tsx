@@ -24,6 +24,7 @@ import { Navigation } from "lucide-react";
 import { AdminConsole } from "./admin";
 import { PlayerTierBadgeCompact } from "./PlayerTierBadge";
 import { PerformanceOverlay, trackBatchFire } from "./PerformanceOverlay";
+import type { BackboneGeoJSON } from "./map/types";
 
 type ResourceType = "food" | "equipment" | "energy" | "materials";
 
@@ -445,6 +446,7 @@ export default function Dashboard({
   const [showRepairMinigameOverlay, setShowRepairMinigameOverlay] = useState(false);
   const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
   const [selectedCrewId, setSelectedCrewId] = useState<string | null>(null);
+  const [backbone, setBackbone] = useState<BackboneGeoJSON | null>(null);
   const prevTasksRef = useRef<Map<string, string>>(new Map());
   const hasHydratedRef = useRef(false);
 
@@ -513,6 +515,25 @@ export default function Dashboard({
     recordHealthValues(initialRegion.stats.health_avg, initialRegion.stats.rust_avg, initialScore);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Fetch backbone road geometries for the region (computed at ingest, cached for 5 min)
+  useEffect(() => {
+    const fetchBackbone = async () => {
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/region/${initialRegion.region_id}/backbone`);
+        if (!response.ok) {
+          console.warn("Failed to fetch backbone data:", response.statusText);
+          return;
+        }
+        const data = await response.json();
+        setBackbone(data);
+      } catch (error) {
+        console.warn("Failed to fetch backbone data:", error);
+      }
+    };
+    fetchBackbone();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialRegion.region_id]);
 
   // Auto-collapse header on mobile after initial delay (stays expanded after manual interaction)
   useEffect(() => {
@@ -1544,6 +1565,7 @@ export default function Dashboard({
         className="h-full w-full rounded-none border-0 shadow-none"
         selectedCrewId={selectedCrewId}
         onSelectCrew={setSelectedCrewId}
+        backbone={backbone}
       >
         <div className="pointer-events-none absolute inset-0">
           {cycle.phase === "dusk" && (
