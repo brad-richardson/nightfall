@@ -66,6 +66,9 @@ const RETURN_DURATION_MS = 500;
 const RESULT_DURATION_MS = 800;
 // Claw width as percentage of play area
 const CLAW_WIDTH_PERCENT = 8;
+// Item slot configuration for non-overlapping placement
+const ITEM_SLOT_WIDTH = 12;
+const ITEM_SLOTS = 7; // Number of slots across the play area
 
 export default function CraneDrop({ config, difficulty, onComplete }: CraneDropProps) {
   const [phase, setPhase] = useState<GamePhase>("ready");
@@ -82,20 +85,26 @@ export default function CraneDrop({ config, difficulty, onComplete }: CraneDropP
 
   const mountedRef = useRef(true);
   const scoreRef = useRef(score);
+  const phaseRef = useRef(phase);
   const animationRef = useRef<number>();
+  const dropAnimationRef = useRef<number>();
+  const returnAnimationRef = useRef<number>();
+  const grabTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const resultTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
+  // Keep refs in sync with state
   scoreRef.current = score;
+  phaseRef.current = phase;
 
   const totalRounds = config.base_rounds + difficulty.extra_rounds;
   const basePointsPerRound = Math.round(config.max_score / totalRounds);
   const craneSpeed = BASE_CRANE_SPEED * difficulty.speed_mult;
 
-  // Generate items for a round
+  // Generate items for a round using slot-based placement to prevent overlap
   const generateItems = useCallback(() => {
     const newItems: SalvageItem[] = [];
-    const positions: number[] = [];
 
-    // Always have 1-2 high value, 1-2 medium, 1-2 low, and 1-2 junk
+    // Determine item counts (4-8 items total)
     const itemCounts = {
       high: Math.random() > 0.5 ? 1 : 2,
       medium: Math.random() > 0.5 ? 1 : 2,
@@ -103,7 +112,20 @@ export default function CraneDrop({ config, difficulty, onComplete }: CraneDropP
       junk: Math.random() > 0.5 ? 1 : 2,
     };
 
+    const totalItems = itemCounts.high + itemCounts.medium + itemCounts.low + itemCounts.junk;
+
+    // Create available slots and shuffle them
+    const slots = Array.from({ length: ITEM_SLOTS }, (_, i) => i);
+    for (let i = slots.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [slots[i], slots[j]] = [slots[j], slots[i]];
+    }
+
+    // Take only as many slots as we have items
+    const usedSlots = slots.slice(0, Math.min(totalItems, ITEM_SLOTS));
+
     let id = 0;
+    let slotIndex = 0;
 
     const addItems = (
       pool: { name: string; emoji: string }[],
@@ -111,20 +133,12 @@ export default function CraneDrop({ config, difficulty, onComplete }: CraneDropP
       count: number,
       pointMultiplier: number
     ) => {
-      for (let i = 0; i < count; i++) {
+      for (let i = 0; i < count && slotIndex < usedSlots.length; i++) {
         const template = pool[Math.floor(Math.random() * pool.length)];
-        // Find a non-overlapping position
-        let x: number;
-        let attempts = 0;
+        const slot = usedSlots[slotIndex++];
+        // Calculate x position from slot (evenly distributed)
+        const x = 5 + slot * ((90 - ITEM_SLOT_WIDTH) / (ITEM_SLOTS - 1));
         const itemWidth = value === "high" ? 12 : value === "medium" ? 10 : 8;
-        do {
-          x = 5 + Math.random() * (90 - itemWidth);
-          attempts++;
-        } while (
-          attempts < 20 &&
-          positions.some((pos) => Math.abs(pos - x) < itemWidth + 2)
-        );
-        positions.push(x);
 
         newItems.push({
           id: id++,
@@ -146,13 +160,25 @@ export default function CraneDrop({ config, difficulty, onComplete }: CraneDropP
     return newItems;
   }, [basePointsPerRound]);
 
-  // Track mounted state
+  // Cleanup all animations and timeouts on unmount
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
+      }
+      if (dropAnimationRef.current) {
+        cancelAnimationFrame(dropAnimationRef.current);
+      }
+      if (returnAnimationRef.current) {
+        cancelAnimationFrame(returnAnimationRef.current);
+      }
+      if (grabTimeoutRef.current) {
+        clearTimeout(grabTimeoutRef.current);
+      }
+      if (resultTimeoutRef.current) {
+        clearTimeout(resultTimeoutRef.current);
       }
     };
   }, []);
@@ -177,7 +203,8 @@ export default function CraneDrop({ config, difficulty, onComplete }: CraneDropP
     let lastTime = performance.now();
 
     const animate = (currentTime: number) => {
-      if (!mountedRef.current || phase !== "moving") return;
+      // Use ref to check current phase to avoid stale closure
+      if (!mountedRef.current || phaseRef.current !== "moving") return;
 
       const deltaTime = currentTime - lastTime;
       lastTime = currentTime;
@@ -214,7 +241,7 @@ export default function CraneDrop({ config, difficulty, onComplete }: CraneDropP
 
   // Handle drop action
   const handleDrop = useCallback(() => {
-    if (phase !== "moving") return;
+    if (phaseRef.current !== "moving") return;
 
     setPhase("dropping");
     setClawY(0);
@@ -233,7 +260,7 @@ export default function CraneDrop({ config, difficulty, onComplete }: CraneDropP
       setClawY(easeOut * 100);
 
       if (progress < 1) {
-        requestAnimationFrame(animateDrop);
+        dropAnimationRef.current = requestAnimationFrame(animateDrop);
       } else {
         // Check what we grabbed
         const clawCenter = craneX;
@@ -263,7 +290,7 @@ export default function CraneDrop({ config, difficulty, onComplete }: CraneDropP
         setPhase("grabbing");
 
         // After grab pause, return up
-        setTimeout(() => {
+        grabTimeoutRef.current = setTimeout(() => {
           if (!mountedRef.current) return;
           setPhase("returning");
 
@@ -284,7 +311,7 @@ export default function CraneDrop({ config, difficulty, onComplete }: CraneDropP
             setClawY(100 * (1 - easeInOut));
 
             if (returnProgress < 1) {
-              requestAnimationFrame(animateReturn);
+              returnAnimationRef.current = requestAnimationFrame(animateReturn);
             } else {
               // Calculate score
               let points = 0;
@@ -310,7 +337,7 @@ export default function CraneDrop({ config, difficulty, onComplete }: CraneDropP
               setPhase("result");
 
               // Show result then proceed
-              setTimeout(() => {
+              resultTimeoutRef.current = setTimeout(() => {
                 if (!mountedRef.current) return;
 
                 const nextRound = round + 1;
@@ -318,7 +345,8 @@ export default function CraneDrop({ config, difficulty, onComplete }: CraneDropP
 
                 if (nextRound >= totalRounds) {
                   setPhase("complete");
-                  onComplete(scoreRef.current + points);
+                  // Use scoreRef.current which now includes the points we just added
+                  onComplete(scoreRef.current);
                 } else {
                   // Reset for next round
                   setGrabbedItem(null);
@@ -333,13 +361,13 @@ export default function CraneDrop({ config, difficulty, onComplete }: CraneDropP
             }
           };
 
-          requestAnimationFrame(animateReturn);
+          returnAnimationRef.current = requestAnimationFrame(animateReturn);
         }, GRAB_DURATION_MS);
       }
     };
 
-    requestAnimationFrame(animateDrop);
-  }, [phase, craneX, items, round, totalRounds, streak, onComplete, generateItems]);
+    dropAnimationRef.current = requestAnimationFrame(animateDrop);
+  }, [craneX, items, round, totalRounds, streak, onComplete, generateItems]);
 
   // Keyboard and click controls
   useEffect(() => {
