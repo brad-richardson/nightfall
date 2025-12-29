@@ -1,10 +1,9 @@
 "use client";
 
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Utensils, Wrench, Zap, Package, X, Rocket, Clock } from "lucide-react";
+import { Utensils, Wrench, Zap, Package, X, Rocket, Clock, Play, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { useStore, type UserVotes } from "../store";
-import type { ResourceType } from "@nightfall/config";
 import VoteButton from "./VoteButton";
 
 type SelectedFeature = {
@@ -22,7 +21,7 @@ type Task = {
 };
 
 type FeaturePanelProps = {
-  onContribute: (sourceGersId: string, resourceType: ResourceType, amount: number) => void;
+  onActivateBuilding: (buildingGersId: string) => Promise<{ activated_at: string; expires_at: string }>;
   onVote: (taskId: string, weight: number) => Promise<void>;
   onBoostProduction: (buildingGersId: string, buildingName: string) => void;
   activeTasks: Task[];
@@ -33,72 +32,28 @@ type FeaturePanelProps = {
 const PANEL_WIDTH = 320;
 const PADDING = 16;
 
-// Resource configuration for convoy buttons
-const RESOURCE_CONFIG = {
-  food: { icon: Utensils, color: "#4ade80", label: "Food" },
-  equipment: { icon: Wrench, color: "#f97316", label: "Equipment" },
-  energy: { icon: Zap, color: "#facc15", label: "Energy" },
-  materials: { icon: Package, color: "#818cf8", label: "Materials" }
+// Resource icons for display
+const RESOURCE_ICONS = {
+  food: Utensils,
+  equipment: Wrench,
+  energy: Zap,
+  materials: Package
 } as const;
 
-type ResourceConvoyButtonProps = {
-  resourceType: ResourceType;
-  onClick: () => void;
-  disabled: boolean;
-  expectedGain: number;
-  boostActive: boolean;
-  multiplier: number;
-};
-
-function ResourceConvoyButton({
-  resourceType,
-  onClick,
-  disabled,
-  expectedGain,
-  boostActive,
-  multiplier
-}: ResourceConvoyButtonProps) {
-  const config = RESOURCE_CONFIG[resourceType];
-  const Icon = config.icon;
-  const tooltipText = boostActive
-    ? `+${expectedGain} ${config.label} per convoy (${multiplier}× boost active)`
-    : `+100 ${config.label} per convoy`;
-
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      title={tooltipText}
-      className={`flex flex-col items-center rounded-2xl p-3 transition-all ${
-        disabled
-          ? "bg-white/5 text-white/30 cursor-not-allowed opacity-50"
-          : "bg-white/5 hover:bg-white/10 active:scale-95"
-      }`}
-    >
-      <Icon className="mb-2 h-5 w-5" style={{ color: config.color }} />
-      <span className="text-[10px] font-bold uppercase text-white/40">{config.label}</span>
-      <span className="text-xs font-bold">{boostActive ? `+${expectedGain}` : "Start Convoy"}</span>
-    </button>
-  );
-}
-
-export default function FeaturePanel({ onContribute, onVote, onBoostProduction, activeTasks, canContribute, userVotes }: FeaturePanelProps) {
+export default function FeaturePanel({ onActivateBuilding, onVote, onBoostProduction, activeTasks, canContribute, userVotes }: FeaturePanelProps) {
   const [selected, setSelected] = useState<SelectedFeature | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const [isActivating, setIsActivating] = useState(false);
   const [panelPos, setPanelPos] = useState({ x: 0, y: 0 });
   const panelRef = useRef<HTMLDivElement>(null);
   const features = useStore((state) => state.features);
-  const minigameCooldowns = useStore((state) => state.minigameCooldowns);
   const buildingBoosts = useStore((state) => state.buildingBoosts);
+  const buildingActivations = useStore((state) => state.buildingActivations);
+  const addBuildingActivation = useStore((state) => state.addBuildingActivation);
 
   useEffect(() => {
     const handleSelection = (e: Event) => {
       const customEvent = e as CustomEvent<SelectedFeature | null>;
       setSelected(customEvent.detail);
-      if (!customEvent.detail) {
-        setStatusMsg(null);
-      }
     };
 
     window.addEventListener("nightfall:feature_selected", handleSelection);
@@ -180,25 +135,74 @@ export default function FeaturePanel({ onContribute, onVote, onBoostProduction, 
   const canGenerateEnergy = selectedDetails?.generates_energy ?? false;
   const canGenerateMaterials = selectedDetails?.generates_materials ?? false;
   const hasAnyResource = canGenerateFood || canGenerateEquipment || canGenerateEnergy || canGenerateMaterials;
-  const contributionDisabled = !canContribute || isSubmitting || !hasAnyResource;
 
-  const handleContributeClick = (resourceType: ResourceType, amount: number) => {
-    if (contributionDisabled || !selected) return;
-    setIsSubmitting(true);
-    setStatusMsg(null);
-    Promise.resolve(onContribute(selected.gers_id, resourceType, amount))
-      .then(() => {
-        setStatusMsg("Convoy dispatched");
-        const label = resourceType.charAt(0).toUpperCase() + resourceType.slice(1);
-        toast.success(`+${amount} ${label} dispatched`, { description: "Convoy en route to the hub" });
-      })
-      .catch(() => {
-        setStatusMsg("Contribution failed");
-        toast.error("Contribution failed", { description: "Please try again" });
-      })
-      .finally(() => setIsSubmitting(false));
+  // Get resource types this building generates
+  const resourceTypes = useMemo(() => {
+    const types: string[] = [];
+    if (canGenerateFood) types.push("Food");
+    if (canGenerateEquipment) types.push("Equipment");
+    if (canGenerateEnergy) types.push("Energy");
+    if (canGenerateMaterials) types.push("Materials");
+    return types;
+  }, [canGenerateFood, canGenerateEquipment, canGenerateEnergy, canGenerateMaterials]);
+
+  // Check if building is currently activated
+  // First check the store, then fall back to the feature's last_activated_at from the API
+  const BUILDING_ACTIVATION_MS = 2 * 60 * 1000; // 2 minutes
+  const activationState = useMemo(() => {
+    if (!selected) return null;
+    const now = Date.now();
+
+    // Check store first (most up-to-date)
+    const storeActivation = buildingActivations[selected.gers_id];
+    if (storeActivation) {
+      const expiresAt = new Date(storeActivation.expires_at).getTime();
+      if (expiresAt > now) {
+        return {
+          ...storeActivation,
+          remainingMs: expiresAt - now,
+          remainingSeconds: Math.ceil((expiresAt - now) / 1000)
+        };
+      }
+    }
+
+    // Fall back to feature's last_activated_at from API
+    if (selectedDetails?.last_activated_at) {
+      const activatedAt = new Date(selectedDetails.last_activated_at).getTime();
+      const expiresAt = activatedAt + BUILDING_ACTIVATION_MS;
+      if (expiresAt > now) {
+        return {
+          building_gers_id: selected.gers_id,
+          activated_at: selectedDetails.last_activated_at,
+          expires_at: new Date(expiresAt).toISOString(),
+          remainingMs: expiresAt - now,
+          remainingSeconds: Math.ceil((expiresAt - now) / 1000)
+        };
+      }
+    }
+
+    return null;
+  }, [selected, buildingActivations, selectedDetails]);
+
+  const isActivated = !!activationState;
+
+  const handleActivateClick = async () => {
+    if (!selected || !canContribute || isActivating || isActivated) return;
+    setIsActivating(true);
+    try {
+      const result = await onActivateBuilding(selected.gers_id);
+      addBuildingActivation({
+        building_gers_id: selected.gers_id,
+        activated_at: result.activated_at,
+        expires_at: result.expires_at
+      });
+      toast.success("Building activated!", { description: "Convoys will be dispatched for the next 2 minutes" });
+    } catch {
+      toast.error("Activation failed", { description: "Please try again" });
+    } finally {
+      setIsActivating(false);
+    }
   };
-
 
   const isVisible = !!selected;
 
@@ -237,133 +241,127 @@ export default function FeaturePanel({ onContribute, onVote, onBoostProduction, 
 
           {selected.type === 'building' && (
             <div className="space-y-4">
-              {/* Boost Production Button */}
-              {hasAnyResource && (() => {
-                const cooldown = minigameCooldowns[selected.gers_id];
-                const boost = buildingBoosts[selected.gers_id];
-                const now = Date.now();
-                const cooldownActive = cooldown && new Date(cooldown.available_at).getTime() > now;
-                const boostActive = boost && new Date(boost.expires_at).getTime() > now;
-                const cooldownRemaining = cooldownActive
-                  ? Math.ceil((new Date(cooldown.available_at).getTime() - now) / 1000 / 60)
-                  : 0;
-                const boostRemaining = boostActive
-                  ? Math.ceil((new Date(boost.expires_at).getTime() - now) / 1000 / 60)
-                  : 0;
+              {hasAnyResource ? (
+                <>
+                  {/* Resource types indicator */}
+                  <div className="flex flex-wrap gap-2">
+                    {resourceTypes.map((type) => (
+                      <span
+                        key={type}
+                        className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white/60"
+                      >
+                        {type}
+                      </span>
+                    ))}
+                  </div>
 
-                return (
-                  <div className="mb-2">
-                    {boostActive ? (
-                      <div className="rounded-2xl bg-gradient-to-r from-[color:var(--night-teal)]/20 to-transparent border border-[color:var(--night-teal)]/30 p-4">
-                        <div className="flex items-center gap-3">
-                          <Rocket className="h-5 w-5 text-[color:var(--night-teal)]" />
-                          <div className="flex-1">
-                            <p className="text-sm font-medium text-white">
-                              {boost.multiplier}× Boost Active
-                            </p>
-                            <p className="text-xs text-white/50">
-                              {boostRemaining}m remaining
-                            </p>
-                          </div>
+                  {/* Activation status */}
+                  {isActivated && (
+                    <div className="rounded-2xl bg-gradient-to-r from-green-500/20 to-transparent border border-green-500/30 p-4">
+                      <div className="flex items-center gap-3">
+                        <CheckCircle2 className="h-5 w-5 text-green-400" />
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-white">
+                            Building Active
+                          </p>
+                          <p className="text-xs text-white/50">
+                            Convoys running • {Math.ceil((activationState?.remainingSeconds ?? 0) / 60)}m remaining
+                          </p>
                         </div>
                       </div>
-                    ) : cooldownActive ? (
-                      <button
-                        disabled
-                        className="flex w-full items-center justify-center gap-2 rounded-2xl bg-white/5 p-3 text-white/40 cursor-not-allowed"
-                      >
-                        <Clock className="h-4 w-4" />
-                        <span className="text-sm">Cooldown: {cooldownRemaining}m</span>
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => onBoostProduction(selected.gers_id, selectedDetails?.place_category || 'Building')}
-                        disabled={!canContribute}
-                        className={`flex w-full items-center justify-center gap-2 rounded-2xl p-3 transition-all ${
-                          canContribute
-                            ? "bg-gradient-to-r from-[color:var(--night-teal)] to-[#4ade80] text-white shadow-[0_4px_16px_rgba(45,212,191,0.3)] hover:brightness-110 active:scale-95"
-                            : "bg-white/10 text-white/40 cursor-not-allowed"
-                        }`}
-                      >
-                        <Rocket className="h-4 w-4" />
-                        <span className="text-sm font-semibold uppercase tracking-wider">Boost Production</span>
-                      </button>
-                    )}
-                  </div>
-                );
-              })()}
-
-              {(() => {
-                const boost = selected ? buildingBoosts[selected.gers_id] : null;
-                const now = Date.now();
-                const boostActive = boost && new Date(boost.expires_at).getTime() > now;
-                const multiplier = boostActive ? boost.multiplier : 1;
-                const expectedGain = Math.round(100 * multiplier);
-
-                return (
-                  <>
-                    <p className="text-xs leading-relaxed text-white/60">
-                      Activate this building to send recurring convoys to the regional hub for the next 2 minutes.
-                      {boostActive && (
-                        <span className="ml-1 text-[color:var(--night-teal)]">
-                          ({multiplier}× boost = +{expectedGain} per convoy)
-                        </span>
-                      )}
-                    </p>
-                    <div className="grid grid-cols-2 gap-3">
-                      {canGenerateFood && (
-                        <ResourceConvoyButton
-                          resourceType="food"
-                          onClick={() => handleContributeClick("food", 100)}
-                          disabled={contributionDisabled}
-                          expectedGain={expectedGain}
-                          boostActive={!!boostActive}
-                          multiplier={multiplier}
-                        />
-                      )}
-                      {canGenerateEquipment && (
-                        <ResourceConvoyButton
-                          resourceType="equipment"
-                          onClick={() => handleContributeClick("equipment", 100)}
-                          disabled={contributionDisabled}
-                          expectedGain={expectedGain}
-                          boostActive={!!boostActive}
-                          multiplier={multiplier}
-                        />
-                      )}
-                      {canGenerateEnergy && (
-                        <ResourceConvoyButton
-                          resourceType="energy"
-                          onClick={() => handleContributeClick("energy", 100)}
-                          disabled={contributionDisabled}
-                          expectedGain={expectedGain}
-                          boostActive={!!boostActive}
-                          multiplier={multiplier}
-                        />
-                      )}
-                      {canGenerateMaterials && (
-                        <ResourceConvoyButton
-                          resourceType="materials"
-                          onClick={() => handleContributeClick("materials", 100)}
-                          disabled={contributionDisabled}
-                          expectedGain={expectedGain}
-                          boostActive={!!boostActive}
-                          multiplier={multiplier}
-                        />
-                      )}
                     </div>
-                  </>
-                );
-              })()}
-              <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 h-4">
-                {isSubmitting
-                  ? "Sending..."
-                  : !hasAnyResource
-                    ? "Building does not generate resources"
-                    : canContribute
-                      ? statusMsg ?? "Tap to activate"
-                      : "Authorizing..."}
-              </div>
+                  )}
+
+                  {/* Boost status */}
+                  {(() => {
+                    const boost = buildingBoosts[selected.gers_id];
+                    const now = Date.now();
+                    const boostActive = boost && new Date(boost.expires_at).getTime() > now;
+                    const boostRemaining = boostActive
+                      ? Math.ceil((new Date(boost.expires_at).getTime() - now) / 1000 / 60)
+                      : 0;
+
+                    if (boostActive) {
+                      return (
+                        <div className="rounded-2xl bg-gradient-to-r from-[color:var(--night-teal)]/20 to-transparent border border-[color:var(--night-teal)]/30 p-4">
+                          <div className="flex items-center gap-3">
+                            <Rocket className="h-5 w-5 text-[color:var(--night-teal)]" />
+                            <div className="flex-1">
+                              <p className="text-sm font-medium text-white">
+                                {boost.multiplier}× Boost Active
+                              </p>
+                              <p className="text-xs text-white/50">
+                                {boostRemaining}m remaining
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+
+                  <p className="text-xs leading-relaxed text-white/60">
+                    Activate this building to send recurring convoys to the regional hub for 2 minutes.
+                    Play the minigame for a boosted activation with increased resource generation.
+                  </p>
+
+                  {/* Action buttons */}
+                  <div className="flex flex-col gap-3">
+                    {/* Activate button - grayed out if already activated */}
+                    <button
+                      onClick={handleActivateClick}
+                      disabled={!canContribute || isActivating || isActivated}
+                      className={`flex w-full items-center justify-center gap-2 rounded-2xl p-3 transition-all ${
+                        isActivated
+                          ? "bg-green-500/10 text-green-400/60 cursor-not-allowed border border-green-500/20"
+                          : !canContribute || isActivating
+                            ? "bg-white/5 text-white/40 cursor-not-allowed"
+                            : "bg-white/10 hover:bg-white/15 text-white active:scale-95"
+                      }`}
+                    >
+                      {isActivated ? (
+                        <>
+                          <CheckCircle2 className="h-4 w-4" />
+                          <span className="text-sm font-semibold">Already Active</span>
+                        </>
+                      ) : isActivating ? (
+                        <>
+                          <Clock className="h-4 w-4 animate-spin" />
+                          <span className="text-sm font-semibold">Activating...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Play className="h-4 w-4" />
+                          <span className="text-sm font-semibold uppercase tracking-wider">Activate</span>
+                        </>
+                      )}
+                    </button>
+
+                    {/* Boost button - always available */}
+                    <button
+                      onClick={() => onBoostProduction(selected.gers_id, selectedDetails?.place_category || 'Building')}
+                      disabled={!canContribute}
+                      className={`flex w-full items-center justify-center gap-2 rounded-2xl p-3 transition-all ${
+                        canContribute
+                          ? "bg-gradient-to-r from-[color:var(--night-teal)] to-[#4ade80] text-white shadow-[0_4px_16px_rgba(45,212,191,0.3)] hover:brightness-110 active:scale-95"
+                          : "bg-white/10 text-white/40 cursor-not-allowed"
+                      }`}
+                    >
+                      <Rocket className="h-4 w-4" />
+                      <span className="text-sm font-semibold uppercase tracking-wider">Boost Activation</span>
+                    </button>
+                  </div>
+
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 h-4">
+                    {!canContribute ? "Authorizing..." : "Choose an activation option"}
+                  </div>
+                </>
+              ) : (
+                <p className="text-xs text-white/40 italic">
+                  This building does not generate resources.
+                </p>
+              )}
             </div>
           )}
 
