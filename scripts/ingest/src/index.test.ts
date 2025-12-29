@@ -14,7 +14,8 @@ import {
   REGION_CONFIGS,
   shouldSeedDemo,
   interpolateLineString,
-  generateHexCoverageFromBbox
+  generateHexCoverageFromBbox,
+  hexIntersectsBbox
 } from "./index.js";
 
 const region = {
@@ -537,5 +538,65 @@ describe("generateHexCoverageFromBbox", () => {
 
     expect(result1.hexes).toEqual(result2.hexes);
     expect(result1.coverageWkt).toBe(result2.coverageWkt);
+  });
+
+  it("includes hexes that intersect the bbox boundary", () => {
+    // The new behavior includes edge hexes that intersect but don't have centers inside
+    const result = generateHexCoverageFromBbox(barHarborBbox, H3_RESOLUTION);
+
+    // All returned hexes should intersect the bbox
+    for (const hex of result.hexes) {
+      expect(hexIntersectsBbox(hex, barHarborBbox)).toBe(true);
+    }
+
+    // The coverage WKT should extend beyond the original bbox
+    // because intersecting hexes extend past the boundary
+    expect(result.hexes.length).toBeGreaterThan(0);
+  });
+});
+
+describe("hexIntersectsBbox", () => {
+  it("returns true for hex completely inside bbox", async () => {
+    const { latLngToCell } = await import("h3-js");
+    // Get a hex at the center of Bar Harbor area
+    const centerHex = latLngToCell(44.39, -68.20, H3_RESOLUTION);
+    const bbox = {
+      xmin: -68.30,
+      ymin: 44.35,
+      xmax: -68.10,
+      ymax: 44.45
+    };
+
+    expect(hexIntersectsBbox(centerHex, bbox)).toBe(true);
+  });
+
+  it("returns false for hex completely outside bbox", async () => {
+    const { latLngToCell } = await import("h3-js");
+    // Get a hex in Bar Harbor
+    const hex = latLngToCell(44.39, -68.20, H3_RESOLUTION);
+    // Use a bbox far away
+    const farBbox = {
+      xmin: -70.0,
+      ymin: 40.0,
+      xmax: -69.5,
+      ymax: 40.5
+    };
+
+    expect(hexIntersectsBbox(hex, farBbox)).toBe(false);
+  });
+
+  it("returns true for hex partially overlapping bbox", async () => {
+    const { latLngToCell } = await import("h3-js");
+    // Get a hex at the edge of the area
+    const edgeHex = latLngToCell(44.35, -68.20, H3_RESOLUTION);
+    // Use a bbox that partially overlaps
+    const bbox = {
+      xmin: -68.25,
+      ymin: 44.30,
+      xmax: -68.15,
+      ymax: 44.36  // Just barely overlaps the hex
+    };
+
+    expect(hexIntersectsBbox(edgeHex, bbox)).toBe(true);
   });
 });

@@ -1,6 +1,6 @@
 import { spawn } from "child_process";
 import { Pool, type PoolClient } from "pg";
-import { cellToBoundary, cellToLatLng, latLngToCell, polygonToCells, cellsToMultiPolygon } from "h3-js";
+import { cellToBoundary, cellToLatLng, latLngToCell, polygonToCells, cellsToMultiPolygon, gridDisk } from "h3-js";
 import * as dotenv from "dotenv";
 import path from "path";
 import fs from "fs";
@@ -605,7 +605,38 @@ function buildHexWkt(h3Index: string) {
 }
 
 /**
- * Generates all H3 hexes that fill a region bbox and returns them along with
+ * Checks if a hex cell intersects a bounding box.
+ * Uses bounding box overlap test for efficiency.
+ */
+export function hexIntersectsBbox(h3Index: string, bbox: Bbox): boolean {
+  // Get the hex boundary vertices (lat/lng format)
+  const boundary = cellToBoundary(h3Index);
+
+  if (boundary.length === 0) return false;
+
+  // Compute the hex's bounding box
+  let hexMinLat = Infinity, hexMaxLat = -Infinity;
+  let hexMinLng = Infinity, hexMaxLng = -Infinity;
+
+  for (const [lat, lng] of boundary) {
+    if (lat < hexMinLat) hexMinLat = lat;
+    if (lat > hexMaxLat) hexMaxLat = lat;
+    if (lng < hexMinLng) hexMinLng = lng;
+    if (lng > hexMaxLng) hexMaxLng = lng;
+  }
+
+  // Check if bounding boxes overlap
+  // bbox uses xmin/xmax for longitude and ymin/ymax for latitude
+  return !(
+    hexMaxLng < bbox.xmin ||  // hex is entirely to the west
+    hexMinLng > bbox.xmax ||  // hex is entirely to the east
+    hexMaxLat < bbox.ymin ||  // hex is entirely to the south
+    hexMinLat > bbox.ymax     // hex is entirely to the north
+  );
+}
+
+/**
+ * Generates all H3 hexes that intersect a region bbox and returns them along with
  * a WKT polygon representing their combined coverage area.
  *
  * This is used to filter features to only those completely contained within
@@ -624,8 +655,21 @@ export function generateHexCoverageFromBbox(bbox: Bbox, resolution: number): {
     [bbox.ymin, bbox.xmin]
   ];
 
-  // Get all H3 cells that fill this polygon
-  const hexes = polygonToCells([ring], resolution);
+  // Get all H3 cells whose centers are within this polygon
+  const centerHexes = polygonToCells([ring], resolution);
+
+  // Expand to include neighboring cells that might intersect the bbox
+  const candidateHexes = new Set<string>();
+  for (const hex of centerHexes) {
+    // Add the hex and its immediate neighbors
+    const neighbors = gridDisk(hex, 1);
+    for (const neighbor of neighbors) {
+      candidateHexes.add(neighbor);
+    }
+  }
+
+  // Filter to only hexes that actually intersect the bbox
+  const hexes = Array.from(candidateHexes).filter(hex => hexIntersectsBbox(hex, bbox));
 
   if (hexes.length === 0) {
     // Fallback to bbox as WKT if no hexes
