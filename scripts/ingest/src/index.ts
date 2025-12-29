@@ -926,12 +926,13 @@ async function seedInitialRustLevels(pgPool: Pool, regionId: string) {
     );
     const maxDist = maxDistResult.rows[0]?.max_dist || 1;
 
-    // Seed rust: outer edges get 0.3, center gets 0
-    // Formula: rust_level = min(0.3, distance_from_center / maxDist * 0.3)
+    // Seed rust: outer edges get 0.5, center gets 0
+    // Using power curve for steeper gradient near edges (more dramatic rust at boundaries)
+    // Formula: rust_level = min(0.5, (distance/maxDist)^1.5 * 0.5)
     const result = await client.query(
       `
       UPDATE hex_cells
-      SET rust_level = LEAST(0.3, distance_from_center / $1 * 0.3),
+      SET rust_level = LEAST(0.5, POWER(distance_from_center / $1, 1.5) * 0.5),
           updated_at = now()
       WHERE region_id = $2
       `,

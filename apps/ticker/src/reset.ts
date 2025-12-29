@@ -22,9 +22,10 @@ export async function performWeeklyReset(client: PoolLike) {
     );
     const maxDist = maxDistResult.rows[0]?.max_dist || 1;
 
+    // Using power curve for steeper gradient near edges (more dramatic rust at boundaries)
     await client.query(`
       UPDATE hex_cells
-      SET rust_level = LEAST(0.3, distance_from_center / $1 * 0.3),
+      SET rust_level = LEAST(0.5, POWER(distance_from_center / $1, 1.5) * 0.5),
           updated_at = now()
     `, [maxDist]);
 
