@@ -1012,13 +1012,13 @@ export default function Dashboard({
             </div>
           )}
 
-          <div className="pointer-events-auto absolute left-4 right-4 top-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="pointer-events-none absolute left-4 right-4 top-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             {/* Collapsed mobile header */}
             <button
               type="button"
               onClick={() => setIsHeaderCollapsed(false)}
               aria-label="Expand header"
-              className={`flex items-center gap-3 rounded-full border border-white/10 bg-[#0f1216]/80 px-4 py-2 text-white shadow-lg backdrop-blur-md transition-all duration-300 lg:hidden ${isHeaderCollapsed ? "opacity-100" : "absolute opacity-0 pointer-events-none"}`}
+              className={`flex items-center gap-3 rounded-full border border-white/10 bg-[#0f1216]/80 px-4 py-2 text-white shadow-lg backdrop-blur-md transition-all duration-300 lg:hidden ${isHeaderCollapsed ? "opacity-100 pointer-events-auto" : "absolute opacity-0 pointer-events-none"}`}
             >
               <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-white/60">Nightfall Console</span>
               <span className="text-white/30">|</span>
@@ -1031,7 +1031,7 @@ export default function Dashboard({
             </button>
 
             {/* Full header - always visible on desktop, toggleable on mobile */}
-            <MapPanel className={`max-w-[520px] transition-all duration-300 lg:opacity-100 lg:pointer-events-auto ${isHeaderCollapsed ? "absolute opacity-0 pointer-events-none lg:relative" : "opacity-100"}`}>
+            <MapPanel className={`max-w-[520px] transition-all duration-300 lg:opacity-100 lg:pointer-events-auto ${isHeaderCollapsed ? "absolute opacity-0 pointer-events-none lg:relative" : "opacity-100 pointer-events-auto"}`}>
               <button
                 type="button"
                 onClick={() => setIsHeaderCollapsed(true)}
@@ -1074,7 +1074,7 @@ export default function Dashboard({
               </h2>
             </MapPanel>
 
-            <div className="flex items-start gap-3">
+            <div className="pointer-events-auto flex items-start gap-3">
               <PlayerTierBadgeCompact />
               <PhaseIndicator />
             </div>
