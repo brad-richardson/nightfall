@@ -332,4 +332,35 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: RouteContext) {
 
     return { ok: true, hexes_updated: updateResult.rowCount };
   });
+
+  // Fix orphaned 'active' tasks (admin only)
+  app.post("/api/admin/fix-orphaned-tasks", {
+    schema: {
+      body: {
+        type: "object",
+        required: ["secret"],
+        properties: {
+          secret: { type: "string" }
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const body = request.body as { secret: string };
+    if (body.secret !== process.env.ADMIN_SECRET) {
+      reply.status(401);
+      return { ok: false, error: "unauthorized" };
+    }
+
+    const pool = getPool();
+
+    // Reset orphaned 'active' tasks back to 'queued'
+    const result = await pool.query(
+      `UPDATE tasks
+       SET status = 'queued'
+       WHERE status = 'active'
+         AND task_id NOT IN (SELECT active_task_id FROM crews WHERE active_task_id IS NOT NULL)`
+    );
+
+    return { ok: true, tasks_fixed: result.rowCount };
+  });
 }

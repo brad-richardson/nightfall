@@ -53,56 +53,56 @@ export type RoadClassInfo = {
 export const ROAD_CLASSES: Record<string, RoadClassInfo> = {
   motorway: {
     decayRate: 0.5,
-    baseCost: 50,
-    costVariance: 20, // range: 30-70
+    baseCost: 35,
+    costVariance: 14, // range: 21-49
     durationS: 8,
     repairAmount: 30,
     priorityWeight: 10
   },
   trunk: {
     decayRate: 0.6,
-    baseCost: 42,
-    costVariance: 17, // range: 25-59
+    baseCost: 29,
+    costVariance: 12, // range: 17-41
     durationS: 7,
     repairAmount: 30,
     priorityWeight: 8
   },
   primary: {
     decayRate: 0.8,
-    baseCost: 31,
-    costVariance: 12, // range: 19-43
+    baseCost: 22,
+    costVariance: 8, // range: 14-30
     durationS: 6,
     repairAmount: 25,
     priorityWeight: 6
   },
   secondary: {
     decayRate: 1.0,
-    baseCost: 22,
-    costVariance: 9, // range: 13-31
+    baseCost: 15,
+    costVariance: 6, // range: 9-21
     durationS: 5,
     repairAmount: 25,
     priorityWeight: 4
   },
   tertiary: {
     decayRate: 1.2,
-    baseCost: 17,
-    costVariance: 7, // range: 10-24
+    baseCost: 12,
+    costVariance: 5, // range: 7-17
     durationS: 4,
     repairAmount: 20,
     priorityWeight: 3
   },
   residential: {
     decayRate: 1.5,
-    baseCost: 11,
-    costVariance: 4, // range: 7-15
+    baseCost: 8,
+    costVariance: 3, // range: 5-11
     durationS: 3,
     repairAmount: 20,
     priorityWeight: 2
   },
   service: {
     decayRate: 2.0,
-    baseCost: 6,
-    costVariance: 2, // range: 4-8
+    baseCost: 4,
+    costVariance: 1, // range: 3-5
     durationS: 3,
     repairAmount: 15,
     priorityWeight: 1
@@ -416,25 +416,25 @@ export type PhaseMultipliers = {
 export const PHASE_MULTIPLIERS: Record<PhaseName, PhaseMultipliers> = {
   dawn: {
     rust_spread: 0.1,
-    decay: 0.3,
+    decay: 0.15,
     generation: 12,
     repair_speed: 1.0
   },
   day: {
     rust_spread: 0.05,
-    decay: 0.2,
+    decay: 0.1,
     generation: 15,
     repair_speed: 1.25
   },
   dusk: {
     rust_spread: 0.25,
-    decay: 0.6,
+    decay: 0.3,
     generation: 8,
     repair_speed: 1.0
   },
   night: {
     rust_spread: 0.5,
-    decay: 1.0,
+    decay: 0.5,
     generation: 3,
     repair_speed: 0.75
   }

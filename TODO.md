@@ -43,6 +43,10 @@ The basic scoring system and tier badges are implemented. Next steps for enhance
 - [ ] Display name setting: Allow players to set a custom display name for leaderboard
 - [ ] Region-specific leaderboards: Track and display scores per-region as well as global
 
+## Technical Improvements
+- [ ] Optimize SSE Payloads: Reduce crew_delta payload size by sending minimal waypoint data (e.g., simplified paths or just start/end with duration) instead of full coordinate arrays
+- [ ] Investigate pulsing roads filter: Debug why repair-pulse layer may be matching too many roads (filter logic or stale state issue)
+
 ## Future Immersion & Polish (Post-MVP)
 - [ ] Regional Broadcast Channels: Implement a second SSE channel per-region for real-time animations
 - [ ] Map Performance: Implement clustering or advanced MapLibre styling for high feature density

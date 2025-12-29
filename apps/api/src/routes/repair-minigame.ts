@@ -327,6 +327,33 @@ export function registerRepairMinigameRoutes(app: FastifyInstance) {
         [session.road_gers_id, result.newHealth, result.newHealth >= 70 ? 'normal' : 'degraded']
       );
 
+      // If road is now healthy, mark any queued tasks for this road as done
+      // (since manual repair has fixed it)
+      if (result.newHealth >= 70) {
+        const taskResult = await pool.query<{ task_id: string; region_id: string }>(
+          `UPDATE tasks
+           SET status = 'done', completed_at = now()
+           WHERE target_gers_id = $1 AND status = 'queued'
+           RETURNING task_id, region_id`,
+          [session.road_gers_id]
+        );
+
+        // Emit task delta for any tasks that were marked done
+        for (const task of taskResult.rows) {
+          await pool.query("SELECT pg_notify($1, $2)", [
+            "task_delta",
+            JSON.stringify({
+              tasks: [{
+                task_id: task.task_id,
+                status: 'done',
+                region_id: task.region_id,
+                target_gers_id: session.road_gers_id
+              }]
+            }),
+          ]);
+        }
+      }
+
       // Emit feature delta for UI update
       await pool.query("SELECT pg_notify($1, $2)", [
         "feature_delta",

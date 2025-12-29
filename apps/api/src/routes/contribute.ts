@@ -150,19 +150,15 @@ export function registerContributeRoutes(app: FastifyInstance, ctx: RouteContext
         ? await pool.query<{
             gers_id: string;
             h3_index: string | null;
-            bbox_xmin: number | null;
-            bbox_xmax: number | null;
-            bbox_ymin: number | null;
-            bbox_ymax: number | null;
+            center_lon: number | null;
+            center_lat: number | null;
           }>(
             `
             SELECT
               wf.gers_id,
               wfh.h3_index,
-              wf.bbox_xmin,
-              wf.bbox_xmax,
-              wf.bbox_ymin,
-              wf.bbox_ymax
+              COALESCE(ST_X(ST_PointOnSurface(wf.geom)), (wf.bbox_xmin + wf.bbox_xmax) / 2) AS center_lon,
+              COALESCE(ST_Y(ST_PointOnSurface(wf.geom)), (wf.bbox_ymin + wf.bbox_ymax) / 2) AS center_lat
             FROM world_features wf
             LEFT JOIN world_feature_hex_cells wfh ON wfh.gers_id = wf.gers_id
             WHERE wf.gers_id = $1
@@ -183,19 +179,15 @@ export function registerContributeRoutes(app: FastifyInstance, ctx: RouteContext
       const fallbackSource = await pool.query<{
         gers_id: string;
         h3_index: string | null;
-        bbox_xmin: number | null;
-        bbox_xmax: number | null;
-        bbox_ymin: number | null;
-        bbox_ymax: number | null;
+        center_lon: number | null;
+        center_lat: number | null;
       }>(
         `
         SELECT
           wf.gers_id,
           wfh.h3_index,
-          wf.bbox_xmin,
-          wf.bbox_xmax,
-          wf.bbox_ymin,
-          wf.bbox_ymax
+          COALESCE(ST_X(ST_PointOnSurface(wf.geom)), (wf.bbox_xmin + wf.bbox_xmax) / 2) AS center_lon,
+          COALESCE(ST_Y(ST_PointOnSurface(wf.geom)), (wf.bbox_ymin + wf.bbox_ymax) / 2) AS center_lat
         FROM world_features AS wf
         LEFT JOIN world_feature_hex_cells wfh ON wfh.gers_id = wf.gers_id
         WHERE wf.region_id = $1
@@ -209,10 +201,8 @@ export function registerContributeRoutes(app: FastifyInstance, ctx: RouteContext
       const source = sourceResult?.rows[0] ?? fallbackSource.rows[0];
       if (
         !source ||
-        source.bbox_xmin === null ||
-        source.bbox_xmax === null ||
-        source.bbox_ymin === null ||
-        source.bbox_ymax === null
+        source.center_lon === null ||
+        source.center_lat === null
       ) {
         await pool.query("ROLLBACK");
         reply.status(404);
@@ -220,25 +210,21 @@ export function registerContributeRoutes(app: FastifyInstance, ctx: RouteContext
       }
 
       const sourceCenter: [number, number] = [
-        (source.bbox_xmin + source.bbox_xmax) / 2,
-        (source.bbox_ymin + source.bbox_ymax) / 2
+        source.center_lon,
+        source.center_lat
       ];
 
       const hubResult = source.h3_index
         ? await pool.query<{
             gers_id: string;
-            bbox_xmin: number | null;
-            bbox_xmax: number | null;
-            bbox_ymin: number | null;
-            bbox_ymax: number | null;
+            center_lon: number | null;
+            center_lat: number | null;
           }>(
             `
             SELECT
               hub.gers_id,
-              hub.bbox_xmin,
-              hub.bbox_xmax,
-              hub.bbox_ymin,
-              hub.bbox_ymax
+              COALESCE(ST_X(ST_PointOnSurface(hub.geom)), (hub.bbox_xmin + hub.bbox_xmax) / 2) AS center_lon,
+              COALESCE(ST_Y(ST_PointOnSurface(hub.geom)), (hub.bbox_ymin + hub.bbox_ymax) / 2) AS center_lat
             FROM hex_cells AS h
             JOIN world_features AS hub ON hub.gers_id = h.hub_building_gers_id
             WHERE h.h3_index = $1
@@ -250,10 +236,8 @@ export function registerContributeRoutes(app: FastifyInstance, ctx: RouteContext
       const hub = hubResult?.rows[0] ?? fallbackSource.rows[0];
       if (
         !hub ||
-        hub.bbox_xmin === null ||
-        hub.bbox_xmax === null ||
-        hub.bbox_ymin === null ||
-        hub.bbox_ymax === null
+        hub.center_lon === null ||
+        hub.center_lat === null
       ) {
         await pool.query("ROLLBACK");
         reply.status(404);
@@ -261,8 +245,8 @@ export function registerContributeRoutes(app: FastifyInstance, ctx: RouteContext
       }
 
       const hubCenter: [number, number] = [
-        (hub.bbox_xmin + hub.bbox_xmax) / 2,
-        (hub.bbox_ymin + hub.bbox_ymax) / 2
+        hub.center_lon,
+        hub.center_lat
       ];
 
       // Try A* pathfinding with road graph, fallback to haversine

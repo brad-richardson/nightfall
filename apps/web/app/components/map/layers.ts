@@ -332,20 +332,6 @@ export function getTaskHighlightLayers(): maplibregl.LayerSpecification[] {
         "line-blur": 4,
         "line-opacity": 0.25
       }
-    },
-    {
-      id: "game-roads-task-highlight-dash",
-      source: "overture_transportation",
-      "source-layer": "segment",
-      type: "line",
-      filter: ["all", BASE_ROAD_FILTER, ["==", ["get", "id"], "none"]] as maplibregl.FilterSpecification,
-      layout: { "line-cap": "round", "line-join": "round" },
-      paint: {
-        "line-color": "#ffffff",
-        "line-width": ["interpolate", ["linear"], ["zoom"], 12, 2, 16, 4],
-        "line-dasharray": [2, 3],
-        "line-opacity": 0.6
-      }
     }
   ];
 }

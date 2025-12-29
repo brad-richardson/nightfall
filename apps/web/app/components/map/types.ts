@@ -35,6 +35,10 @@ export type Task = {
   task_id: string;
   target_gers_id: string;
   status?: string;
+  cost_food?: number;
+  cost_equipment?: number;
+  cost_energy?: number;
+  cost_materials?: number;
 };
 
 export type Hex = {

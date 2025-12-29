@@ -48,9 +48,11 @@ export default function KitchenRush({ config, difficulty, onComplete }: KitchenR
 
   // Cleanup timeouts on unmount
   useEffect(() => {
+    const showRef = showTimeoutRef;
+    const inputRef = inputTimeoutRef;
     return () => {
-      if (showTimeoutRef.current) clearTimeout(showTimeoutRef.current);
-      if (inputTimeoutRef.current) clearTimeout(inputTimeoutRef.current);
+      if (showRef.current) clearTimeout(showRef.current);
+      if (inputRef.current) clearTimeout(inputRef.current);
     };
   }, []);
 

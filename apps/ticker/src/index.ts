@@ -126,6 +126,7 @@ async function publishWorldDelta(
 // PostgreSQL NOTIFY has 8KB payload limit, chunk to stay under
 const HEX_CHUNK_SIZE = 50;
 const FEATURE_CHUNK_SIZE = 25;
+const TASK_CHUNK_SIZE = 15; // Tasks have more fields, use smaller chunks
 
 async function publishFeatureDeltas(client: PoolLike, deltas: FeatureDelta[]) {
   if (deltas.length === 0) return;
@@ -137,9 +138,11 @@ async function publishFeatureDeltas(client: PoolLike, deltas: FeatureDelta[]) {
 
 async function publishTaskDeltas(client: PoolLike, deltas: TaskDelta[]) {
   if (deltas.length === 0) return;
-  // Just notify which regions have task changes - clients can refetch
-  const regionIds = Array.from(new Set(deltas.map(d => d.region_id)));
-  await notifyEvent(client, "task_delta", { regions_changed: regionIds, count: deltas.length });
+  // Send full task data so client can update without refetching
+  for (let i = 0; i < deltas.length; i += TASK_CHUNK_SIZE) {
+    const chunk = deltas.slice(i, i + TASK_CHUNK_SIZE);
+    await notifyEvent(client, "task_delta", { tasks: chunk });
+  }
 }
 
 async function publishFeedItems(
@@ -154,6 +157,19 @@ async function publishFeedItems(
 async function publishResourceTransfers(client: PoolLike, transfers: ResourceTransfer[]) {
   for (const transfer of transfers) {
     await notifyEvent(client, "resource_transfer", transfer);
+  }
+}
+
+// Crew events include waypoints which can be large - send one at a time
+const CREW_CHUNK_SIZE = 1;
+
+async function publishCrewDeltas(client: PoolLike, crewEvents: { crew_id: string; region_id: string; event_type: string; waypoints?: unknown; position?: unknown; task_id?: string | null }[]) {
+  if (crewEvents.length === 0) return;
+  // Chunk crew events to stay under 8KB payload limit
+  // Each event with waypoints can be ~2KB, so keep chunks small
+  for (let i = 0; i < crewEvents.length; i += CREW_CHUNK_SIZE) {
+    const chunk = crewEvents.slice(i, i + CREW_CHUNK_SIZE);
+    await notifyEvent(client, "crew_delta", { crews: chunk });
   }
 }
 
@@ -216,6 +232,14 @@ async function runTick(client: PoolLike) {
   await publishFeedItems(client, completionResult.feedItems);
 
   await publishResourceTransfers(client, newTransfers);
+
+  // Publish crew state changes for real-time animation updates
+  await publishCrewDeltas(client, [
+    ...dispatchResult.crewEvents,
+    ...crewArrivalResult.crewEvents,
+    ...hubArrivalEvents.map(e => ({ ...e, event_type: e.event_type })),
+    ...completionResult.crewEvents
+  ]);
 
   if (
     Number.isFinite(cleanupIntervalMs) &&

@@ -7,6 +7,7 @@ const CHANNELS = new Set([
   "task_delta",
   "feed_item",
   "resource_transfer",
+  "crew_delta",
   "reset_warning",
   "reset"
 ]);

@@ -94,8 +94,8 @@ export async function dispatchCrews(pool: PoolLike): Promise<DispatchResult> {
       c.region_id,
       c.current_lng,
       c.current_lat,
-      (hub.bbox_xmin + hub.bbox_xmax) / 2 AS hub_lon,
-      (hub.bbox_ymin + hub.bbox_ymax) / 2 AS hub_lat
+      COALESCE(ST_X(ST_PointOnSurface(hub.geom)), (hub.bbox_xmin + hub.bbox_xmax) / 2) AS hub_lon,
+      COALESCE(ST_Y(ST_PointOnSurface(hub.geom)), (hub.bbox_ymin + hub.bbox_ymax) / 2) AS hub_lat
     FROM crews c
     LEFT JOIN hex_cells h ON h.region_id = c.region_id AND h.hub_building_gers_id IS NOT NULL
     LEFT JOIN world_features hub ON hub.gers_id = h.hub_building_gers_id
@@ -482,8 +482,8 @@ export async function arriveCrewsAtHub(pool: PoolLike): Promise<CrewEvent[]> {
     // Fallback: if no waypoints, lookup hub position directly
     if (finalLng == null || finalLat == null) {
       const hubResult = await pool.query<{ hub_lon: number; hub_lat: number }>(
-        `SELECT (hub.bbox_xmin + hub.bbox_xmax) / 2 AS hub_lon,
-                (hub.bbox_ymin + hub.bbox_ymax) / 2 AS hub_lat
+        `SELECT COALESCE(ST_X(ST_PointOnSurface(hub.geom)), (hub.bbox_xmin + hub.bbox_xmax) / 2) AS hub_lon,
+                COALESCE(ST_Y(ST_PointOnSurface(hub.geom)), (hub.bbox_ymin + hub.bbox_ymax) / 2) AS hub_lat
          FROM hex_cells h
          JOIN world_features hub ON hub.gers_id = h.hub_building_gers_id
          WHERE h.region_id = $1 AND h.hub_building_gers_id IS NOT NULL
@@ -888,7 +888,8 @@ async function returnCrewToHub(
 ): Promise<CrewEvent | null> {
   // Get hub position
   const hubResult = await pool.query<{ hub_lon: number; hub_lat: number }>(
-    `SELECT (hub.bbox_xmin + hub.bbox_xmax) / 2 AS hub_lon, (hub.bbox_ymin + hub.bbox_ymax) / 2 AS hub_lat
+    `SELECT COALESCE(ST_X(ST_PointOnSurface(hub.geom)), (hub.bbox_xmin + hub.bbox_xmax) / 2) AS hub_lon,
+            COALESCE(ST_Y(ST_PointOnSurface(hub.geom)), (hub.bbox_ymin + hub.bbox_ymax) / 2) AS hub_lat
      FROM hex_cells h
      JOIN world_features hub ON hub.gers_id = h.hub_building_gers_id
      WHERE h.region_id = $1 AND h.hub_building_gers_id IS NOT NULL

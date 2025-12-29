@@ -7,14 +7,7 @@ import {
   useResourceTooltip
 } from "../ResourceTrendTooltip";
 import type { ResourceType } from "../../lib/resourceHistory";
-
-// Resource colors matching map building styles
-const RESOURCE_COLORS = {
-  food: "#4ade80", // green-400 - restaurants, cafes
-  equipment: "#f97316", // orange-500 - hardware, auto
-  energy: "#facc15", // yellow-400 - industrial, power
-  materials: "#818cf8" // indigo-400 - construction, lumber
-} as const;
+import { RESOURCE_CONFIG, RESOURCE_COLORS } from "../../lib/resourceConstants";
 
 type ResourcePoolsPanelProps = {
   poolFood: number;
@@ -28,6 +21,7 @@ function ResourceBar({
   label,
   value,
   color,
+  emoji,
   isLight,
   resourceType,
   onHover,
@@ -37,6 +31,7 @@ function ResourceBar({
   label: string;
   value: number;
   color: string;
+  emoji: string;
   isLight: boolean;
   resourceType: ResourceType;
   onHover: (type: ResourceType, element: HTMLElement) => void;
@@ -71,9 +66,11 @@ function ResourceBar({
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-1.5">
           <span
-            className="w-2 h-2 rounded-full"
-            style={{ backgroundColor: color }}
-          />
+            className="w-4 h-4 rounded-full flex items-center justify-center text-[10px]"
+            style={{ backgroundColor: `${color}30`, border: `1px solid ${color}` }}
+          >
+            {emoji}
+          </span>
           {label}
         </span>
         <span
@@ -146,9 +143,10 @@ export function ResourcePoolsPanel({
       className={`space-y-2 text-xs ${isLight ? "text-[color:var(--night-ash)]" : "text-white/70"}`}
     >
       <ResourceBar
-        label="Food"
+        label={RESOURCE_CONFIG.food.label}
         value={poolFood}
-        color={RESOURCE_COLORS.food}
+        color={RESOURCE_CONFIG.food.color}
+        emoji={RESOURCE_CONFIG.food.emoji}
         isLight={isLight}
         resourceType="food"
         onHover={handleHover}
@@ -156,9 +154,10 @@ export function ResourcePoolsPanel({
         onTap={handleTap}
       />
       <ResourceBar
-        label="Equipment"
+        label={RESOURCE_CONFIG.equipment.label}
         value={poolEquipment}
-        color={RESOURCE_COLORS.equipment}
+        color={RESOURCE_CONFIG.equipment.color}
+        emoji={RESOURCE_CONFIG.equipment.emoji}
         isLight={isLight}
         resourceType="equipment"
         onHover={handleHover}
@@ -166,9 +165,10 @@ export function ResourcePoolsPanel({
         onTap={handleTap}
       />
       <ResourceBar
-        label="Energy"
+        label={RESOURCE_CONFIG.energy.label}
         value={poolEnergy}
-        color={RESOURCE_COLORS.energy}
+        color={RESOURCE_CONFIG.energy.color}
+        emoji={RESOURCE_CONFIG.energy.emoji}
         isLight={isLight}
         resourceType="energy"
         onHover={handleHover}
@@ -176,9 +176,10 @@ export function ResourcePoolsPanel({
         onTap={handleTap}
       />
       <ResourceBar
-        label="Materials"
+        label={RESOURCE_CONFIG.materials.label}
         value={poolMaterials}
-        color={RESOURCE_COLORS.materials}
+        color={RESOURCE_CONFIG.materials.color}
+        emoji={RESOURCE_CONFIG.materials.emoji}
         isLight={isLight}
         resourceType="materials"
         onHover={handleHover}

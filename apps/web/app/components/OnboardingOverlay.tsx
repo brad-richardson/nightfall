@@ -76,6 +76,18 @@ export function OnboardingOverlay() {
     }
   }, []);
 
+  const handleDismiss = useCallback(() => {
+    setExiting(true);
+    setTimeout(() => {
+      setStorageItem(ONBOARDING_STORAGE_KEY, "true");
+      setVisible(false);
+      // Restore focus to the previously focused element
+      if (previousActiveElement.current instanceof HTMLElement) {
+        previousActiveElement.current.focus();
+      }
+    }, 300);
+  }, []);
+
   // Focus trap and escape key handling
   useEffect(() => {
     if (!visible) return;
@@ -112,19 +124,7 @@ export function OnboardingOverlay() {
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [visible]);
-
-  const handleDismiss = useCallback(() => {
-    setExiting(true);
-    setTimeout(() => {
-      setStorageItem(ONBOARDING_STORAGE_KEY, "true");
-      setVisible(false);
-      // Restore focus to the previously focused element
-      if (previousActiveElement.current instanceof HTMLElement) {
-        previousActiveElement.current.focus();
-      }
-    }, 300);
-  }, []);
+  }, [visible, handleDismiss]);
 
   const handleNext = useCallback(() => {
     if (currentStep < STEPS.length - 1) {

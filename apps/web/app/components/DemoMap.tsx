@@ -649,13 +649,20 @@ export default function DemoMap({
         const match = featuresByGersIdRef.current.get(gersId);
         const taskMatch = tasksByGersIdRef.current.get(gersId);
         const status = taskMatch?.status ?? match?.status ?? "";
+        const repairCost = taskMatch ? {
+          food: taskMatch.cost_food ?? 0,
+          equipment: taskMatch.cost_equipment ?? 0,
+          energy: taskMatch.cost_energy ?? 0,
+          materials: taskMatch.cost_materials ?? 0
+        } : null;
         return {
           type: "road",
           position: { x: point.x, y: point.y },
           data: {
             road_class: match?.road_class ?? feature.properties?.class ?? "road",
             health: normalizePercent(match?.health ?? 100),
-            status
+            status,
+            repairCost
           }
         };
       }
@@ -668,7 +675,7 @@ export default function DemoMap({
       if (!featuresAtPoint.length) {
         // Delay clearing for crew tooltips to allow clicking the button
         if (tooltipDismissRef.current) window.clearTimeout(tooltipDismissRef.current);
-        tooltipDismissRef.current = window.setTimeout(() => setTooltipData(null), 400);
+        tooltipDismissRef.current = window.setTimeout(() => setTooltipData(null), 800);
         return;
       }
 
@@ -1077,7 +1084,7 @@ export default function DemoMap({
 
     window.addEventListener("nightfall:fly_to_feature", handleFlyToFeature);
     return () => window.removeEventListener("nightfall:fly_to_feature", handleFlyToFeature);
-  }, [isLoaded]);
+  }, [isLoaded, hasOvertureSources]);
 
   // Fly to convoy event handler
   useEffect(() => {
@@ -1214,7 +1221,6 @@ export default function DemoMap({
     ];
 
     map.current.setFilter("game-roads-task-highlight-glow", taskFilter);
-    map.current.setFilter("game-roads-task-highlight-dash", taskFilter);
   }, [queuedTaskRoadIds, isLoaded, hasOvertureSources]);
 
   // Animate repair pulse
@@ -1483,10 +1489,9 @@ export default function DemoMap({
           position = interpolatePath(pkg.path, easedProgress) as [number, number];
         }
 
-        // Calculate opacity for fade in/out
+        // Calculate opacity for fade out only (appear immediately)
         let opacity = 1;
-        if (rawProgress < 0.1) opacity = rawProgress / 0.1;
-        else if (rawProgress > 0.9) opacity = (1 - rawProgress) / 0.1;
+        if (rawProgress > 0.95) opacity = (1 - rawProgress) / 0.05;
 
         // Build trail with coarser sampling for performance
         const trailCoords: [number, number][] = [];

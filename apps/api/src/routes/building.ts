@@ -198,8 +198,8 @@ async function createImmediateTransfer(
       SELECT
         wf.gers_id,
         wf.region_id,
-        (wf.bbox_xmin + wf.bbox_xmax) / 2 AS source_lon,
-        (wf.bbox_ymin + wf.bbox_ymax) / 2 AS source_lat,
+        COALESCE(ST_X(ST_PointOnSurface(wf.geom)), (wf.bbox_xmin + wf.bbox_xmax) / 2) AS source_lon,
+        COALESCE(ST_Y(ST_PointOnSurface(wf.geom)), (wf.bbox_ymin + wf.bbox_ymax) / 2) AS source_lat,
         wfhc.h3_index
       FROM world_features wf
       JOIN world_feature_hex_cells wfhc ON wfhc.gers_id = wf.gers_id
@@ -226,8 +226,8 @@ async function createImmediateTransfer(
       hr.rust_level::float,
       ab.multiplier AS boost_multiplier,
       hub.gers_id AS hub_gers_id,
-      (hub.bbox_xmin + hub.bbox_xmax) / 2 AS hub_lon,
-      (hub.bbox_ymin + hub.bbox_ymax) / 2 AS hub_lat
+      COALESCE(ST_X(ST_PointOnSurface(hub.geom)), (hub.bbox_xmin + hub.bbox_xmax) / 2) AS hub_lon,
+      COALESCE(ST_Y(ST_PointOnSurface(hub.geom)), (hub.bbox_ymin + hub.bbox_ymax) / 2) AS hub_lat
     FROM hex_rust hr
     LEFT JOIN active_boost ab ON true
     LEFT JOIN world_features hub ON hub.gers_id = hr.hub_building_gers_id

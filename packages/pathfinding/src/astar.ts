@@ -264,3 +264,71 @@ export function buildWaypoints(
 
   return waypoints;
 }
+
+/**
+ * Perpendicular distance from a point to a line segment.
+ */
+function perpendicularDistance(point: Point, lineStart: Point, lineEnd: Point): number {
+  const dx = lineEnd[0] - lineStart[0];
+  const dy = lineEnd[1] - lineStart[1];
+  const lengthSquared = dx * dx + dy * dy;
+
+  if (lengthSquared === 0) {
+    return haversineDistanceMeters(point, lineStart);
+  }
+
+  // Project point onto line segment
+  const t = Math.max(0, Math.min(1,
+    ((point[0] - lineStart[0]) * dx + (point[1] - lineStart[1]) * dy) / lengthSquared
+  ));
+
+  const projected: Point = [
+    lineStart[0] + t * dx,
+    lineStart[1] + t * dy
+  ];
+
+  return haversineDistanceMeters(point, projected);
+}
+
+/**
+ * Ramer-Douglas-Peucker algorithm to simplify a path.
+ * Reduces waypoint count while preserving overall shape.
+ *
+ * @param waypoints - Array of waypoints to simplify
+ * @param epsilon - Maximum distance (meters) a point can deviate from the simplified line
+ * @returns Simplified waypoints array
+ */
+export function simplifyWaypoints<T extends { coord: Point }>(
+  waypoints: T[],
+  epsilon: number = 10
+): T[] {
+  if (waypoints.length <= 2) {
+    return waypoints;
+  }
+
+  // Find the point with maximum distance from the line segment
+  let maxDistance = 0;
+  let maxIndex = 0;
+  const startCoord = waypoints[0].coord;
+  const endCoord = waypoints[waypoints.length - 1].coord;
+
+  for (let i = 1; i < waypoints.length - 1; i++) {
+    const distance = perpendicularDistance(waypoints[i].coord, startCoord, endCoord);
+    if (distance > maxDistance) {
+      maxDistance = distance;
+      maxIndex = i;
+    }
+  }
+
+  // If max distance is greater than epsilon, recursively simplify
+  if (maxDistance > epsilon) {
+    const left = simplifyWaypoints(waypoints.slice(0, maxIndex + 1), epsilon);
+    const right = simplifyWaypoints(waypoints.slice(maxIndex), epsilon);
+
+    // Combine results, avoiding duplicate at join point
+    return [...left.slice(0, -1), ...right];
+  }
+
+  // All points are within epsilon, return just start and end
+  return [waypoints[0], waypoints[waypoints.length - 1]];
+}

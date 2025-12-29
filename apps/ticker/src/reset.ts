@@ -52,14 +52,14 @@ export async function performWeeklyReset(client: PoolLike) {
           waypoints = NULL,
           path_started_at = NULL,
           current_lng = (
-            SELECT (hub.bbox_xmin + hub.bbox_xmax) / 2
+            SELECT COALESCE(ST_X(ST_PointOnSurface(hub.geom)), (hub.bbox_xmin + hub.bbox_xmax) / 2)
             FROM hex_cells h
             JOIN world_features hub ON hub.gers_id = h.hub_building_gers_id
             WHERE h.region_id = c.region_id AND h.hub_building_gers_id IS NOT NULL
             LIMIT 1
           ),
           current_lat = (
-            SELECT (hub.bbox_ymin + hub.bbox_ymax) / 2
+            SELECT COALESCE(ST_Y(ST_PointOnSurface(hub.geom)), (hub.bbox_ymin + hub.bbox_ymax) / 2)
             FROM hex_cells h
             JOIN world_features hub ON hub.gers_id = h.hub_building_gers_id
             WHERE h.region_id = c.region_id AND h.hub_building_gers_id IS NOT NULL

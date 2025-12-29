@@ -223,7 +223,7 @@ export default function FreshCheck({ config, difficulty, onComplete }: FreshChec
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [phase, currentItem?.id, speed, itemsNeeded, onComplete, spawnIngredient]);
+  }, [phase, currentItem, speed, itemsNeeded, onComplete, spawnIngredient]);
 
   // Countdown before game starts
   useEffect(() => {

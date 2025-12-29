@@ -247,8 +247,8 @@ export async function enqueueResourceTransfers(
       SELECT
         h.h3_index,
         h.hub_building_gers_id,
-        (hub.bbox_xmin + hub.bbox_xmax) / 2 AS hub_lon,
-        (hub.bbox_ymin + hub.bbox_ymax) / 2 AS hub_lat
+        COALESCE(ST_X(ST_PointOnSurface(hub.geom)), (hub.bbox_xmin + hub.bbox_xmax) / 2) AS hub_lon,
+        COALESCE(ST_Y(ST_PointOnSurface(hub.geom)), (hub.bbox_ymin + hub.bbox_ymax) / 2) AS hub_lat
       FROM hex_cells AS h
       JOIN world_features AS hub ON hub.gers_id = h.hub_building_gers_id
     )
@@ -256,8 +256,8 @@ export async function enqueueResourceTransfers(
       bo.source_gers_id,
       bo.region_id,
       hub_lookup.hub_building_gers_id AS hub_gers_id,
-      (wf.bbox_xmin + wf.bbox_xmax) / 2 AS source_lon,
-      (wf.bbox_ymin + wf.bbox_ymax) / 2 AS source_lat,
+      COALESCE(ST_X(ST_PointOnSurface(wf.geom)), (wf.bbox_xmin + wf.bbox_xmax) / 2) AS source_lon,
+      COALESCE(ST_Y(ST_PointOnSurface(wf.geom)), (wf.bbox_ymin + wf.bbox_ymax) / 2) AS source_lat,
       hub_lookup.hub_lon,
       hub_lookup.hub_lat,
       bo.food_amount,

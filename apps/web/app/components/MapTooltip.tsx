@@ -3,6 +3,7 @@
 import React, { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { getHealthColor, getRustColor } from "../lib/metricColors";
 import { formatLabel } from "../lib/formatters";
+import { RESOURCE_CONFIG } from "../lib/resourceConstants";
 
 export type TooltipData = {
   type: "road" | "building" | "hex" | "crew";
@@ -14,6 +15,12 @@ export type RoadData = {
   road_class: string;
   health: number;
   status: string;
+  repairCost?: {
+    food: number;
+    equipment: number;
+    energy: number;
+    materials: number;
+  } | null;
 };
 
 export type BuildingData = {
@@ -114,6 +121,29 @@ function RoadTooltipContent({ data }: { data: RoadData }) {
           <span className="tooltip-value status-badge">{formatLabel(data.status)}</span>
         </div>
       ) : null}
+      {data.repairCost && (
+        <div className="tooltip-cost-section">
+          <div className="tooltip-cost-label">Repair Cost:</div>
+          <div className="tooltip-cost-grid">
+            <span className="tag food">
+              <span className="tag-emoji">{RESOURCE_CONFIG.food.emoji}</span>
+              {data.repairCost.food}
+            </span>
+            <span className="tag equipment">
+              <span className="tag-emoji">{RESOURCE_CONFIG.equipment.emoji}</span>
+              {data.repairCost.equipment}
+            </span>
+            <span className="tag energy">
+              <span className="tag-emoji">{RESOURCE_CONFIG.energy.emoji}</span>
+              {data.repairCost.energy}
+            </span>
+            <span className="tag materials">
+              <span className="tag-emoji">{RESOURCE_CONFIG.materials.emoji}</span>
+              {data.repairCost.materials}
+            </span>
+          </div>
+        </div>
+      )}
     </>
   );
 }

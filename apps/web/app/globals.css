@@ -286,6 +286,14 @@ body {
   border-radius: 4px;
   font-size: 10px;
   font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.tag-emoji {
+  font-size: 9px;
+  line-height: 1;
 }
 
 .tag.labor {
@@ -293,9 +301,46 @@ body {
   color: #3eb0c0;
 }
 
+.tag.food {
+  background: rgba(74, 222, 128, 0.2);
+  color: #4ade80;
+}
+
+.tag.equipment {
+  background: rgba(249, 115, 22, 0.2);
+  color: #f97316;
+}
+
+.tag.energy {
+  background: rgba(250, 204, 21, 0.2);
+  color: #facc15;
+}
+
 .tag.materials {
-  background: rgba(240, 138, 78, 0.2);
-  color: #f08a4e;
+  background: rgba(129, 140, 248, 0.2);
+  color: #818cf8;
+}
+
+.tooltip-cost-section {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.tooltip-cost-label {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 6px;
+}
+
+.tooltip-cost-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+}
+
+.tooltip-cost-grid .tag {
+  text-align: center;
 }
 
 .tooltip-fly-btn {
