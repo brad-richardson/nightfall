@@ -1,6 +1,63 @@
 import { expect, test } from "@playwright/test";
 import { setupApiMocks } from "./test-utils";
 
+test("attribution bubble auto-retracts after 4 seconds", async ({ page }) => {
+  await setupApiMocks(page);
+  await page.goto("/");
+
+  // Wait for map to load
+  const mapCanvas = page.locator(".maplibregl-canvas");
+  await expect(mapCanvas).toBeVisible();
+
+  // Find the compact attribution control
+  const attribControl = page.locator(".maplibregl-ctrl-attrib.maplibregl-compact");
+  await expect(attribControl).toBeVisible();
+
+  // Click to expand the attribution bubble
+  const attribButton = page.locator(".maplibregl-ctrl-attrib-button");
+  await attribButton.click();
+
+  // Verify it expanded (has maplibregl-compact-show class)
+  await expect(attribControl).toHaveClass(/maplibregl-compact-show/);
+
+  // Wait for auto-retract (4 seconds + buffer)
+  await page.waitForTimeout(4500);
+
+  // Verify it collapsed (no longer has maplibregl-compact-show class)
+  await expect(attribControl).not.toHaveClass(/maplibregl-compact-show/);
+});
+
+test("attribution bubble clears timeout on manual collapse", async ({ page }) => {
+  await setupApiMocks(page);
+  await page.goto("/");
+
+  // Wait for map to load
+  const mapCanvas = page.locator(".maplibregl-canvas");
+  await expect(mapCanvas).toBeVisible();
+
+  const attribControl = page.locator(".maplibregl-ctrl-attrib.maplibregl-compact");
+  const attribButton = page.locator(".maplibregl-ctrl-attrib-button");
+
+  // Expand the bubble
+  await attribButton.click();
+  await expect(attribControl).toHaveClass(/maplibregl-compact-show/);
+
+  // Wait 2 seconds (less than the 4 second auto-retract)
+  await page.waitForTimeout(2000);
+
+  // Manually collapse by clicking again (MapLibre toggles on click)
+  await attribControl.click();
+
+  // Verify it collapsed
+  await expect(attribControl).not.toHaveClass(/maplibregl-compact-show/);
+
+  // Wait another 3 seconds to ensure no error from stale timeout
+  await page.waitForTimeout(3000);
+
+  // Should still be collapsed (no unexpected state changes)
+  await expect(attribControl).not.toHaveClass(/maplibregl-compact-show/);
+});
+
 test("map renders and features are selectable", async ({ page }) => {
   // Set up API mocks before navigating
   await setupApiMocks(page);

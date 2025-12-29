@@ -333,25 +333,32 @@ export default function DemoMap({
     );
 
     // Auto-retract attribution bubble after 4 seconds
+    let attribRetractTimeout: ReturnType<typeof setTimeout> | null = null;
+    let attribObserver: MutationObserver | null = null;
     const attribContainer = mapContainer.current.querySelector('.maplibregl-ctrl-attrib');
     if (attribContainer) {
-      let retractTimeout: ReturnType<typeof setTimeout> | null = null;
-      const observer = new MutationObserver((mutations) => {
+      attribObserver = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
           if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
             const target = mutation.target as HTMLElement;
             if (target.classList.contains('maplibregl-compact-show')) {
               // Clear any existing timeout
-              if (retractTimeout) clearTimeout(retractTimeout);
+              if (attribRetractTimeout) clearTimeout(attribRetractTimeout);
               // Auto-retract after 4 seconds
-              retractTimeout = setTimeout(() => {
+              attribRetractTimeout = setTimeout(() => {
                 target.classList.remove('maplibregl-compact-show');
               }, 4000);
+            } else {
+              // User manually collapsed - clear any pending timeout
+              if (attribRetractTimeout) {
+                clearTimeout(attribRetractTimeout);
+                attribRetractTimeout = null;
+              }
             }
           }
         }
       });
-      observer.observe(attribContainer, { attributes: true, attributeFilter: ['class'] });
+      attribObserver.observe(attribContainer, { attributes: true, attributeFilter: ['class'] });
     }
 
     // Expose for testing
@@ -527,6 +534,10 @@ export default function DemoMap({
     }
 
     return () => {
+      // Clean up attribution observer and timeout
+      if (attribObserver) attribObserver.disconnect();
+      if (attribRetractTimeout) clearTimeout(attribRetractTimeout);
+
       mapInstance.remove();
       if (map.current === mapInstance) {
         map.current = null;
