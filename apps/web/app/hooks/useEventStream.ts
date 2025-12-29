@@ -67,6 +67,10 @@ export function useEventStream(
           let data = {};
           try {
             data = JSON.parse(e.data);
+            // Debug logging for rust_bulk
+            if ((data as Record<string, unknown>)?.type === "rust_bulk") {
+              console.debug("[useEventStream] Received rust_bulk event:", data);
+            }
           } catch (err) {
             console.error("Failed to parse event data", err);
           }

@@ -322,13 +322,13 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: RouteContext) {
     }
 
     // Notify clients of hex changes
-    await pool.query("SELECT pg_notify('world_delta', $1)", [
-      JSON.stringify({
-        type: "rust_bulk",
-        region_id: body.region_id,
-        rust_level: body.rust_level
-      })
-    ]);
+    const notifyPayload = JSON.stringify({
+      type: "rust_bulk",
+      region_id: body.region_id,
+      rust_level: body.rust_level
+    });
+    app.log.info({ payload: notifyPayload }, "Sending rust_bulk notification via pg_notify");
+    await pool.query("SELECT pg_notify('world_delta', $1)", [notifyPayload]);
 
     return { ok: true, hexes_updated: updateResult.rowCount };
   });

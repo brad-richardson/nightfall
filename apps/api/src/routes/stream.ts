@@ -47,6 +47,10 @@ export function registerStreamRoutes(app: FastifyInstance, ctx: RouteContext) {
     try {
       await eventStream.start?.();
       unsubscribe = eventStream.subscribe((payload) => {
+        // Debug logging for rust_bulk
+        if ((payload.data as Record<string, unknown>)?.type === "rust_bulk") {
+          app.log.info({ event: payload.event, data: payload.data }, "[SSE] Writing rust_bulk to client");
+        }
         writeSseEvent(reply.raw, payload.event, payload.data);
         if (once) {
           reply.raw.end();

@@ -115,6 +115,10 @@ export function createDbEventStream(
       if (message.payload) {
         try {
           data = JSON.parse(message.payload);
+          // Log rust_bulk notifications for debugging
+          if ((data as Record<string, unknown>)?.type === "rust_bulk") {
+            logger.error({ channel, data }, "[EventStream] Received rust_bulk notification");
+          }
         } catch (error) {
           logger.error({ err: error }, "invalid event payload");
           data = {};

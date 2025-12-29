@@ -554,6 +554,18 @@ export default function Dashboard({
       // Track batch fires for performance monitoring
       trackBatchFire(pending.dirty);
 
+      // Periodically clean up stale "In transit" items (runs every tick)
+      setResourceDeltas((prev) => {
+        const now = Date.now();
+        const cleaned = prev.filter(d => {
+          if (d.source !== "In transit") return true;
+          // Remove if ETA has passed (with 2s buffer)
+          if (d.arriveAt && d.arriveAt < now - 2000) return false;
+          return true;
+        });
+        return cleaned.length !== prev.length ? cleaned : prev;
+      });
+
       // Skip if no pending updates
       if (!pending.dirty) return;
 
@@ -582,7 +594,11 @@ export default function Dashboard({
       // Handle bulk rust update (admin console set-rust)
       if (pending.rustBulkUpdate !== null) {
         const newRust = pending.rustBulkUpdate;
-        setHexes((prev) => prev.map((h) => ({ ...h, rust_level: newRust })));
+        console.debug("[Dashboard] Applying rustBulkUpdate:", newRust);
+        setHexes((prev) => {
+          console.debug("[Dashboard] Updating", prev.length, "hexes to rust level:", newRust);
+          return prev.map((h) => ({ ...h, rust_level: newRust }));
+        });
         pending.rustBulkUpdate = null;
       }
 
@@ -668,11 +684,16 @@ export default function Dashboard({
             .filter(d => d.source === "Transfer arrived")
             .map(d => d.type)
         );
+        const now = Date.now();
         setResourceDeltas((prev) => {
-          // Filter out "In transit" items for types that have arrived
-          const filtered = arrivedTypes.size > 0
-            ? prev.filter(d => !(d.source === "In transit" && arrivedTypes.has(d.type)))
-            : prev;
+          // Filter out "In transit" items for types that have arrived OR whose ETA has passed
+          const filtered = prev.filter(d => {
+            if (d.source !== "In transit") return true;
+            if (arrivedTypes.has(d.type)) return false;
+            // Remove if ETA has passed (with 2s buffer for animation)
+            if (d.arriveAt && d.arriveAt < now - 2000) return false;
+            return true;
+          });
           return [...pending.resourceDeltas, ...filtered].slice(0, 6);
         });
         pending.resourceDeltas = [];
@@ -847,9 +868,13 @@ export default function Dashboard({
       };
 
       // Handle bulk rust update (admin console)
-      if (data.type === "rust_bulk" && data.region_id === regionRef.current.region_id && data.rust_level !== undefined) {
-        pending.rustBulkUpdate = data.rust_level;
-        pending.dirty = true;
+      if (data.type === "rust_bulk") {
+        console.debug("[SSE] rust_bulk received:", data, "current region:", regionRef.current.region_id);
+        if (data.region_id === regionRef.current.region_id && data.rust_level !== undefined) {
+          console.debug("[SSE] Setting rustBulkUpdate to:", data.rust_level);
+          pending.rustBulkUpdate = data.rust_level;
+          pending.dirty = true;
+        }
       }
 
       if (data.hex_updates?.length) {
