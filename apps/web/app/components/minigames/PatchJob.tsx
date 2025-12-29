@@ -486,7 +486,11 @@ export default function PatchJob({ config, difficulty, onComplete }: PatchJobPro
 
     // Capture pointer for reliable touch tracking across the element
     const target = e.currentTarget as HTMLElement;
-    target.setPointerCapture(e.pointerId);
+    try {
+      target.setPointerCapture(e.pointerId);
+    } catch {
+      // Pointer capture can fail if pointerId is invalid or element disconnected
+    }
 
     const pos = getRelativePosition(e.clientX, e.clientY);
     if (pos) {
@@ -508,8 +512,12 @@ export default function PatchJob({ config, difficulty, onComplete }: PatchJobPro
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
     // Release pointer capture
     const target = e.currentTarget as HTMLElement;
-    if (target.hasPointerCapture(e.pointerId)) {
-      target.releasePointerCapture(e.pointerId);
+    try {
+      if (target.hasPointerCapture(e.pointerId)) {
+        target.releasePointerCapture(e.pointerId);
+      }
+    } catch {
+      // Pointer capture can fail if pointerId is invalid or element disconnected
     }
     setIsWelding(false);
   }, []);
@@ -517,8 +525,12 @@ export default function PatchJob({ config, difficulty, onComplete }: PatchJobPro
   const handlePointerCancel = useCallback((e: React.PointerEvent) => {
     // Handle pointer cancel (e.g., system interruption)
     const target = e.currentTarget as HTMLElement;
-    if (target.hasPointerCapture(e.pointerId)) {
-      target.releasePointerCapture(e.pointerId);
+    try {
+      if (target.hasPointerCapture(e.pointerId)) {
+        target.releasePointerCapture(e.pointerId);
+      }
+    } catch {
+      // Pointer capture can fail if pointerId is invalid or element disconnected
     }
     setIsWelding(false);
   }, []);
@@ -527,7 +539,12 @@ export default function PatchJob({ config, difficulty, onComplete }: PatchJobPro
     // Only stop welding on leave if we don't have pointer capture
     // (pointer capture keeps tracking even when cursor/finger leaves the element)
     const target = e.currentTarget as HTMLElement;
-    if (!target.hasPointerCapture(e.pointerId)) {
+    try {
+      if (!target.hasPointerCapture(e.pointerId)) {
+        setIsWelding(false);
+      }
+    } catch {
+      // hasPointerCapture can fail if pointerId is invalid
       setIsWelding(false);
     }
   }, []);
