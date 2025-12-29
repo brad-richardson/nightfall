@@ -10,7 +10,7 @@ import {
 } from "@nightfall/pathfinding";
 import { loadGraphForRegion } from "./resources";
 
-const CREW_TRAVEL_MPS = 15; // Crew travel speed in meters per second (50% faster)
+const CREW_TRAVEL_MPS = 20; // Crew travel speed in meters per second
 const CREW_TRAVEL_MIN_S = 5;
 // Max crew travel time is 75% of resource max (60s) to ensure crews arrive before convoys
 const CREW_TRAVEL_MAX_S = 45;
@@ -32,6 +32,36 @@ function buildStraightLineWaypoints(
     { coord: start, arrive_at: new Date(departAtMs).toISOString() },
     { coord: end, arrive_at: new Date(departAtMs + safeTravelTimeS * 1000).toISOString() }
   ];
+}
+
+/**
+ * Rescale waypoint timestamps to fit within a target travel time.
+ * Keeps the same path but adjusts animation speed.
+ */
+function rescaleWaypointTimestamps(
+  waypoints: CrewWaypoint[],
+  departAtMs: number,
+  targetTravelTimeS: number
+): CrewWaypoint[] {
+  if (waypoints.length < 2) return waypoints;
+
+  const firstArriveMs = Date.parse(waypoints[0].arrive_at);
+  const lastArriveMs = Date.parse(waypoints[waypoints.length - 1].arrive_at);
+  const originalDurationMs = lastArriveMs - firstArriveMs;
+
+  if (originalDurationMs <= 0) return waypoints;
+
+  const targetDurationMs = targetTravelTimeS * 1000;
+  const scale = targetDurationMs / originalDurationMs;
+
+  return waypoints.map((wp) => {
+    const offsetMs = Date.parse(wp.arrive_at) - firstArriveMs;
+    const scaledOffsetMs = offsetMs * scale;
+    return {
+      coord: wp.coord,
+      arrive_at: new Date(departAtMs + scaledOffsetMs).toISOString()
+    };
+  });
 }
 
 export type CrewEvent = {
@@ -253,8 +283,12 @@ export async function dispatchCrews(pool: PoolLike): Promise<DispatchResult> {
         waypoints = buildStraightLineWaypoints(startPoint, roadPoint, departAt, travelTimeS);
       }
 
-      // Clamp travel time to min/max bounds
-      travelTimeS = Math.max(CREW_TRAVEL_MIN_S, Math.min(CREW_TRAVEL_MAX_S, travelTimeS));
+      // Clamp travel time to min/max bounds and rescale waypoints to match
+      const clampedTravelTimeS = Math.max(CREW_TRAVEL_MIN_S, Math.min(CREW_TRAVEL_MAX_S, travelTimeS));
+      if (waypoints && clampedTravelTimeS !== travelTimeS) {
+        waypoints = rescaleWaypointTimestamps(waypoints, departAt, clampedTravelTimeS);
+      }
+      travelTimeS = clampedTravelTimeS;
 
       await pool.query(
         `UPDATE regions SET
@@ -858,7 +892,12 @@ async function dispatchCrewToTask(
     }
   }
 
-  travelTimeS = Math.max(CREW_TRAVEL_MIN_S, Math.min(CREW_TRAVEL_MAX_S, travelTimeS));
+  // Clamp travel time to min/max bounds and rescale waypoints to match
+  const clampedTravelTimeS = Math.max(CREW_TRAVEL_MIN_S, Math.min(CREW_TRAVEL_MAX_S, travelTimeS));
+  if (waypoints && clampedTravelTimeS !== travelTimeS) {
+    waypoints = rescaleWaypointTimestamps(waypoints, departAt, clampedTravelTimeS);
+  }
+  travelTimeS = clampedTravelTimeS;
 
   // Deduct resources
   await pool.query(
@@ -977,7 +1016,12 @@ async function returnCrewToHub(
     waypoints = buildStraightLineWaypoints(startPoint, hubPoint, departAt, travelTimeS);
   }
 
-  travelTimeS = Math.max(CREW_TRAVEL_MIN_S, Math.min(CREW_TRAVEL_MAX_S, travelTimeS));
+  // Clamp travel time to min/max bounds and rescale waypoints to match
+  const clampedTravelTimeS = Math.max(CREW_TRAVEL_MIN_S, Math.min(CREW_TRAVEL_MAX_S, travelTimeS));
+  if (waypoints && clampedTravelTimeS !== travelTimeS) {
+    waypoints = rescaleWaypointTimestamps(waypoints, departAt, clampedTravelTimeS);
+  }
+  travelTimeS = clampedTravelTimeS;
 
   // Update crew to traveling (no active_task_id since returning to hub)
   await pool.query(

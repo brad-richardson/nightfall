@@ -39,9 +39,10 @@ export async function spawnDegradedRoadTasks(pool: PoolLike) {
   const costEnergyCases = buildCostCase("energy");
   const costMaterialsCases = buildCostCase("materials");
 
-  const durationCases = Object.entries(ROAD_CLASSES)
-    .map(([cls, info]) => `WHEN '${cls}' THEN ${info.durationS}`)
-    .join("\n        ");
+  // Duration formula: base_seconds + (length_meters * seconds_per_meter)
+  // Short roads (~50m) = 2 + 1 = 3s, Medium roads (~200m) = 2 + 4 = 6s, Long roads (~500m) = 2 + 10 = 12s
+  const BASE_DURATION_S = 2;
+  const SECONDS_PER_METER = 0.02;
 
   const repairCases = Object.entries(ROAD_CLASSES)
     .map(([cls, info]) => `WHEN '${cls}' THEN ${info.repairAmount}`)
@@ -87,10 +88,8 @@ export async function spawnDegradedRoadTasks(pool: PoolLike) {
         ${costMaterialsCases}
         ELSE 20
       END AS cost_materials,
-      CASE wf.road_class
-        ${durationCases}
-        ELSE 40
-      END AS duration_s,
+      -- Duration based on road length: base_seconds + (length_meters * seconds_per_meter)
+      GREATEST(${BASE_DURATION_S}, ${BASE_DURATION_S} + COALESCE(wf.length_meters, 100) * ${SECONDS_PER_METER})::int AS duration_s,
       CASE wf.road_class
         ${repairCases}
         ELSE 20

@@ -448,7 +448,8 @@ export function buildRoadsQuery(roadsPath: string, region: RegionConfig, hexCove
         id,
         bbox,
         subtype,
-        class
+        class,
+        geometry
       FROM read_parquet('${roadsPath}')
       WHERE
         bbox.xmin > ${region.bbox.xmin} AND
@@ -1845,13 +1846,16 @@ async function main() {
     await runDuckDB(buildRoadsQuery(roadsPath, region, hexCoverageWkt));
     
     const roads = await runDuckDB(`
-      SELECT 
+      SELECT
         id,
         bbox.xmin as xmin,
         bbox.ymin as ymin,
         bbox.xmax as xmax,
         bbox.ymax as ymax,
-        class
+        class,
+        -- Calculate length in meters from WGS84 geometry
+        -- ST_Length gives degrees, convert using lat-adjusted factor
+        ST_Length(geometry) * 111320 * cos(radians((bbox.ymin + bbox.ymax) / 2)) as length_meters
       FROM roads_raw
     `);
 
@@ -1891,7 +1895,7 @@ async function main() {
       const hexesToCreate = new Set<string>();
       
       chunk.forEach((r: any, idx: number) => {
-        const offset = idx * 8;
+        const offset = idx * 9;
         const bbox = { xmin: r.xmin, ymin: r.ymin, xmax: r.xmax, ymax: r.ymax };
         const cells = bboxToCells(bbox, H3_RESOLUTION);
 
@@ -1902,17 +1906,18 @@ async function main() {
         });
 
         placeHolders.push(
-          `($${offset + 1}, 'road', $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8})`
+          `($${offset + 1}, 'road', $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9})`
         );
         values.push(
-          r.id, 
+          r.id,
           region.regionId,
           r.xmin,
           r.ymin,
           r.xmax,
           r.ymax,
           JSON.stringify({ original_class: r.class }),
-          r.class
+          r.class,
+          r.length_meters
         );
       });
 
@@ -1934,15 +1939,17 @@ async function main() {
           bbox_xmax,
           bbox_ymax,
           properties,
-          road_class
+          road_class,
+          length_meters
         ) VALUES ${placeHolders.join(", ")}
-        ON CONFLICT (gers_id) DO UPDATE SET 
+        ON CONFLICT (gers_id) DO UPDATE SET
           bbox_xmin = EXCLUDED.bbox_xmin,
           bbox_ymin = EXCLUDED.bbox_ymin,
           bbox_xmax = EXCLUDED.bbox_xmax,
           bbox_ymax = EXCLUDED.bbox_ymax,
           properties = EXCLUDED.properties,
-          road_class = EXCLUDED.road_class
+          road_class = EXCLUDED.road_class,
+          length_meters = EXCLUDED.length_meters
       `;
       
       await client.query(query, values);
