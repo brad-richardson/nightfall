@@ -45,8 +45,8 @@ test("attribution bubble clears timeout on manual collapse", async ({ page }) =>
   // Wait 2 seconds (less than the 4 second auto-retract)
   await page.waitForTimeout(2000);
 
-  // Manually collapse by clicking again (MapLibre toggles on click)
-  await attribControl.click();
+  // Manually collapse by clicking the close button
+  await attribButton.click();
 
   // Verify it collapsed
   await expect(attribControl).not.toHaveClass(/maplibregl-compact-show/);
