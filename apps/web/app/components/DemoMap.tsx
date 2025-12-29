@@ -299,6 +299,7 @@ export default function DemoMap({
     const mapInstance = new maplibregl.Map({
       container: mapContainer.current,
       maxBounds,
+      attributionControl: false,
       style: {
         version: 8,
         name: "Nightfall Hex Dystopian",
@@ -310,6 +311,19 @@ export default function DemoMap({
       pitch: 45
     });
     map.current = mapInstance;
+
+    // Add compact attribution control with additional attributions
+    mapInstance.addControl(
+      new maplibregl.AttributionControl({
+        compact: true,
+        customAttribution: [
+          '© <a href="https://overturemaps.org">Overture Maps</a>',
+          '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+          '<a href="https://h3geo.org">H3</a>'
+        ]
+      }),
+      "bottom-left"
+    );
 
     // Expose for testing
     if (typeof window !== "undefined") {
