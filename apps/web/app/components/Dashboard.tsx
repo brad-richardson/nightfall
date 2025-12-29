@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import DemoMap from "./DemoMap";
 import PhaseIndicator from "./PhaseIndicator";
-import TaskList from "./TaskList";
 import FeaturePanel from "./FeaturePanel";
 import MobileSidebar from "./MobileSidebar";
 import RegionalHealthRing from "./RegionalHealthRing";
@@ -92,66 +91,125 @@ const RESOURCE_COLORS: Record<ResourceType, string> = {
 const MOBILE_MAX_WIDTH = "(max-width: 1023px)";
 const HEADER_AUTO_COLLAPSE_DELAY_MS = 3000;
 
-function ResourceTicker({ deltas }: { deltas: ResourceDelta[] }) {
+type ActiveTask = {
+  task_id: string;
+  target_gers_id: string;
+  task_type: string;
+  status: string;
+};
+
+function ActiveEvents({ deltas, activeTasks, features }: { deltas: ResourceDelta[]; activeTasks: ActiveTask[]; features: Feature[] }) {
   const handleFlyToConvoy = (transferId: string) => {
     window.dispatchEvent(new CustomEvent("nightfall:fly_to_convoy", {
       detail: { transfer_id: transferId }
     }));
   };
 
+  const handleFlyToTask = (gersId: string) => {
+    window.dispatchEvent(new CustomEvent("nightfall:fly_to_feature", {
+      detail: { gers_id: gersId }
+    }));
+  };
+
+  const getFeatureName = (gersId: string) => {
+    const feature = features.find(f => f.gers_id === gersId);
+    return feature?.name || "Road segment";
+  };
+
+  const formatTaskType = (taskType: string) => {
+    return taskType.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  };
+
+  const hasActivity = deltas.length > 0 || activeTasks.length > 0;
+
   return (
-    <div className="flex flex-col gap-2 rounded-2xl border border-white/20 bg-[rgba(12,16,20,0.45)] px-4 py-3 shadow-[0_12px_30px_rgba(0,0,0,0.35)] backdrop-blur-md">
-      <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-white/60">
+    <div className="flex flex-col gap-2 rounded-2xl border border-white/20 bg-[rgba(12,16,20,0.45)] px-4 py-3 shadow-[0_12px_30px_rgba(0,0,0,0.35)] backdrop-blur-md max-h-[40vh]">
+      <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-white/60 flex-shrink-0">
         <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-[color:var(--night-teal)] shadow-[0_0_8px_var(--night-teal)]" />
-        Resource Events
+        Active Events
       </div>
-      <div className="space-y-1">
-        {deltas.length === 0 ? (
+      <div className="space-y-1 overflow-y-auto flex-1 min-h-0">
+        {!hasActivity ? (
           <div className="text-[11px] text-white/40">Awaiting activity...</div>
         ) : (
-          deltas.slice(0, 4).map((item, idx) => {
-            const color = RESOURCE_COLORS[item.type];
-            return (
+          <>
+            {/* Active repair tasks */}
+            {activeTasks.map((task) => (
               <div
-                key={item.ts + idx}
+                key={task.task_id}
                 className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2 text-[11px] text-white/80 animate-[fade-in_400ms_ease]"
               >
                 <div className="flex items-center gap-2">
                   <span
-                    className="h-6 w-6 rounded-lg text-xs font-bold text-white flex items-center justify-center"
+                    className="h-6 w-6 rounded-lg text-xs font-bold text-white flex items-center justify-center flex-shrink-0"
                     style={{
-                      background: `linear-gradient(135deg, ${color}99, ${color}66)`,
-                      boxShadow: `0 0 12px ${color}40`
+                      background: "linear-gradient(135deg, #f59e0b99, #f59e0b66)",
+                      boxShadow: "0 0 12px #f59e0b40"
                     }}
                   >
-                    {item.source === "In transit" ? "→" : item.delta > 0 ? "+" : "−"}
+                    ⚙
                   </span>
-                  <div className="leading-tight">
-                    <div className="font-semibold">
-                      {RESOURCE_LABELS[item.type]} {item.source === "In transit" ? "departing" : item.delta > 0 ? "added" : "spent"} {Math.abs(Math.round(item.delta))}
-                    </div>
-                    <div className="text-[10px] uppercase tracking-[0.2em] text-white/40">{item.source}</div>
+                  <div className="leading-tight min-w-0">
+                    <div className="font-semibold">{formatTaskType(task.task_type)}</div>
+                    <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 truncate">{getFeatureName(task.target_gers_id)}</div>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  {item.source === "In transit" && item.transferId && (
-                    <button
-                      type="button"
-                      onClick={() => handleFlyToConvoy(item.transferId!)}
-                      className="rounded-full p-1 text-white/40 transition-colors hover:bg-white/10 hover:text-white"
-                      title="Fly to convoy"
-                      aria-label="Fly to convoy on map"
-                    >
-                      <Navigation className="h-3 w-3" />
-                    </button>
-                  )}
-                  <span className="text-[10px] text-white/40">
-                    {new Date(item.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                  </span>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => handleFlyToTask(task.target_gers_id)}
+                  className="rounded-full p-1 text-white/40 transition-colors hover:bg-white/10 hover:text-white flex-shrink-0"
+                  title="Fly to repair site"
+                  aria-label="Fly to repair site on map"
+                >
+                  <Navigation className="h-3 w-3" />
+                </button>
               </div>
-            );
-          })
+            ))}
+            {/* Resource transfers */}
+            {deltas.map((item, idx) => {
+              const color = RESOURCE_COLORS[item.type];
+              return (
+                <div
+                  key={item.ts + idx}
+                  className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2 text-[11px] text-white/80 animate-[fade-in_400ms_ease]"
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="h-6 w-6 rounded-lg text-xs font-bold text-white flex items-center justify-center flex-shrink-0"
+                      style={{
+                        background: `linear-gradient(135deg, ${color}99, ${color}66)`,
+                        boxShadow: `0 0 12px ${color}40`
+                      }}
+                    >
+                      {item.source === "In transit" ? "→" : item.delta > 0 ? "+" : "−"}
+                    </span>
+                    <div className="leading-tight min-w-0">
+                      <div className="font-semibold">
+                        {RESOURCE_LABELS[item.type]} {item.source === "In transit" ? "in transit" : item.delta > 0 ? "added" : "spent"} {Math.abs(Math.round(item.delta))}
+                      </div>
+                      <div className="text-[10px] uppercase tracking-[0.2em] text-white/40">{item.source}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {item.source === "In transit" && item.transferId && (
+                      <button
+                        type="button"
+                        onClick={() => handleFlyToConvoy(item.transferId!)}
+                        className="rounded-full p-1 text-white/40 transition-colors hover:bg-white/10 hover:text-white"
+                        title="Fly to convoy"
+                        aria-label="Fly to convoy on map"
+                      >
+                        <Navigation className="h-3 w-3" />
+                      </button>
+                    )}
+                    <span className="text-[10px] text-white/40">
+                      {new Date(item.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </>
         )}
       </div>
     </div>
@@ -520,6 +578,7 @@ export default function Dashboard({
       // Track spawned IDs to prevent duplicates across multiple refreshes
       if (data.resource_transfers) {
         const now = Date.now();
+        const pending = pendingUpdatesRef.current;
         for (const transfer of data.resource_transfers) {
           const arriveAt = Date.parse(transfer.arrive_at);
           // Only spawn if not already spawned and hasn't arrived yet
@@ -539,6 +598,15 @@ export default function Dashboard({
                 path_waypoints: transfer.path_waypoints
               }
             }));
+            // Also add to resource deltas for the ticker panel
+            pending.resourceDeltas.push({
+              type: transfer.resource_type,
+              delta: -transfer.amount,
+              source: "In transit",
+              ts: Date.now(),
+              transferId: transfer.transfer_id
+            });
+            pending.dirty = true;
           }
         }
         // Clean up old transfer IDs that are no longer in-transit
@@ -927,6 +995,8 @@ export default function Dashboard({
   const cityScore = calculateCityScore(region.stats.health_avg, region.stats.rust_avg);
   const healthTrend = getHealthTrend();
 
+  const activeTasks = useMemo(() => region.tasks.filter(t => t.status === "active"), [region.tasks]);
+
   const SidebarContent = ({ resourceFeed }: { resourceFeed: ResourceDelta[] }) => (
     <>
       <div className="rounded-3xl border border-[var(--night-outline)] bg-white/60 p-5 shadow-[0_18px_40px_rgba(24,20,14,0.12)]">
@@ -948,11 +1018,7 @@ export default function Dashboard({
         </div>
       </div>
 
-      <ResourceTicker deltas={resourceFeed} />
-
-      <div className="rounded-3xl border border-[var(--night-outline)] bg-[color:var(--night-ink)]/80 p-5 text-white shadow-[0_18px_40px_rgba(24,20,14,0.2)]">
-        <TaskList tasks={region.tasks} crews={region.crews} features={features} userVotes={userVotes} resourcePools={{ food: region.pool_food, equipment: region.pool_equipment, energy: region.pool_energy, materials: region.pool_materials }} onVote={handleVote} />
-      </div>
+      <ActiveEvents deltas={resourceFeed} activeTasks={activeTasks} features={features} />
 
       <div className="rounded-3xl border border-[var(--night-outline)] bg-white/60 p-5 shadow-[0_18px_40px_rgba(24,20,14,0.12)]">
         <p className="text-xs uppercase tracking-[0.4em] text-[color:var(--night-ash)]">
@@ -1095,40 +1161,29 @@ export default function Dashboard({
               />
             </MapPanel>
 
-            <MapPanel title="Region Health" className="flex flex-col items-center">
-              <RegionalHealthRing
-                className="map-overlay-ring"
-                healthPercent={healthPercent}
-                rustLevel={rustPercent}
-                score={cityScore}
-                scoreTrend={healthTrend.scoreTrend}
-                scoreChange={healthTrend.scoreChange}
-                streak={healthTrend.streak}
-                streakType={healthTrend.streakType}
-              />
-              <div className="mt-3 grid w-full grid-cols-2 gap-3 text-xs">
-                <div className="rounded-xl bg-white/5 px-2 py-2 text-center">
-                  <p className="text-[9px] uppercase tracking-[0.2em] text-white/40">Roads Healthy</p>
-                  <p className="mt-1 text-sm font-semibold text-[color:var(--night-teal)]">
-                    {formatNumber(counts.healthy)}
-                  </p>
-                </div>
-                <div className="rounded-xl bg-white/5 px-2 py-2 text-center">
-                  <p className="text-[9px] uppercase tracking-[0.2em] text-white/40">Degraded</p>
-                  <p className="mt-1 text-sm font-semibold text-red-400">
-                    {formatNumber(counts.degraded)}
-                  </p>
+            <MapPanel title="Region Health">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-red-500/20 to-orange-500/20 text-sm font-bold text-white">
+                    {cityScore}
+                  </div>
+                  <div className="text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[color:var(--night-teal)]">{Math.round(healthPercent)}% Health</span>
+                      <span className="text-white/30">|</span>
+                      <span className="text-red-400">{Math.round(rustPercent)}% Rust</span>
+                    </div>
+                    <div className="mt-1 flex items-center gap-2 text-white/50">
+                      <span className="text-[color:var(--night-teal)]">{formatNumber(counts.healthy)}</span> healthy
+                      <span className="text-white/30">|</span>
+                      <span className="text-red-400">{formatNumber(counts.degraded)}</span> degraded
+                    </div>
+                  </div>
                 </div>
               </div>
             </MapPanel>
 
-            <ResourceTicker deltas={resourceDeltas} />
-          </MapOverlay>
-
-          <MapOverlay position="bottom-left" className="!bottom-20 hidden w-[360px] h-[55vh] lg:flex flex-col">
-            <MapPanel title="Operations Queue" className="flex-1 min-h-0">
-              <TaskList tasks={region.tasks} crews={region.crews} features={features} userVotes={userVotes} resourcePools={{ food: region.pool_food, equipment: region.pool_equipment, energy: region.pool_energy, materials: region.pool_materials }} onVote={handleVote} />
-            </MapPanel>
+            <ActiveEvents deltas={resourceDeltas} activeTasks={activeTasks} features={features} />
           </MapOverlay>
 
           <MapOverlay position="bottom-left" className="z-40 !bottom-[calc(64px+env(safe-area-inset-bottom))] lg:!bottom-12">
