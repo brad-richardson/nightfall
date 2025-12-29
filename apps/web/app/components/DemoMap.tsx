@@ -336,6 +336,28 @@ export default function DemoMap({
       "bottom-left"
     );
 
+    // Auto-retract attribution bubble after 4 seconds
+    let attribRetractTimeout: ReturnType<typeof setTimeout> | null = null;
+    const attribButton = mapContainer.current.querySelector('.maplibregl-ctrl-attrib-button');
+    const attribContainer = mapContainer.current.querySelector('.maplibregl-ctrl-attrib');
+    const handleAttribClick = () => {
+      // Clear any existing timeout
+      if (attribRetractTimeout) {
+        clearTimeout(attribRetractTimeout);
+        attribRetractTimeout = null;
+      }
+      // Check if bubble is being expanded (will have class after click completes)
+      // Use requestAnimationFrame to check after MapLibre updates the class
+      requestAnimationFrame(() => {
+        if (attribContainer?.classList.contains('maplibregl-compact-show')) {
+          attribRetractTimeout = setTimeout(() => {
+            attribContainer.classList.remove('maplibregl-compact-show');
+          }, 4000);
+        }
+      });
+    };
+    attribButton?.addEventListener('click', handleAttribClick);
+
     // Expose for testing
     if (typeof window !== "undefined") {
       (window as unknown as { __MAP_INSTANCE__: maplibregl.Map }).__MAP_INSTANCE__ = mapInstance;
@@ -509,6 +531,10 @@ export default function DemoMap({
     }
 
     return () => {
+      // Clean up attribution listener and timeout
+      attribButton?.removeEventListener('click', handleAttribClick);
+      if (attribRetractTimeout) clearTimeout(attribRetractTimeout);
+
       mapInstance.remove();
       if (map.current === mapInstance) {
         map.current = null;
