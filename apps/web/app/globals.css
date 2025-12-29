@@ -150,10 +150,10 @@ body {
 
 .maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button::after {
   content: "i";
-  font-size: 12px;
+  font-family: Georgia, serif;
+  font-size: 14px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
+  font-style: italic;
   color: rgba(255, 255, 255, 0.7);
 }
 
