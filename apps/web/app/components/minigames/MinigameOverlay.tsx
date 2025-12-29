@@ -190,10 +190,12 @@ export default function MinigameOverlay({ onClose }: MinigameOverlayProps) {
 
   return (
     <div
-      className={`fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md transition-opacity duration-300 ${
+      className={`fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md transition-opacity duration-300 select-none ${
         exiting ? "opacity-0" : "opacity-100"
       }`}
       role="presentation"
+      style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none" }}
+      onContextMenu={(e) => e.preventDefault()}
     >
       <div
         ref={dialogRef}
