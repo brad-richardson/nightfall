@@ -58,7 +58,8 @@ function calculateHealthRestoration(
   }
 
   // Successful repair - restore based on performance
-  // 60% performance = 60% of remaining damage restored
+  // Formula: restorePercent = 0.5 + (performance * 0.5)
+  // 60% performance = 80% of remaining damage restored
   // 100% performance = 100% of damage restored (full heal)
   const damage = 100 - currentHealth;
   const restorePercent = 0.5 + (performance * 0.5); // 50%-100% of damage

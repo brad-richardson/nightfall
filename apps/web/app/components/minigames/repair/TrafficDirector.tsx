@@ -23,6 +23,7 @@ type Vehicle = {
   position: number; // 0-100, where 50 is the intersection
   speed: number;
   stopped: boolean;
+  collidedWith: Set<string>; // Track vehicles this one has already collided with
 };
 
 type LightState = "go" | "stop";
@@ -90,6 +91,7 @@ export default function TrafficDirector({ config, difficulty, onComplete }: Traf
       position: laneConfig.direction === "right" ? -20 : 120,
       speed: vehicleConfig.speed,
       stopped: false,
+      collidedWith: new Set<string>(),
     };
   }, []);
 
@@ -232,6 +234,11 @@ export default function TrafficDirector({ config, difficulty, onComplete }: Traf
         if (lane0Vehicles.length > 0 && lane1Vehicles.length > 0) {
           for (const v0 of lane0Vehicles) {
             for (const v1 of lane1Vehicles) {
+              // Skip if already collided with this vehicle
+              if (v0.collidedWith.has(v1.id) || v1.collidedWith.has(v0.id)) {
+                continue;
+              }
+
               // Simple overlap check
               const v0Config = VEHICLE_CONFIG[v0.type];
               const v1Config = VEHICLE_CONFIG[v1.type];
@@ -242,6 +249,9 @@ export default function TrafficDirector({ config, difficulty, onComplete }: Traf
 
               const overlap = !(v0Right < v1Left || v0Left > v1Right);
               if (overlap && !v0.stopped && !v1.stopped) {
+                // Mark as collided to prevent duplicate penalties
+                v0.collidedWith.add(v1.id);
+                v1.collidedWith.add(v0.id);
                 newScore += SCORE_MISS;
                 action = { text: "COLLISION!", color: "#ef4444" };
                 setCollisions((c) => c + 1);

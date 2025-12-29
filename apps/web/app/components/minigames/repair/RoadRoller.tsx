@@ -344,9 +344,14 @@ export default function RoadRoller({ config, difficulty, onComplete }: RoadRolle
       if (isRolling && rollerPosition) {
         const distance = getDistanceToPath(path, rollerPosition);
 
+        // Apply difficulty scaling to zone thresholds
+        const perfectZone = PERFECT_ZONE * difficulty.window_mult;
+        const greatZone = GREAT_ZONE * difficulty.window_mult;
+        const goodZone = GOOD_ZONE * difficulty.window_mult;
+
         // Only roll if close enough to the path
-        if (distance < GOOD_ZONE * difficulty.window_mult) {
-          const speedMultiplier = distance < PERFECT_ZONE ? 1.0 : distance < GREAT_ZONE ? 0.8 : 0.6;
+        if (distance < goodZone) {
+          const speedMultiplier = distance < perfectZone ? 1.0 : distance < greatZone ? 0.8 : 0.6;
 
           setRollerProgress((prev) => {
             const newProgress = Math.min(1, prev + rollSpeed * speedMultiplier * delta);
@@ -425,6 +430,57 @@ export default function RoadRoller({ config, difficulty, onComplete }: RoadRolle
     setIsRolling(false);
   }, []);
 
+  // Keyboard controls for accessibility
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (phase !== "playing" || !path) return;
+
+      const step = 10;
+      let newX = rollerPosition?.x ?? gameWidth / 2;
+      let newY = rollerPosition?.y ?? gameHeight / 2;
+
+      switch (e.key) {
+        case "ArrowUp":
+        case "w":
+        case "W":
+          e.preventDefault();
+          newY = Math.max(0, newY - step);
+          break;
+        case "ArrowDown":
+        case "s":
+        case "S":
+          e.preventDefault();
+          newY = Math.min(gameHeight, newY + step);
+          break;
+        case "ArrowLeft":
+        case "a":
+        case "A":
+          e.preventDefault();
+          newX = Math.max(0, newX - step);
+          break;
+        case "ArrowRight":
+        case "d":
+        case "D":
+          e.preventDefault();
+          newX = Math.min(gameWidth, newX + step);
+          break;
+        case " ":
+        case "Enter":
+          e.preventDefault();
+          setIsRolling(!isRolling);
+          return;
+        default:
+          return;
+      }
+
+      setRollerPosition({ x: newX, y: newY });
+      if (!isRolling) {
+        setIsRolling(true);
+      }
+    },
+    [phase, path, rollerPosition, isRolling, gameWidth, gameHeight]
+  );
+
   // Render countdown
   if (phase === "ready") {
     return (
@@ -469,12 +525,16 @@ export default function RoadRoller({ config, difficulty, onComplete }: RoadRolle
       {/* Game area */}
       <div
         ref={gameAreaRef}
-        className="relative mb-4 overflow-hidden rounded-2xl border-2 border-white/10 bg-gradient-to-b from-green-900/50 to-green-950/50"
+        className="relative mb-4 overflow-hidden rounded-2xl border-2 border-white/10 bg-gradient-to-b from-green-900/50 to-green-950/50 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
         style={{ width: gameWidth, height: gameHeight, touchAction: "none" }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerUp}
+        onKeyDown={handleKeyDown}
+        tabIndex={0}
+        role="application"
+        aria-label="Road roller game area. Use arrow keys or WASD to move the roller, Space or Enter to toggle rolling."
       >
         {/* Grass texture */}
         <div
@@ -521,8 +581,9 @@ export default function RoadRoller({ config, difficulty, onComplete }: RoadRolle
         {/* Touch hint */}
         {phase === "playing" && !isRolling && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="rounded-full bg-black/40 px-4 py-2 text-sm text-white/60 backdrop-blur-sm">
-              Touch & drag the roller
+            <div className="rounded-full bg-black/40 px-4 py-2 text-center text-sm text-white/60 backdrop-blur-sm">
+              <p>Touch & drag the roller</p>
+              <p className="text-xs">or use arrow keys / WASD</p>
             </div>
           </div>
         )}
