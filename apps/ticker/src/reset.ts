@@ -15,16 +15,17 @@ export async function performWeeklyReset(client: PoolLike) {
       WHERE gers_id IN (SELECT gers_id FROM world_features WHERE feature_type = 'road')
     `);
 
-    // 2. Clear Rust (outer = 0.3, inner = 0)
-    // We need max distance first
+    // 2. Seed Rust (outer edges up to 0.5, center = 0)
+    // We need max distance from hex_cells (not regions, which has distance_from_center = 0)
     const maxDistResult = await client.query<{ max_dist: number }>(
-      "SELECT MAX(distance_from_center) as max_dist FROM regions"
+      "SELECT MAX(distance_from_center) as max_dist FROM hex_cells"
     );
     const maxDist = maxDistResult.rows[0]?.max_dist || 1;
 
+    // Using power curve for steeper gradient near edges (more dramatic rust at boundaries)
     await client.query(`
       UPDATE hex_cells
-      SET rust_level = LEAST(0.3, distance_from_center / $1 * 0.3),
+      SET rust_level = LEAST(0.5, POWER(distance_from_center / $1, 1.5) * 0.5),
           updated_at = now()
     `, [maxDist]);
 
