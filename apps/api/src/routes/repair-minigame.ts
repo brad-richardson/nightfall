@@ -180,6 +180,10 @@ export function registerRepairMinigameRoutes(app: FastifyInstance) {
       phase,
     };
 
+    // Scale max possible score based on total rounds (extra rounds increase potential score)
+    const totalRounds = config.baseRounds + extraRounds;
+    const scaledMaxScore = Math.round(config.maxScore * (totalRounds / config.baseRounds));
+
     // Create repair minigame session
     const sessionResult = await pool.query<{ session_id: string }>(
       `
@@ -194,7 +198,7 @@ export function registerRepairMinigameRoutes(app: FastifyInstance) {
         roadGersId,
         selectedMinigame,
         JSON.stringify(difficulty),
-        config.maxScore,
+        scaledMaxScore,
         config.expectedDurationMs,
         currentHealth,
       ]
@@ -210,8 +214,8 @@ export function registerRepairMinigameRoutes(app: FastifyInstance) {
       current_health: currentHealth,
       target_health: 100,
       config: {
-        base_rounds: config.baseRounds + extraRounds,
-        max_score: config.maxScore,
+        base_rounds: totalRounds,
+        max_score: scaledMaxScore,
         expected_duration_ms: config.expectedDurationMs,
       },
       difficulty,
@@ -282,35 +286,35 @@ export function registerRepairMinigameRoutes(app: FastifyInstance) {
       return { ok: false, error: "session_already_completed" };
     }
 
-    // Anti-cheat: validate score and duration
-    if (score > session.max_possible_score) {
-      reply.status(400);
-      return { ok: false, error: "score_exceeds_maximum" };
-    }
-
+    // Anti-cheat: validate duration (score can legitimately exceed max due to extra rounds)
     const minDurationMs = session.expected_duration_ms * 0.3;
     if (durationMs < minDurationMs) {
       reply.status(400);
       return { ok: false, error: "duration_too_fast" };
     }
 
-    // Calculate health restoration based on performance
+    // Clamp score to reasonable bounds (extra rounds can push score above config max)
+    // Use 2x max as reasonable ceiling to catch obvious cheating while allowing legitimate play
+    const scoreWarning = score > session.max_possible_score * 2;
+    const clampedScore = Math.min(score, session.max_possible_score * 2);
+
+    // Calculate health restoration based on performance (use clamped score)
     const result = calculateHealthRestoration(
-      score,
+      clampedScore,
       session.max_possible_score,
       session.current_health
     );
-    const performance = Math.min(1, score / session.max_possible_score);
+    const performance = Math.min(1, clampedScore / session.max_possible_score);
 
     await pool.query("BEGIN");
 
     try {
-      // Mark session as completed
+      // Mark session as completed (store clamped score)
       await pool.query(
         `UPDATE repair_minigame_sessions
          SET status = $1, completed_at = now(), final_score = $2
          WHERE session_id = $3`,
-        [result.success ? "completed" : "failed", score, sessionId]
+        [result.success ? "completed" : "failed", clampedScore, sessionId]
       );
 
       // Update road health
@@ -392,6 +396,7 @@ export function registerRepairMinigameRoutes(app: FastifyInstance) {
         score_awarded: scoreAmount,
         new_total_score: playerScoreResult?.newScore ?? null,
         new_tier: playerScoreResult?.tier ?? null,
+        ...(scoreWarning && { warning: "score_clamped" }),
       };
     } catch (err) {
       await pool.query("ROLLBACK");

@@ -32,6 +32,9 @@ export const H3_RESOLUTION = 7;
 // Roads are considered "degraded" when health falls below this threshold
 export const DEGRADED_HEALTH_THRESHOLD = 70;
 
+// Roads show as RED (severely damaged) when health falls to or below this threshold
+export const CRITICAL_HEALTH_THRESHOLD = 30;
+
 // Health bucket size for SSE delta filtering (only emit when crossing a bucket boundary)
 export const HEALTH_BUCKET_SIZE = 10;
 

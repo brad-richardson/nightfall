@@ -13,6 +13,7 @@ import {
   easeInOutCubic
 } from "../lib/resourceAnimation";
 import { AnimationManager } from "../lib/animationManager";
+import { CRITICAL_HEALTH_THRESHOLD } from "@nightfall/config";
 
 // Import from extracted modules
 import type {
@@ -135,7 +136,6 @@ export default function DemoMap({
   // Pre-compute all filter ID arrays once when features change
   // This avoids O(n) filter array recreation on every render
   const featureFilterIds = useMemo(() => {
-    const VISUAL_DEGRADED_THRESHOLD = 30;
     const healthyIds: string[] = [];
     const degradedIds: string[] = [];
     const foodIds: string[] = [];
@@ -147,7 +147,8 @@ export default function DemoMap({
     // Single pass through features to categorize all IDs
     for (const f of features) {
       if (f.feature_type === "road") {
-        if ((f.health ?? 100) > VISUAL_DEGRADED_THRESHOLD) {
+        // Roads at or below critical threshold (30%) show as red/degraded
+        if ((f.health ?? 100) > CRITICAL_HEALTH_THRESHOLD) {
           healthyIds.push(f.gers_id);
         } else {
           degradedIds.push(f.gers_id);
@@ -835,12 +836,36 @@ export default function DemoMap({
     const now = Date.now();
     const paths: CrewPath[] = [];
 
+    // Max distance in meters for showing travel lines (10km)
+    const MAX_PATH_DISPLAY_DISTANCE = 10000;
+
+    // Haversine distance helper (approximate, for filtering)
+    const haversineMeters = (a: [number, number], b: [number, number]) => {
+      const R = 6371e3;
+      const lat1 = (a[1] * Math.PI) / 180;
+      const lat2 = (b[1] * Math.PI) / 180;
+      const dLat = ((b[1] - a[1]) * Math.PI) / 180;
+      const dLon = ((b[0] - a[0]) * Math.PI) / 180;
+      const h = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+    };
+
     for (const crew of crews) {
       if (crew.status !== "traveling") continue;
+      // Don't show travel lines for crews returning to hub (no active task)
+      if (!crew.active_task_id) continue;
 
       // Use server-provided waypoints if available
       if (crew.waypoints && crew.waypoints.length > 0 && crew.path_started_at) {
         const path = crew.waypoints.map((wp) => wp.coord);
+
+        // Skip paths that are too long (reduces visual clutter for distant destinations)
+        if (path.length >= 2) {
+          const dist = haversineMeters(path[0], path[path.length - 1]);
+          if (dist > MAX_PATH_DISPLAY_DISTANCE) continue;
+        }
+
         const startTime = Date.parse(crew.path_started_at);
         const lastWaypoint = crew.waypoints[crew.waypoints.length - 1];
         const endTime = Date.parse(lastWaypoint.arrive_at);
@@ -872,6 +897,12 @@ export default function DemoMap({
           start = getNearestHubCenter(features, destination) ?? fallbackCenter;
         }
         const path = buildResourcePath(start, destination, roadFeaturesForPath);
+
+        // Skip paths that are too long
+        if (path.length >= 2) {
+          const dist = haversineMeters(path[0], path[path.length - 1]);
+          if (dist > MAX_PATH_DISPLAY_DISTANCE) continue;
+        }
 
         const busyUntil = crew.busy_until ? new Date(crew.busy_until).getTime() : null;
         const endTime = busyUntil && !Number.isNaN(busyUntil) ? busyUntil : now + 10000;

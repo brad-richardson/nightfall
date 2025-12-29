@@ -10,7 +10,7 @@ import MobileSidebar from "./MobileSidebar";
 import { MapOverlay } from "./MapOverlay";
 import { useEventStream, SSE_STALE_THRESHOLD_MS, type EventPayload } from "../hooks/useEventStream";
 import { useStore, type Region, type Feature, type Hex, type CycleState } from "../store";
-import { BAR_HARBOR_DEMO_BBOX, DEGRADED_HEALTH_THRESHOLD, calculateCityScore, SCORE_ACTIONS } from "@nightfall/config";
+import { BAR_HARBOR_DEMO_BBOX, CRITICAL_HEALTH_THRESHOLD, calculateCityScore, SCORE_ACTIONS } from "@nightfall/config";
 import { fetchWithRetry } from "../lib/retry";
 import { ResourcePoolsPanel } from "./sidebar/ResourcePoolsPanel";
 import { RegionHealthPanel } from "./sidebar/RegionHealthPanel";
@@ -1437,7 +1437,8 @@ export default function Dashboard({
       if (f.feature_type === "road") {
         roads += 1;
         if (f.health !== undefined && f.health !== null) {
-          if (f.health >= DEGRADED_HEALTH_THRESHOLD) healthy += 1;
+          // Count roads at or below critical threshold (30%) as degraded - matches red roads on map
+          if (f.health > CRITICAL_HEALTH_THRESHOLD) healthy += 1;
           else degraded += 1;
         }
       }

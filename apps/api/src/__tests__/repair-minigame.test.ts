@@ -366,7 +366,7 @@ describe("repair minigame API routes", () => {
       await app.close();
     });
 
-    it("rejects score exceeding maximum", async () => {
+    it("clamps excessive scores and returns warning", async () => {
       queryMock.mockImplementation((text: string) => {
         if (text.includes("FROM repair_minigame_sessions")) {
           return Promise.resolve({
@@ -384,6 +384,24 @@ describe("repair minigame API routes", () => {
             }]
           });
         }
+        if (text.includes("UPDATE repair_minigame_sessions")) {
+          return Promise.resolve({ rows: [], rowCount: 1 });
+        }
+        if (text.includes("INSERT INTO feature_state")) {
+          return Promise.resolve({ rows: [], rowCount: 1 });
+        }
+        if (text.includes("UPDATE tasks")) {
+          return Promise.resolve({ rows: [], rowCount: 0 });
+        }
+        if (text.includes("pg_notify")) {
+          return Promise.resolve({ rows: [], rowCount: 1 });
+        }
+        if (text.includes("FROM world_features")) {
+          return Promise.resolve({ rows: [{ region_id: "region-1" }] });
+        }
+        if (text.includes("INSERT INTO player_scores")) {
+          return Promise.resolve({ rows: [{ total_score: 100 }] });
+        }
         return Promise.resolve({ rows: [] });
       });
 
@@ -395,8 +413,10 @@ describe("repair minigame API routes", () => {
         payload: { client_id: "client-1", session_id: "session-1", score: 9999, duration_ms: 20000 }
       });
 
-      expect(response.statusCode).toBe(400);
-      expect(response.json().error).toBe("score_exceeds_maximum");
+      // Score is clamped to 2x max (2000) instead of rejected
+      expect(response.statusCode).toBe(200);
+      expect(response.json().ok).toBe(true);
+      expect(response.json().warning).toBe("score_clamped");
 
       await app.close();
     });
