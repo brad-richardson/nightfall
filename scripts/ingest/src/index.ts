@@ -5,12 +5,16 @@ import * as dotenv from "dotenv";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
-import { 
-  ROAD_CLASS_FILTER, 
-  REGION_CONFIGS, 
-  H3_RESOLUTION, 
-  type Bbox, 
-  type RegionConfig 
+import {
+  ROAD_CLASS_FILTER,
+  REGION_CONFIGS,
+  H3_RESOLUTION,
+  FOOD_CATEGORIES,
+  EQUIPMENT_CATEGORIES,
+  ENERGY_CATEGORIES,
+  MATERIALS_CATEGORIES,
+  type Bbox,
+  type RegionConfig
 } from "@nightfall/config";
 
 export { ROAD_CLASS_FILTER, REGION_CONFIGS, H3_RESOLUTION };
@@ -79,51 +83,6 @@ const DB_CONFIG = {
 
 const DEFAULT_REGION_ID = "boston_ma_usa";
 
-// Resource generation categories matching API server
-const FOOD_CATEGORY_PATTERNS = [
-  "restaurant",
-  "cafe",
-  "bar",
-  "food",
-  "grocery",
-  "supermarket",
-  "bakery",
-  "deli",
-  "farm",
-  "farmers_market"
-];
-
-const EQUIPMENT_CATEGORY_PATTERNS = [
-  "hardware",
-  "home_improvement",
-  "automotive_repair",
-  "auto_body_shop",
-  "tool_rental",
-  "machine_shop"
-];
-
-const ENERGY_CATEGORY_PATTERNS = [
-  "industrial",
-  "factory",
-  "power_plant",
-  "solar",
-  "wind",
-  "utility",
-  "electric"
-];
-
-const MATERIALS_CATEGORY_PATTERNS = [
-  "construction",
-  "building_supply",
-  "lumber",
-  "wood",
-  "flooring",
-  "warehouse",
-  "manufacturing",
-  "garden_center",
-  "nursery_and_gardening"
-];
-
 // Fallback applies to 1 in N buildings without matched categories
 // Lower = more aggressive fallback (more balanced resource distribution)
 const FALLBACK_RESOURCE_MOD = 2;
@@ -169,12 +128,22 @@ export function applyResourceFallback(
   gersId: string,
   resources: { food: boolean; equipment: boolean; energy: boolean; materials: boolean; cat: string | null }
 ) {
-  if (resources.food || resources.equipment || resources.energy || resources.materials) {
-    // Track matched resources for balance calculation
-    if (resources.food) fallbackTracker.food++;
-    if (resources.equipment) fallbackTracker.equipment++;
-    if (resources.energy) fallbackTracker.energy++;
-    if (resources.materials) fallbackTracker.materials++;
+  // Each building generates exactly ONE resource type
+  // If already assigned (from category matching), track it and return
+  if (resources.food) {
+    fallbackTracker.food++;
+    return resources;
+  }
+  if (resources.equipment) {
+    fallbackTracker.equipment++;
+    return resources;
+  }
+  if (resources.energy) {
+    fallbackTracker.energy++;
+    return resources;
+  }
+  if (resources.materials) {
+    fallbackTracker.materials++;
     return resources;
   }
 
@@ -334,29 +303,32 @@ export function getResourcesFromCategories(categories: unknown) {
     return { food: false, equipment: false, energy: false, materials: false, cat: null };
   }
 
-  let food = false;
-  let equipment = false;
-  let energy = false;
-  let materials = false;
-  let matchedCategory: string | null = null;
-
+  // Each building generates exactly ONE resource type
+  // Priority order: materials > equipment > energy > food
+  // (rarer types first to ensure better distribution)
   for (const value of values) {
     const lower = value.toLowerCase();
-    const foodMatch = FOOD_CATEGORY_PATTERNS.some((pattern) => lower.includes(pattern));
-    const equipmentMatch = EQUIPMENT_CATEGORY_PATTERNS.some((pattern) => lower.includes(pattern));
-    const energyMatch = ENERGY_CATEGORY_PATTERNS.some((pattern) => lower.includes(pattern));
-    const materialsMatch = MATERIALS_CATEGORY_PATTERNS.some((pattern) => lower.includes(pattern));
 
-    if ((foodMatch || equipmentMatch || energyMatch || materialsMatch) && matchedCategory === null) {
-      matchedCategory = value;
+    // Check materials first (rarest)
+    if (MATERIALS_CATEGORIES.some((pattern) => lower.includes(pattern))) {
+      return { food: false, equipment: false, energy: false, materials: true, cat: value };
     }
-    if (foodMatch) food = true;
-    if (equipmentMatch) equipment = true;
-    if (energyMatch) energy = true;
-    if (materialsMatch) materials = true;
+    // Check equipment second
+    if (EQUIPMENT_CATEGORIES.some((pattern) => lower.includes(pattern))) {
+      return { food: false, equipment: true, energy: false, materials: false, cat: value };
+    }
+    // Check energy third
+    if (ENERGY_CATEGORIES.some((pattern) => lower.includes(pattern))) {
+      return { food: false, equipment: false, energy: true, materials: false, cat: value };
+    }
+    // Check food last (most common)
+    if (FOOD_CATEGORIES.some((pattern) => lower.includes(pattern))) {
+      return { food: true, equipment: false, energy: false, materials: false, cat: value };
+    }
   }
 
-  return { food, equipment, energy, materials, cat: matchedCategory ?? values[0] ?? null };
+  // No match found - return with first category for reference
+  return { food: false, equipment: false, energy: false, materials: false, cat: values[0] ?? null };
 }
 
 export function buildBuildingsUpsertQuery(placeHolders: string[]) {

@@ -351,3 +351,53 @@ export const SCORE_ACTIONS = {
  * During this time, the building will auto-generate convoys to the regional hub.
  */
 export const BUILDING_ACTIVATION_MS = 2 * 60 * 1000; // 2 minutes
+
+// =============================================================================
+// Resource Generation Categories
+// =============================================================================
+// These patterns are used to determine what resource type a building generates
+// based on its Overture Maps place_category field.
+
+export const FOOD_CATEGORIES = [
+  "restaurant",
+  "cafe",
+  "bar",
+  "food",
+  "grocery",
+  "supermarket",
+  "bakery",
+  "deli",
+  "farm",
+  "farmers_market"
+] as const;
+
+export const EQUIPMENT_CATEGORIES = [
+  "hardware",
+  "home_improvement",
+  "automotive_repair",
+  "auto_body_shop",
+  "tool_rental",
+  "machine_shop"
+] as const;
+
+export const ENERGY_CATEGORIES = [
+  "industrial",
+  "factory",
+  "power_plant",
+  "solar",
+  "wind",
+  "utility",
+  "electric"
+] as const;
+
+export const MATERIALS_CATEGORIES = [
+  "construction",
+  "building_supply",
+  "lumber",
+  "wood",
+  "flooring",
+  "warehouse",
+  "manufacturing",
+  "garden_center",
+  "nursery_and_gardening"
+] as const;

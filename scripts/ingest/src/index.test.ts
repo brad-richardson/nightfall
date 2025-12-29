@@ -224,6 +224,86 @@ describe("category resource mapping", () => {
 
     expect(res.energy).toBe(true);
   });
+
+  // Priority ordering tests: materials > equipment > energy > food
+  it("prioritizes materials over food when both match", () => {
+    const categories = [
+      { primary: "warehouse", alternate: null },
+      { primary: "restaurant", alternate: null }
+    ];
+    const res = getResourcesFromCategories(categories);
+
+    expect(res.materials).toBe(true);
+    expect(res.food).toBe(false);
+    expect(res.equipment).toBe(false);
+    expect(res.energy).toBe(false);
+  });
+
+  it("prioritizes materials over equipment when both match", () => {
+    const categories = [
+      { primary: "construction_supply", alternate: null },
+      { primary: "hardware_store", alternate: null }
+    ];
+    const res = getResourcesFromCategories(categories);
+
+    expect(res.materials).toBe(true);
+    expect(res.equipment).toBe(false);
+  });
+
+  it("prioritizes materials over energy when both match", () => {
+    const categories = [
+      { primary: "manufacturing_plant", alternate: ["factory"] }
+    ];
+    const res = getResourcesFromCategories(categories);
+
+    // "manufacturing" matches materials, "factory" matches energy
+    // materials should take priority
+    expect(res.materials).toBe(true);
+    expect(res.energy).toBe(false);
+  });
+
+  it("prioritizes equipment over food when both match", () => {
+    const categories = [
+      { primary: "hardware_store", alternate: ["deli"] }
+    ];
+    const res = getResourcesFromCategories(categories);
+
+    expect(res.equipment).toBe(true);
+    expect(res.food).toBe(false);
+  });
+
+  it("prioritizes equipment over energy when both match", () => {
+    const categories = [
+      { primary: "auto_body_shop", alternate: null },
+      { primary: "power_plant", alternate: null }
+    ];
+    const res = getResourcesFromCategories(categories);
+
+    expect(res.equipment).toBe(true);
+    expect(res.energy).toBe(false);
+  });
+
+  it("prioritizes energy over food when both match", () => {
+    const categories = [
+      { primary: "industrial_cafe", alternate: null }
+    ];
+    const res = getResourcesFromCategories(categories);
+
+    // "industrial" matches energy, "cafe" matches food
+    // energy should take priority
+    expect(res.energy).toBe(true);
+    expect(res.food).toBe(false);
+  });
+
+  it("assigns exactly one resource type per building", () => {
+    const categories = [
+      { primary: "warehouse", alternate: ["hardware", "factory", "restaurant"] }
+    ];
+    const res = getResourcesFromCategories(categories);
+
+    const count = [res.food, res.equipment, res.energy, res.materials].filter(Boolean).length;
+    expect(count).toBe(1);
+  });
 });
 
 describe("fallback resource assignment", () => {
