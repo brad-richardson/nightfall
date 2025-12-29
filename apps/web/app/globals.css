@@ -112,6 +112,10 @@ body {
 }
 
 /* Custom attribution control styling */
+.maplibregl-ctrl-bottom-left {
+  z-index: 35 !important;
+}
+
 .maplibregl-ctrl-attrib {
   background: rgba(15, 18, 22, 0.8) !important;
   backdrop-filter: blur(8px);
