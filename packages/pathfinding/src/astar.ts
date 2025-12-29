@@ -177,17 +177,51 @@ export function findNearestConnector(
 }
 
 /**
+ * Options for building waypoints with off-road start/end points.
+ */
+export type BuildWaypointsOptions = {
+  /** Actual starting point (e.g., building location) - path will start here before joining the road */
+  actualStart?: Point;
+  /** Actual ending point (e.g., destination building) - path will end here after leaving the road */
+  actualEnd?: Point;
+};
+
+/**
  * Build waypoints with per-segment timestamps for animation.
  * Each waypoint includes arrival time based on cumulative travel.
+ *
+ * If actualStart/actualEnd are provided, the path will include segments
+ * from the actual start point to the first road connector, and from the
+ * last road connector to the actual end point.
  */
 export function buildWaypoints(
   pathResult: PathResult,
   connectorCoords: ConnectorCoords,
   departAtMs: number,
-  speedMps: number = 10
+  speedMps: number = 10,
+  options: BuildWaypointsOptions = {}
 ): { coord: Point; arrive_at: string }[] {
   let currentTimeMs = departAtMs;
   const waypoints: { coord: Point; arrive_at: string }[] = [];
+  const { actualStart, actualEnd } = options;
+
+  // If we have an actual start point, add it first and calculate time to first connector
+  if (actualStart) {
+    waypoints.push({
+      coord: actualStart,
+      arrive_at: new Date(currentTimeMs).toISOString(),
+    });
+
+    // Get first connector coordinate to calculate travel time
+    if (pathResult.connectorIds.length > 0) {
+      const firstConnectorCoord = connectorCoords.get(pathResult.connectorIds[0]);
+      if (firstConnectorCoord) {
+        const distToConnector = haversineDistanceMeters(actualStart, firstConnectorCoord);
+        const timeToConnectorMs = (distToConnector / speedMps) * 1000;
+        currentTimeMs += timeToConnectorMs;
+      }
+    }
+  }
 
   for (let i = 0; i < pathResult.connectorIds.length; i++) {
     const connectorId = pathResult.connectorIds[i];
@@ -207,6 +241,25 @@ export function buildWaypoints(
       const segmentTimeMs = ((lengthMeters * healthMultiplier) / speedMps) * 1000;
       currentTimeMs += segmentTimeMs;
     }
+  }
+
+  // If we have an actual end point, add it last with travel time from last connector
+  if (actualEnd) {
+    if (pathResult.connectorIds.length > 0) {
+      const lastConnectorCoord = connectorCoords.get(
+        pathResult.connectorIds[pathResult.connectorIds.length - 1]
+      );
+      if (lastConnectorCoord) {
+        const distFromConnector = haversineDistanceMeters(lastConnectorCoord, actualEnd);
+        const timeFromConnectorMs = (distFromConnector / speedMps) * 1000;
+        currentTimeMs += timeFromConnectorMs;
+      }
+    }
+
+    waypoints.push({
+      coord: actualEnd,
+      arrive_at: new Date(currentTimeMs).toISOString(),
+    });
   }
 
   return waypoints;

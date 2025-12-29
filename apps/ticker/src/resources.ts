@@ -29,8 +29,8 @@ type ArrivalResult = {
 
 const RESOURCE_TRAVEL_MPS = Math.max(0.1, Number(process.env.RESOURCE_TRAVEL_MPS ?? 10) || 10);
 const RESOURCE_DISTANCE_MULTIPLIER = Math.max(0.1, Number(process.env.RESOURCE_DISTANCE_MULTIPLIER ?? 1.25) || 1.25);
-const RESOURCE_TRAVEL_MIN_S = Math.max(1, Number(process.env.RESOURCE_TRAVEL_MIN_S ?? 4) || 4);
-const RESOURCE_TRAVEL_MAX_S = Math.max(RESOURCE_TRAVEL_MIN_S, Number(process.env.RESOURCE_TRAVEL_MAX_S ?? 45) || 45);
+const RESOURCE_TRAVEL_MIN_S = Math.max(1, Number(process.env.RESOURCE_TRAVEL_MIN_S ?? 5) || 5);
+const RESOURCE_TRAVEL_MAX_S = Math.max(RESOURCE_TRAVEL_MIN_S, Number(process.env.RESOURCE_TRAVEL_MAX_S ?? 60) || 60);
 const RESOURCE_TABLE_CHECK_INTERVAL_MS = Math.max(
   5_000,
   Number(process.env.RESOURCE_TABLE_CHECK_INTERVAL_MS ?? 60_000) || 60_000
@@ -331,8 +331,11 @@ export async function enqueueResourceTransfers(
           );
 
           if (pathResult) {
-            // Build waypoints with per-segment timing
-            waypoints = buildWaypoints(pathResult, graphData.coords, departAt, RESOURCE_TRAVEL_MPS);
+            // Build waypoints with per-segment timing, including actual building locations
+            waypoints = buildWaypoints(pathResult, graphData.coords, departAt, RESOURCE_TRAVEL_MPS, {
+              actualStart: sourcePoint,
+              actualEnd: hubPoint,
+            });
 
             // Calculate travel time from waypoints and clamp to min/max
             if (waypoints.length > 1) {

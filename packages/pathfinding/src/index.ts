@@ -7,6 +7,8 @@ export type {
   ConnectorCoords,
 } from "./types.js";
 
+export type { BuildWaypointsOptions } from "./astar.js";
+
 export {
   edgeWeight,
   findPath,
