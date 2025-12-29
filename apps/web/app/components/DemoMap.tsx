@@ -64,7 +64,9 @@ export default function DemoMap({
   cycle,
   pmtilesRelease,
   children,
-  className
+  className,
+  selectedCrewId,
+  onSelectCrew
 }: DemoMapProps) {
   const mapShellRef = useRef<HTMLDivElement>(null);
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -105,6 +107,8 @@ export default function DemoMap({
   const crewsRef = useRef(crews);
   const crewPathsRef = useRef<CrewPath[]>([]);
   const resourcePackagesRef = useRef(resourcePackages);
+  const selectedCrewIdRef = useRef(selectedCrewId);
+  const onSelectCrewRef = useRef(onSelectCrew);
   const hasOvertureSources = !!pmtilesRelease;
   // Initialize with empty Maps - will be updated via useEffect after memos are computed
   const featuresByGersIdRef = useRef<Map<string, typeof features[0]>>(new Map());
@@ -268,6 +272,8 @@ export default function DemoMap({
   useEffect(() => { resourcePackagesRef.current = resourcePackages; }, [resourcePackages]);
   useEffect(() => { featuresByGersIdRef.current = featuresByGersId; }, [featuresByGersId]);
   useEffect(() => { tasksByGersIdRef.current = tasksByGersId; }, [tasksByGersId]);
+  useEffect(() => { selectedCrewIdRef.current = selectedCrewId; }, [selectedCrewId]);
+  useEffect(() => { onSelectCrewRef.current = onSelectCrew; }, [onSelectCrew]);
 
   // Map initialization
   useEffect(() => {
@@ -486,6 +492,28 @@ export default function DemoMap({
 
     // Click handler
     mapInstance.on("click", (e) => {
+      // Check for crew marker click first
+      const crewLayers = ["game-crew-path-icon", "game-crew-markers"];
+      const crewFeatures = mapInstance.queryRenderedFeatures(e.point, { layers: crewLayers });
+
+      if (crewFeatures && crewFeatures.length > 0) {
+        const crewId = crewFeatures[0].properties?.crew_id;
+        if (crewId) {
+          // Toggle selection: if already selected, deselect; otherwise select
+          if (selectedCrewIdRef.current === crewId) {
+            onSelectCrewRef.current?.(null);
+          } else {
+            onSelectCrewRef.current?.(crewId);
+          }
+          return; // Don't process feature selection
+        }
+      }
+
+      // Clear crew selection when clicking elsewhere on the map
+      if (selectedCrewIdRef.current) {
+        onSelectCrewRef.current?.(null);
+      }
+
       // Only query overture layers if sources are available
       const queryLayers = pmtilesBase
         ? [
@@ -859,6 +887,9 @@ export default function DemoMap({
       if (crew.status !== "traveling") continue;
       // Don't show travel lines for crews returning to hub (no active task)
       if (!crew.active_task_id) continue;
+      // Only show path for the selected crew (hide all paths by default)
+      if (selectedCrewId && crew.crew_id !== selectedCrewId) continue;
+      if (!selectedCrewId) continue; // Hide all paths when none selected
 
       // Use server-provided waypoints if available
       if (crew.waypoints && crew.waypoints.length > 0 && crew.path_started_at) {
@@ -924,7 +955,7 @@ export default function DemoMap({
     }
 
     setCrewPaths(paths);
-  }, [crews, tasksById, featuresByGersId, features, roadFeaturesForPath, fallbackCenter]);
+  }, [crews, tasksById, featuresByGersId, features, roadFeaturesForPath, fallbackCenter, selectedCrewId]);
 
   // Sync crews data - show idle and working crews at their positions
   useEffect(() => {
@@ -1174,6 +1205,9 @@ export default function DemoMap({
 
       if (!map.current || !isLoaded) return;
 
+      // Select the crew to show its path
+      onSelectCrew?.(crewId);
+
       // Find the crew
       const crew = crewsRef.current.find(c => c.crew_id === crewId);
       if (!crew) return;
@@ -1203,7 +1237,17 @@ export default function DemoMap({
 
     window.addEventListener("nightfall:fly_to_crew", handleFlyToCrew);
     return () => window.removeEventListener("nightfall:fly_to_crew", handleFlyToCrew);
-  }, [isLoaded]);
+  }, [isLoaded, onSelectCrew]);
+
+  // Auto-clear crew selection when the selected crew stops traveling
+  useEffect(() => {
+    if (!selectedCrewId) return;
+    const selectedCrew = crews.find(c => c.crew_id === selectedCrewId);
+    // Clear selection if crew no longer exists or is no longer traveling
+    if (!selectedCrew || selectedCrew.status !== "traveling") {
+      onSelectCrew?.(null);
+    }
+  }, [crews, selectedCrewId, onSelectCrew]);
 
   // Task completion animation
   useEffect(() => {

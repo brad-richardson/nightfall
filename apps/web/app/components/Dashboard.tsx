@@ -444,6 +444,7 @@ export default function Dashboard({
   const [showMinigameOverlay, setShowMinigameOverlay] = useState(false);
   const [showRepairMinigameOverlay, setShowRepairMinigameOverlay] = useState(false);
   const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
+  const [selectedCrewId, setSelectedCrewId] = useState<string | null>(null);
   const prevTasksRef = useRef<Map<string, string>>(new Map());
   const hasHydratedRef = useRef(false);
 
@@ -1541,6 +1542,8 @@ export default function Dashboard({
         cycle={cycle}
         pmtilesRelease={pmtilesRelease}
         className="h-full w-full rounded-none border-0 shadow-none"
+        selectedCrewId={selectedCrewId}
+        onSelectCrew={setSelectedCrewId}
       >
         <div className="pointer-events-none absolute inset-0">
           {cycle.phase === "dusk" && (

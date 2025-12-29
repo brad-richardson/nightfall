@@ -101,4 +101,8 @@ export type DemoMapProps = {
   pmtilesRelease: string | null;
   children?: React.ReactNode;
   className?: string;
+  /** ID of crew whose path should be visible (null = hide all paths) */
+  selectedCrewId?: string | null;
+  /** Callback when a crew is selected/deselected on the map */
+  onSelectCrew?: (crewId: string | null) => void;
 };
