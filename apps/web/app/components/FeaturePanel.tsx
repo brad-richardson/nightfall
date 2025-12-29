@@ -1,10 +1,11 @@
 "use client";
 
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Utensils, Wrench, Zap, Package, X, Rocket, Clock, Play, CheckCircle2 } from "lucide-react";
+import { X, Rocket, Clock, Play, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { useStore, type UserVotes } from "../store";
 import VoteButton from "./VoteButton";
+import { BUILDING_ACTIVATION_MS } from "@nightfall/config";
 
 type SelectedFeature = {
   gers_id: string;
@@ -31,14 +32,6 @@ type FeaturePanelProps = {
 
 const PANEL_WIDTH = 320;
 const PADDING = 16;
-
-// Resource icons for display
-const RESOURCE_ICONS = {
-  food: Utensils,
-  equipment: Wrench,
-  energy: Zap,
-  materials: Package
-} as const;
 
 export default function FeaturePanel({ onActivateBuilding, onVote, onBoostProduction, activeTasks, canContribute, userVotes }: FeaturePanelProps) {
   const [selected, setSelected] = useState<SelectedFeature | null>(null);
@@ -148,7 +141,6 @@ export default function FeaturePanel({ onActivateBuilding, onVote, onBoostProduc
 
   // Check if building is currently activated
   // First check the store, then fall back to the feature's last_activated_at from the API
-  const BUILDING_ACTIVATION_MS = 2 * 60 * 1000; // 2 minutes
   const activationState = useMemo(() => {
     if (!selected) return null;
     const now = Date.now();

@@ -287,7 +287,8 @@ export function registerMinigameRoutes(app: FastifyInstance) {
       const existingBoost = existingBoostResult.rows[0];
       const now = new Date();
       const existingBoostActive = existingBoost && new Date(existingBoost.expires_at) > now;
-      const shouldUpdateBoost = !existingBoostActive || reward.multiplier >= existingBoost.multiplier;
+      // Only update boost if new multiplier is strictly higher to preserve existing boost timing
+      const shouldUpdateBoost = !existingBoostActive || reward.multiplier > existingBoost.multiplier;
 
       let finalMultiplier = reward.multiplier;
       let finalExpiresAt = expiresAt;
