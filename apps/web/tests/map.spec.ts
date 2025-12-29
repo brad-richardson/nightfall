@@ -15,6 +15,7 @@ test("attribution bubble auto-retracts after 4 seconds", async ({ page }) => {
 
   // Click to expand the attribution bubble
   const attribButton = page.locator(".maplibregl-ctrl-attrib-button");
+  await expect(attribButton).toBeVisible();
   await attribButton.click();
 
   // Verify it expanded (has maplibregl-compact-show class)
@@ -36,7 +37,9 @@ test("attribution bubble clears timeout on manual collapse", async ({ page }) =>
   await expect(mapCanvas).toBeVisible();
 
   const attribControl = page.locator(".maplibregl-ctrl-attrib.maplibregl-compact");
+  await expect(attribControl).toBeVisible();
   const attribButton = page.locator(".maplibregl-ctrl-attrib-button");
+  await expect(attribButton).toBeVisible();
 
   // Expand the bubble
   await attribButton.click();
