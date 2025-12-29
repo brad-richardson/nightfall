@@ -359,12 +359,12 @@ export async function fetchCriticalTasks(client: PoolLike): Promise<CriticalTask
     SELECT
       t.task_id,
       t.region_id,
-      wf.name AS road_name,
+      wf.properties->>'name' AS road_name,
       fs.health,
       t.priority_score
     FROM tasks t
-    JOIN world_features wf ON wf.gers_id = t.gers_id
-    JOIN feature_state fs ON fs.gers_id = t.gers_id
+    JOIN world_features wf ON wf.gers_id = t.target_gers_id
+    JOIN feature_state fs ON fs.gers_id = t.target_gers_id
     WHERE t.status IN ('queued', 'active')
     ORDER BY t.priority_score DESC, fs.health ASC
     LIMIT 50
