@@ -22,6 +22,7 @@ import { MinigameOverlay } from "./minigames";
 import { Navigation } from "lucide-react";
 import { AdminConsole } from "./admin";
 import { PlayerTierBadgeCompact } from "./PlayerTierBadge";
+import { PerformanceOverlay, trackBatchFire } from "./PerformanceOverlay";
 
 type ResourceType = "food" | "equipment" | "energy" | "materials";
 
@@ -468,6 +469,9 @@ export default function Dashboard({
     const interval = setInterval(() => {
       const pending = pendingUpdatesRef.current;
 
+      // Track batch fires for performance monitoring
+      trackBatchFire(pending.dirty);
+
       // Skip if no pending updates
       if (!pending.dirty) return;
 
@@ -592,7 +596,7 @@ export default function Dashboard({
       }
 
       pending.dirty = false;
-    }, 150); // Apply batched updates every 150ms
+    }, 250); // Apply batched updates every 250ms (reduced from 150ms for lower CPU usage)
     return () => clearInterval(interval);
   }, [setCycle, setHexes, setRegion, setFeatures]);
 
@@ -1291,6 +1295,7 @@ export default function Dashboard({
         <MinigameOverlay onClose={handleMinigameClose} />
       )}
       {process.env.NODE_ENV === "development" && <AdminConsole />}
+      <PerformanceOverlay />
     </div>
   );
 }

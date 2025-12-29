@@ -1,3 +1,15 @@
+// Performance tracking callbacks (set by PerformanceOverlay)
+let onAnimationStart: ((id: string) => void) | null = null;
+let onAnimationStop: ((id: string) => void) | null = null;
+
+export function setAnimationTrackingCallbacks(
+  onStart: (id: string) => void,
+  onStop: (id: string) => void
+) {
+  onAnimationStart = onStart;
+  onAnimationStop = onStop;
+}
+
 /**
  * Centralized animation manager for handling multiple requestAnimationFrame loops.
  * Prevents memory leaks and provides frame rate control.
@@ -38,6 +50,7 @@ export class AnimationManager {
     };
 
     this.animations.set(id, requestAnimationFrame(animate));
+    onAnimationStart?.(id);
   }
 
   /**
@@ -49,6 +62,7 @@ export class AnimationManager {
       cancelAnimationFrame(frameId);
       this.animations.delete(id);
       this.lastFrameTimes.delete(id);
+      onAnimationStop?.(id);
     }
   }
 

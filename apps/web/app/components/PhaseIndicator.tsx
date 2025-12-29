@@ -11,15 +11,15 @@ export default function PhaseIndicator() {
     setSecondsRemaining(cycle.next_phase_in_seconds);
   }, [cycle.next_phase_in_seconds, cycle.phase, cycle.lastUpdated]);
 
+  // Timer runs continuously, uses functional update to avoid stale closure
+  // Empty dependency array prevents interval recreation every second
   useEffect(() => {
-    if (secondsRemaining <= 0) return;
-
     const timer = setInterval(() => {
-      setSecondsRemaining((prev) => Math.max(0, prev - 1));
+      setSecondsRemaining((prev) => (prev > 0 ? prev - 1 : 0));
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [secondsRemaining]);
+  }, []);
 
   const formatTime = (s: number) => {
     const mins = Math.floor(s / 60);

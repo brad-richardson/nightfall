@@ -50,6 +50,7 @@ import {
   makeIdFilter
 } from "./map/utils";
 import { useStore } from "../store";
+import { trackAnimatedItems } from "./PerformanceOverlay";
 
 export default function DemoMap({
   boundary,
@@ -85,6 +86,12 @@ export default function DemoMap({
   }[]>([]);
 
   const animationManager = useMemo(() => new AnimationManager(60), []);
+
+  // Track item counts for performance overlay
+  useEffect(() => {
+    trackAnimatedItems(resourcePackages.length, crewPaths.length);
+  }, [resourcePackages.length, crewPaths.length]);
+
   const breathePhaseRef = useRef(0);
   const hoverTimeoutRef = useRef<number | null>(null);
   const completedPackageIds = useRef<Set<string>>(new Set());
@@ -917,6 +924,7 @@ export default function DemoMap({
 
     let dashIndex = 0;
     let lastDashTime = 0;
+    let frameCount = 0;
 
     animationManager.start('crew-paths', (time: number) => {
       if (!mapInstance) return;
@@ -927,7 +935,11 @@ export default function DemoMap({
         lastDashTime = time;
       }
 
-      updateMarkers(Date.now());
+      // Update markers at 30fps (every 2 frames) - still smooth for moving crews
+      frameCount++;
+      if (frameCount % 2 === 0) {
+        updateMarkers(Date.now());
+      }
     });
 
     return () => animationManager.stop('crew-paths');
@@ -1083,9 +1095,13 @@ export default function DemoMap({
 
     if (repairingRoadIds.length > 0) {
       let pulsePhase = 0;
+      let frameCount = 0;
       animationManager.start('repair-pulse', () => {
         if (!map.current) return;
-        pulsePhase = (pulsePhase + 0.05) % (2 * Math.PI);
+        // Only update GPU every 3 frames (20fps) - still smooth for pulsing
+        frameCount++;
+        if (frameCount % 3 !== 0) return;
+        pulsePhase = (pulsePhase + 0.15) % (2 * Math.PI); // 3x step to compensate
         const opacity = Math.max(0, 0.3 + 0.25 * Math.sin(pulsePhase));
         const width = Math.max(6, 12 + 6 * Math.sin(pulsePhase));
         map.current.setPaintProperty("game-roads-repair-pulse", "line-opacity", opacity);
@@ -1133,8 +1149,12 @@ export default function DemoMap({
       return;
     }
 
+    let frameCount = 0;
     animationManager.start('rust-breathing', () => {
-      breathePhaseRef.current += 0.015;
+      // Only update GPU every 3 frames (20fps) - still smooth for breathing
+      frameCount++;
+      if (frameCount % 3 !== 0) return;
+      breathePhaseRef.current += 0.045; // 3x step to compensate
       const pulse = 1 + 0.1 * Math.sin(breathePhaseRef.current);
       applyStaticOpacity(pulse * phaseMultiplier);
     });
