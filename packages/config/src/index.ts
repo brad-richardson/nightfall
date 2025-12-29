@@ -9,6 +9,8 @@ export type RegionConfig = {
   regionId: string;
   regionName: string;
   bbox: Bbox;
+  /** Difficulty multiplier for decay rate. Default is 1.0. Higher = harder (faster decay) */
+  difficultyMultiplier?: number;
 };
 
 export const BOSTON_BBOX: Bbox = {
@@ -121,12 +123,15 @@ export const REGION_CONFIGS: Record<string, RegionConfig> = {
   boston_ma_usa: {
     regionId: "boston_ma_usa",
     regionName: "Boston, MA, USA",
-    bbox: BOSTON_BBOX
+    bbox: BOSTON_BBOX,
+    difficultyMultiplier: 1.0
   },
   bar_harbor_me_usa_demo: {
     regionId: "bar_harbor_me_usa_demo",
     regionName: "Bar Harbor, ME, USA (Demo)",
-    bbox: BAR_HARBOR_DEMO_BBOX
+    bbox: BAR_HARBOR_DEMO_BBOX,
+    // Demo region is harder to make the small area more challenging
+    difficultyMultiplier: 2.5
   }
 };
 

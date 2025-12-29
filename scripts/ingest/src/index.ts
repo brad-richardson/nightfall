@@ -1861,13 +1861,15 @@ async function main() {
 
     // Create region entry using the hex coverage polygon as the boundary
     // This ensures the fog of war mask matches the actual hex coverage area
+    const difficultyMultiplier = region.difficultyMultiplier ?? 1.0;
     await client.query(`
-      INSERT INTO regions (region_id, name, boundary, center, distance_from_center)
-      VALUES ($1, $2, ST_GeomFromText($3, 4326), ST_Centroid(ST_GeomFromText($3, 4326)), 0)
+      INSERT INTO regions (region_id, name, boundary, center, distance_from_center, difficulty_multiplier)
+      VALUES ($1, $2, ST_GeomFromText($3, 4326), ST_Centroid(ST_GeomFromText($3, 4326)), 0, $4)
       ON CONFLICT (region_id) DO UPDATE SET
         boundary = ST_GeomFromText($3, 4326),
-        center = ST_Centroid(ST_GeomFromText($3, 4326))
-    `, [region.regionId, region.regionName, hexCoverageWkt]);
+        center = ST_Centroid(ST_GeomFromText($3, 4326)),
+        difficulty_multiplier = $4
+    `, [region.regionId, region.regionName, hexCoverageWkt, difficultyMultiplier]);
     
     const centerLon = (region.bbox.xmin + region.bbox.xmax) / 2;
     const centerLat = (region.bbox.ymin + region.bbox.ymax) / 2;
