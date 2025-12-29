@@ -68,7 +68,7 @@ export const BASE_BOOST_DURATION_MS = 3 * 60 * 1000; // 3 minutes base
 export const FOOD_MINIGAMES = ["kitchen_rush", "fresh_check"];
 export const EQUIPMENT_MINIGAMES = ["gear_up", "patch_job"];
 export const ENERGY_MINIGAMES = ["power_up"];
-export const MATERIALS_MINIGAMES = ["salvage_run"];
+export const MATERIALS_MINIGAMES = ["crane_drop"];
 
 // Max possible scores by minigame type (for anti-cheat)
 export const MINIGAME_CONFIG: Record<string, { maxScore: number; expectedDurationMs: number; baseRounds: number }> = {
@@ -77,5 +77,5 @@ export const MINIGAME_CONFIG: Record<string, { maxScore: number; expectedDuratio
   gear_up: { maxScore: 1000, expectedDurationMs: 20000, baseRounds: 5 },
   patch_job: { maxScore: 1000, expectedDurationMs: 25000, baseRounds: 3 },
   power_up: { maxScore: 1000, expectedDurationMs: 20000, baseRounds: 3 },
-  salvage_run: { maxScore: 1000, expectedDurationMs: 20000, baseRounds: 10 },
+  crane_drop: { maxScore: 1000, expectedDurationMs: 25000, baseRounds: 8 },
 };

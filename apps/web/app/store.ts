@@ -122,7 +122,7 @@ export type AuthState = {
 export type UserVotes = Record<string, number>;
 
 // Minigame types
-export type MinigameType = "kitchen_rush" | "fresh_check" | "gear_up" | "patch_job" | "power_up" | "salvage_run";
+export type MinigameType = "kitchen_rush" | "fresh_check" | "gear_up" | "patch_job" | "power_up" | "crane_drop";
 export type ResourceType = "food" | "equipment" | "energy" | "materials";
 
 export type MinigameDifficulty = {
