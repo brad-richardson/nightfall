@@ -10,7 +10,7 @@ import MobileSidebar from "./MobileSidebar";
 import { MapOverlay } from "./MapOverlay";
 import { useEventStream, SSE_STALE_THRESHOLD_MS, type EventPayload } from "../hooks/useEventStream";
 import { useStore, type Region, type Feature, type Hex, type CycleState } from "../store";
-import { BAR_HARBOR_DEMO_BBOX, CRITICAL_HEALTH_THRESHOLD, calculateCityScore, SCORE_ACTIONS } from "@nightfall/config";
+import { BAR_HARBOR_DEMO_BBOX, CRITICAL_HEALTH_THRESHOLD, calculateCityScore } from "@nightfall/config";
 import { fetchWithRetry } from "../lib/retry";
 import { ResourcePoolsPanel } from "./sidebar/ResourcePoolsPanel";
 import { RegionHealthPanel } from "./sidebar/RegionHealthPanel";
