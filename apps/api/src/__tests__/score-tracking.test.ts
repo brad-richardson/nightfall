@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHmac } from "crypto";
 import { buildServer, resetOvertureCacheForTests, resetFocusHexCacheForTests } from "../server";
-import { SCORE_ACTIONS } from "@nightfall/config";
 
 let queryMock = vi.fn();
 const closePoolMock = vi.fn();
