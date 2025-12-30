@@ -42,13 +42,40 @@ The only thing that seems to help is activity. Movement. Maintenance. Roads that
 
 ## Implementation Status (Dec 2025)
 
+### Runtime Architecture
 - Runtime split: `apps/web` (Next.js App Router UI), `apps/api` (Fastify API + SSE), `apps/ticker` (Node tick worker with advisory lock).
+- Shared pathfinding library: `packages/pathfinding` with A* algorithm for road graph traversal.
+- Shared config: `packages/config` with game constants, tier definitions, and resource type mappings.
+
+### UI & Map
 - Map is the primary UI surface with in-map overlays (header, pools, health ring, task list, resource ticker, activity feed); mobile uses a bottom sheet.
-- UI enhancements merged: task highlighting, phase transition overlays, hover tooltips, rust breathing, crew travel paths, regional health ring, task list search/filter/sort.
+- UI enhancements: task highlighting, phase transition overlays, hover tooltips, rust breathing, crew travel paths, regional health ring, task list search/filter/sort.
+- Player tier badge shows current tier with progress to next tier.
+
+### Resource System
+- 4 resource types: food, equipment, energy, materials (buildings generate via `generates_food`, `generates_equipment`, etc. flags).
 - Resource transfers are in-transit: `resource_transfers` table queues transfers; pools update on arrival; SSE `resource_transfer` drives client animations.
-- Road routing helper `apps/web/app/lib/roadRouting.ts` builds a simple graph from road geometry for pathing animations.
-- Ops constraints: low-memory host; API responses use `Cache-Control: no-store`; tile release is fetched dynamically and only cached in DB as `world_meta.overture_release`.
+- Building activation: players activate buildings to trigger resource generation for 2 minutes.
+
+### Minigames
+- 6 production minigames: KitchenRush, FreshCheck, GearUp, PatchJob, PowerUp, CraneDrop.
+- 3 repair minigames: PotholePatrol, RoadRoller, TrafficDirector (player-initiated road repairs).
+
+### Road Graph & Pathfinding
+- Road connectivity graph: `road_connectors` (intersection nodes) and `road_edges` (segment edges with length).
+- A* pathfinding with health-weighted edges: damaged roads slow travel (100% health = 1x, 50% = 2x, capped at 3x).
+- Backbone tier column for major road network visualization.
+
+### Player Scoring & Tiers
+- `player_scores` table tracks contribution, vote, minigame, and task completion scores.
+- 6 player tiers: newcomer, contributor, builder, engineer, architect, legend.
+- Tier config includes resource bonus, transfer speed bonus, and emergency repair charges.
+
+### Ops & Performance
+- Low-memory host; API responses use `Cache-Control: no-store`; tile release cached in DB as `world_meta.overture_release`.
+- `game_events` table for SSE replay/catchup on reconnection.
 - Ticker performs periodic cleanup of old `events` and `resource_transfers` (hourly by default).
+- Region difficulty multipliers for per-region decay rate scaling.
 
 ## 1. Data Model (Postgres)
 
@@ -63,9 +90,12 @@ CREATE TABLE regions (
   boundary GEOMETRY(Polygon, 4326) NOT NULL,
   center GEOMETRY(Point, 4326) NOT NULL,
   distance_from_center REAL NOT NULL,   -- for fog spread ordering
-  pool_labor BIGINT NOT NULL DEFAULT 0,
+  pool_food BIGINT NOT NULL DEFAULT 0,
+  pool_equipment BIGINT NOT NULL DEFAULT 0,
+  pool_energy BIGINT NOT NULL DEFAULT 0,
   pool_materials BIGINT NOT NULL DEFAULT 0,
   crew_count SMALLINT NOT NULL DEFAULT 2,
+  difficulty_multiplier REAL NOT NULL DEFAULT 1.0,  -- Per-region decay rate multiplier
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -103,9 +133,13 @@ CREATE TABLE world_features (
   properties JSONB NOT NULL DEFAULT '{}',
   -- roads only
   road_class TEXT,                      -- motorway, trunk, primary, secondary, tertiary, residential, service
+  road_length_m REAL,                   -- Precomputed road segment length in meters
+  backbone_tier SMALLINT,               -- 1-3 for major road network visualization (NULL if not backbone)
   -- buildings only (derived from places)
   place_category TEXT,                  -- restaurant, industrial, retail, office, etc. NULL if no place
-  generates_labor BOOLEAN NOT NULL DEFAULT FALSE,
+  generates_food BOOLEAN NOT NULL DEFAULT FALSE,
+  generates_equipment BOOLEAN NOT NULL DEFAULT FALSE,
+  generates_energy BOOLEAN NOT NULL DEFAULT FALSE,
   generates_materials BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -114,6 +148,7 @@ CREATE INDEX world_features_region_idx ON world_features(region_id);
 CREATE INDEX world_features_h3_idx ON world_features(h3_index);
 CREATE INDEX world_features_type_idx ON world_features(feature_type);
 CREATE INDEX world_features_geom_idx ON world_features USING GIST(geom);
+CREATE INDEX world_features_backbone_idx ON world_features(backbone_tier) WHERE backbone_tier IS NOT NULL;
 ```
 
 ### feature_state
@@ -224,6 +259,96 @@ CREATE INDEX events_ts_idx ON events(ts DESC);
 CREATE INDEX events_region_idx ON events(region_id);
 ```
 
+### road_connectors
+
+Graph nodes representing intersection points where road segments meet.
+
+```sql
+CREATE TABLE road_connectors (
+  connector_id TEXT PRIMARY KEY,  -- Overture connector gers_id
+  lng DOUBLE PRECISION NOT NULL,
+  lat DOUBLE PRECISION NOT NULL,
+  h3_index TEXT,                  -- For efficient per-hex queries
+  region_id TEXT REFERENCES regions(region_id) ON DELETE CASCADE
+);
+
+CREATE INDEX road_connectors_h3_idx ON road_connectors(h3_index);
+CREATE INDEX road_connectors_region_idx ON road_connectors(region_id);
+CREATE INDEX road_connectors_location_idx ON road_connectors(lng, lat);
+```
+
+### road_edges
+
+Graph edges connecting two connectors via a road segment.
+
+```sql
+CREATE TABLE road_edges (
+  segment_gers_id TEXT NOT NULL REFERENCES world_features(gers_id) ON DELETE CASCADE,
+  from_connector TEXT NOT NULL REFERENCES road_connectors(connector_id) ON DELETE CASCADE,
+  to_connector TEXT NOT NULL REFERENCES road_connectors(connector_id) ON DELETE CASCADE,
+  length_meters DOUBLE PRECISION NOT NULL,
+  h3_index TEXT,                  -- Primary hex this edge is in
+  PRIMARY KEY (segment_gers_id, from_connector, to_connector)
+);
+
+CREATE INDEX road_edges_h3_idx ON road_edges(h3_index);
+CREATE INDEX road_edges_from_idx ON road_edges(from_connector);
+CREATE INDEX road_edges_to_idx ON road_edges(to_connector);
+```
+
+### player_scores
+
+Track player scores for leaderboard and tier system.
+
+```sql
+CREATE TABLE player_scores (
+  client_id TEXT PRIMARY KEY REFERENCES players(client_id) ON DELETE CASCADE,
+  total_score BIGINT NOT NULL DEFAULT 0,
+  contribution_score BIGINT NOT NULL DEFAULT 0,
+  vote_score BIGINT NOT NULL DEFAULT 0,
+  minigame_score BIGINT NOT NULL DEFAULT 0,
+  task_completion_bonus BIGINT NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX player_scores_total_idx ON player_scores(total_score DESC);
+```
+
+### score_events
+
+Track individual score events for audit/analytics.
+
+```sql
+CREATE TABLE score_events (
+  event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id TEXT NOT NULL REFERENCES players(client_id) ON DELETE CASCADE,
+  event_type TEXT NOT NULL,       -- 'contribution', 'vote', 'minigame', 'task_completion'
+  amount BIGINT NOT NULL,
+  region_id TEXT REFERENCES regions(region_id),
+  related_id TEXT,                -- task_id, minigame_session_id, etc.
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX score_events_client_idx ON score_events(client_id, created_at DESC);
+CREATE INDEX score_events_type_idx ON score_events(event_type, created_at DESC);
+```
+
+### game_events
+
+Append-only event log for SSE replay/catchup on reconnection.
+
+```sql
+CREATE TABLE game_events (
+  seq_id BIGSERIAL PRIMARY KEY,
+  channel TEXT NOT NULL,
+  payload JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_game_events_seq_channel ON game_events(seq_id, channel);
+CREATE INDEX idx_game_events_created_at ON game_events(created_at);
+```
+
 ### resource_transfers
 
 Track in-transit resources from buildings to hubs; pools update on arrival.
@@ -270,34 +395,43 @@ CREATE TABLE world_meta (
 
 ## 2. Resource Generation Rules
 
+### Resource Types
+
+The game uses 4 resource types:
+- **Food**: Restaurants, cafes, grocery stores
+- **Equipment**: Hardware stores, auto repair shops
+- **Energy**: Power plants, gas stations
+- **Materials**: Industrial, construction, warehouses
+
 ### Place category → building output
 
 Places are spatially joined to their containing building at ingest time.
 
-| Place category pattern | generates_labor | generates_materials |
-|------------------------|-----------------|---------------------|
-| `restaurant`, `cafe`, `bar`, `food_*` | TRUE | FALSE |
-| `office`, `coworking` | TRUE | FALSE |
-| `retail`, `shop_*`, `store` | TRUE | FALSE |
-| `industrial`, `factory`, `warehouse`, `manufacturing` | FALSE | TRUE |
-| `construction`, `building_supply*`, `hardware*`, `home_improvement*`, `garden_center`, `nursery_and_gardening`, `lumber*`, `wood*`, `flooring*`, `automotive_repair`, `auto_body_shop`, `industrial_equipment` | FALSE | TRUE |
-| `hospital`, `school`, `university` | TRUE | FALSE |
-| All others | FALSE | FALSE |
+| Place category pattern | generates_food | generates_equipment | generates_energy | generates_materials |
+|------------------------|----------------|---------------------|------------------|---------------------|
+| `restaurant`, `cafe`, `bar`, `food_*`, `grocery` | TRUE | FALSE | FALSE | FALSE |
+| `hardware*`, `auto_repair`, `automotive_*` | FALSE | TRUE | FALSE | FALSE |
+| `gas_station`, `fuel*`, `power*`, `energy*` | FALSE | FALSE | TRUE | FALSE |
+| `industrial`, `factory`, `warehouse`, `manufacturing`, `construction`, `lumber*` | FALSE | FALSE | FALSE | TRUE |
+| `office`, `coworking`, `retail`, `shop_*` | FALSE | FALSE | FALSE | FALSE |
 
 Buildings without a matched place generate nothing.
 
-Fallback: if a building has no matching category, assign labor or materials to 5% of buildings using a deterministic hash of the GERS id.
-
-If a place category matches both labor and materials patterns, treat it as materials only.
+Fallback: if a building has no matching category, assign a resource type to 5% of buildings using a deterministic hash of the GERS id.
 
 ### Generation rates (per tick, per building)
 
-- Labor: `1 * (1 - local_rust_level) * day_multiplier` per labor-generating building
-- Materials: `1 * (1 - local_rust_level) * day_multiplier` per material-generating building
+- Base output: `1 * (1 - local_rust_level) * phase.generation` per generating building
+- If building has active boost: multiply by boost multiplier
 
 Generated resources are enqueued as in-transit transfers to the region hub and do not appear in pools until arrival.
 
-Resources accumulate in the building's region pool. Generation is higher during the day.
+### Building Activation
+
+Players can activate buildings to trigger resource generation:
+- Activation lasts 2 minutes (`BUILDING_ACTIVATION_MS`)
+- Activated buildings generate convoys to the regional hub
+- Only one active boost per building at a time
 
 ---
 
@@ -316,7 +450,7 @@ Buildings passively generate resources each tick, but players can **temporarily 
 
 ### Minigame Roster
 
-Six minigames, themed to the four resource types:
+Six production minigames, themed to the four resource types:
 
 | Resource | Minigame | Skill Type | Description |
 |----------|----------|------------|-------------|
@@ -325,18 +459,18 @@ Six minigames, themed to the four resource types:
 | **Equipment** | Gear Up | Alignment/Timing | Drag spinning gear to mesh with fixed gear at right moment |
 | **Equipment** | Patch Job | Precision/Tracing | Trace a welding line along cracks before they spread |
 | **Energy** | Power Up | Rhythm/Control | Tap to spin generator, maintain RPM in sweet spot |
-| **Materials** | Salvage Run | Timing Windows | Hit action button when oscillating marker is in clean zone |
+| **Materials** | CraneDrop | Timing/Precision | Drop crane load at the right moment to stack materials |
 
 ### Resource Type Mapping
 
-Buildings have boolean flags indicating which resource they generate (see Section 2 and migration `20251227000001`):
+Buildings have boolean flags indicating which resource they generate:
 
 | Schema Column | Resource Type | Minigames |
 |---------------|---------------|-----------|
 | `generates_food` | Food | Kitchen Rush, Fresh Check |
 | `generates_equipment` | Equipment | Gear Up, Patch Job |
 | `generates_energy` | Energy | Power Up |
-| `generates_materials` | Materials | Salvage Run |
+| `generates_materials` | Materials | CraneDrop |
 
 Buildings may generate multiple resource types. When boosted, select the primary type (first true flag in order: food → equipment → energy → materials).
 
@@ -758,21 +892,63 @@ Buildings with active boosts show:
 
 ---
 
+## 3b. Repair Minigames
+
+Players can directly repair roads through skill-based minigames, separate from crew-based repairs.
+
+### Overview
+
+- **Trigger**: Player clicks a degraded road → clicks "Repair"
+- **UI**: Opens an immersive overlay (similar to production minigames)
+- **Duration**: 10-30 seconds depending on minigame
+- **Reward**: Direct health restoration based on performance (60-100% of damage repaired)
+- **Cooldown**: Per-road cooldown before player can repair again
+
+### Minigame Roster
+
+Three repair minigames:
+
+| Minigame | Skill Type | Description |
+|----------|------------|-------------|
+| **Pothole Patrol** | Whack-a-mole | Tap potholes as they appear to fill them |
+| **Road Roller** | Timing/Rhythm | Tap to keep roller at optimal speed while paving |
+| **Traffic Director** | Pattern matching | Direct traffic safely around construction zone |
+
+### Health Restoration
+
+Health restored is based on performance:
+- **Success threshold**: 60% performance required for meaningful repair
+- **Failed repair** (< 60%): Restore only 10% of damage
+- **Successful repair** (≥ 60%): Restore 60-100% of damage based on score
+- **Extra rounds**: More damaged roads have longer minigames (more rounds)
+
+### Difficulty Scaling
+
+- Damaged roads (health < 30) have harder minigames with more rounds
+- Region difficulty multiplier affects minigame difficulty
+- Night phase increases difficulty
+
+---
+
 ## 4. Road Class → Repair Costs
 
-| Road class | Decay rate (per tick) | Repair cost (labor) | Repair cost (materials) | Repair time (s) | Repair amount |
-|------------|----------------------|---------------------|-------------------------|-----------------|---------------|
-| motorway | 0.5 | 100 | 100 | 120 | 30 |
-| trunk | 0.6 | 80 | 80 | 100 | 30 |
-| primary | 0.8 | 60 | 60 | 80 | 25 |
-| secondary | 1.0 | 40 | 40 | 60 | 25 |
-| tertiary | 1.2 | 30 | 30 | 50 | 20 |
-| residential | 1.5 | 20 | 20 | 40 | 20 |
-| service | 2.0 | 10 | 10 | 30 | 15 |
+Crew-based repairs consume resources from all 4 pool types. Each road class has a base cost with variance.
 
-Decay is multiplied by local Rust level and time of day:
+| Road class | Decay rate | Base cost | Cost variance | Duration (s) | Repair amount | Priority weight |
+|------------|------------|-----------|---------------|--------------|---------------|-----------------|
+| motorway | 0.5 | 35 | ±14 | 8 | 30 | 10 |
+| trunk | 0.6 | 29 | ±12 | 7 | 30 | 8 |
+| primary | 0.8 | 22 | ±8 | 6 | 25 | 6 |
+| secondary | 1.0 | 15 | ±6 | 5 | 25 | 4 |
+| tertiary | 1.2 | 12 | ±5 | 4 | 20 | 3 |
+| residential | 1.5 | 8 | ±3 | 3 | 20 | 2 |
+| service | 2.0 | 4 | ±1 | 3 | 15 | 1 |
+
+**Cost calculation**: Each of the 4 resource types (food, equipment, energy, materials) costs `baseCost + random(±costVariance)`.
+
+Decay is multiplied by local Rust level, time of day, and region difficulty:
 ```
-effective_decay = base_decay * (1 + rust_level) * night_multiplier
+effective_decay = base_decay * (1 + rust_level) * phase.decay * region.difficultyMultiplier
 ```
 
 ---
@@ -1071,12 +1247,12 @@ def weekly_reset():
     SET rust_level = LEAST(0.3, distance_from_center / max_distance * 0.3),
         updated_at = now()
     
-    # Reset region pools to starting values
+    # Reset region pools to starting values (all 4 resource types)
     UPDATE regions
-    SET pool_food = 1000,
-        pool_equipment = 1000,
-        pool_energy = 1000,
-        pool_materials = 1000,
+    SET pool_food = 500,
+        pool_equipment = 500,
+        pool_energy = 500,
+        pool_materials = 500,
         updated_at = now()
 
     # Clear all queued/active tasks
@@ -1657,7 +1833,90 @@ Key demo beats:
 
 ---
 
-## 16. Open Questions / Future Ideas
+## 16. Player Scoring & Tier System
+
+### Player Tiers
+
+Players progress through 6 tiers based on accumulated score:
+
+| Tier | Label | Min Score | Badge | Resource Bonus | Speed Bonus | Emergency Repairs |
+|------|-------|-----------|-------|----------------|-------------|-------------------|
+| newcomer | Newcomer | 0 | 🔰 | 1.0× | 1.0× | 0 |
+| contributor | Contributor | 100 | ⚡ | 1.05× | 1.0× | 0 |
+| builder | Builder | 500 | 🔧 | 1.10× | 1.05× | 1/day |
+| engineer | Engineer | 2000 | ⚙️ | 1.15× | 1.10× | 2/day |
+| architect | Architect | 10000 | 🏗️ | 1.20× | 1.15× | 3/day |
+| legend | Legend | 50000 | 🌟 | 1.25× | 1.20× | 5/day |
+
+### Score Actions
+
+Players earn score from various actions:
+
+| Action | Score |
+|--------|-------|
+| Resource contribution | 1 per unit |
+| Vote submitted | 5 |
+| Minigame completed | 10 (base) |
+| Minigame perfect performance | 25 (bonus) |
+| Task completed (if voted on) | 50 |
+
+### Score Storage
+
+- `player_scores` table tracks totals by category
+- `score_events` table logs each individual score event
+- Scores persist across weekly resets
+
+---
+
+## 17. Road Graph & Pathfinding
+
+### Graph Structure
+
+The road network is represented as a graph for pathfinding:
+
+- **Nodes**: `road_connectors` table - intersection points where road segments meet
+- **Edges**: `road_edges` table - directed edges connecting connectors via road segments
+
+Each edge stores:
+- Source and destination connector IDs
+- Segment GERS ID for health lookup
+- Precomputed length in meters
+
+### A* Pathfinding
+
+The `packages/pathfinding` library provides A* pathfinding with health-weighted edges:
+
+```javascript
+// Health-based slowdown multiplier
+// 100% health = 1x speed, 50% = 2x slower, capped at 3x
+function healthSlowdownMultiplier(health) {
+  return Math.min(3, 100 / Math.max(1, health));
+}
+
+// Edge weight includes health penalty
+function edgeWeight(lengthMeters, health) {
+  return lengthMeters * healthSlowdownMultiplier(health);
+}
+```
+
+### Usage
+
+- Resource transfers use A* to find optimal routes from buildings to hubs
+- Crew travel uses A* to find routes to task locations
+- Waypoint timestamps calculated using path length and speed
+
+### Backbone Network
+
+Major roads have a `backbone_tier` (1-3) for visual overlay:
+- Tier 1: Primary arterials
+- Tier 2: Secondary connectors
+- Tier 3: Tertiary network
+
+This enables a simplified road network visualization behind the full road layer.
+
+---
+
+## 18. Open Questions / Future Ideas
 
 - **Variable night length**: As the world degrades, nights get longer? ("The nights are getting longer" becomes literal)
 - **Seasonal events**: Longer nights in winter, shorter in summer?
