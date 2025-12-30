@@ -205,7 +205,7 @@ export default function KitchenRush({ config, difficulty, onComplete }: KitchenR
         )}
       </div>
 
-      {/* Station buttons */}
+      {/* Station buttons - with explicit touch handling for mobile */}
       <div className="grid grid-cols-2 gap-4">
         {STATIONS.map((station) => {
           const isActive = activeStation === station.id;
@@ -215,6 +215,10 @@ export default function KitchenRush({ config, difficulty, onComplete }: KitchenR
             <button
               key={station.id}
               onClick={() => handleStationClick(station.id)}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                handleStationClick(station.id);
+              }}
               disabled={!isClickable}
               className={`relative flex h-28 w-28 flex-col items-center justify-center rounded-2xl border-2 transition-all duration-150 ${
                 isActive
@@ -227,6 +231,7 @@ export default function KitchenRush({ config, difficulty, onComplete }: KitchenR
               }`}
               style={{
                 backgroundColor: isActive ? station.color : `${station.color}20`,
+                touchAction: "manipulation",
               }}
             >
               <span className="text-4xl">{station.icon}</span>

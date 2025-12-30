@@ -453,10 +453,14 @@ export default function CraneDrop({ config, difficulty, onComplete }: CraneDropP
         />
       </div>
 
-      {/* Game area */}
+      {/* Game area - with explicit touch handling for mobile */}
       <div
         className="relative mb-6 h-72 w-full cursor-pointer overflow-hidden rounded-2xl border-2 border-white/10 bg-gradient-to-b from-slate-900 to-slate-950"
         onClick={handleDrop}
+        onTouchEnd={(e) => {
+          e.preventDefault();
+          handleDrop();
+        }}
         role="button"
         tabIndex={0}
         onKeyDown={(e) => {
@@ -466,6 +470,7 @@ export default function CraneDrop({ config, difficulty, onComplete }: CraneDropP
           }
         }}
         aria-label="Drop the claw"
+        style={{ touchAction: "manipulation" }}
       >
         {/* Crane rail at top */}
         <div className="absolute left-0 right-0 top-0 h-3 bg-gradient-to-b from-slate-600 to-slate-700 shadow-md" />
@@ -605,9 +610,13 @@ export default function CraneDrop({ config, difficulty, onComplete }: CraneDropP
         )}
       </div>
 
-      {/* Drop button for mobile */}
+      {/* Drop button for mobile - with explicit touch handling */}
       <button
         onClick={handleDrop}
+        onTouchEnd={(e) => {
+          e.preventDefault();
+          handleDrop();
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
@@ -620,6 +629,7 @@ export default function CraneDrop({ config, difficulty, onComplete }: CraneDropP
             ? "border-[#a78bfa] bg-[#a78bfa]/20 hover:bg-[#a78bfa]/30 active:scale-95 animate-pulse"
             : "border-white/20 bg-white/5"
         }`}
+        style={{ touchAction: "manipulation" }}
         aria-label="Drop claw"
       >
         🪝

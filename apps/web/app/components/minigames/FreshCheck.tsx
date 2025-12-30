@@ -410,10 +410,14 @@ export default function FreshCheck({ config, difficulty, onComplete }: FreshChec
         )}
       </div>
 
-      {/* Control buttons with accessibility improvements */}
+      {/* Control buttons with accessibility improvements and explicit touch handling */}
       <div className="flex w-full gap-4">
         <button
           onClick={() => handleSort("left")}
+          onTouchEnd={(e) => {
+            e.preventDefault();
+            handleSort("left");
+          }}
           disabled={phase !== "playing"}
           aria-label="Discard as spoiled"
           className={`flex flex-1 flex-col items-center justify-center rounded-xl border-2 py-4 transition-all ${
@@ -421,12 +425,17 @@ export default function FreshCheck({ config, difficulty, onComplete }: FreshChec
               ? "border-[#ef4444]/50 bg-[#ef4444]/10 hover:bg-[#ef4444]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ef4444] focus-visible:ring-offset-2 focus-visible:ring-offset-[#1a1d21] active:scale-95"
               : "border-white/10 bg-white/5 opacity-50"
           }`}
+          style={{ touchAction: "manipulation" }}
         >
           <span className="text-2xl">🗑️</span>
           <span className="mt-1 text-xs text-white/60">Spoiled</span>
         </button>
         <button
           onClick={() => handleSort("right")}
+          onTouchEnd={(e) => {
+            e.preventDefault();
+            handleSort("right");
+          }}
           disabled={phase !== "playing"}
           aria-label="Keep as fresh"
           className={`flex flex-1 flex-col items-center justify-center rounded-xl border-2 py-4 transition-all ${
@@ -434,6 +443,7 @@ export default function FreshCheck({ config, difficulty, onComplete }: FreshChec
               ? "border-[#4ade80]/50 bg-[#4ade80]/10 hover:bg-[#4ade80]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4ade80] focus-visible:ring-offset-2 focus-visible:ring-offset-[#1a1d21] active:scale-95"
               : "border-white/10 bg-white/5 opacity-50"
           }`}
+          style={{ touchAction: "manipulation" }}
         >
           <span className="text-2xl">✅</span>
           <span className="mt-1 text-xs text-white/60">Fresh</span>

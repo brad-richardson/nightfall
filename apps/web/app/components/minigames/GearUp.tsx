@@ -354,9 +354,13 @@ export default function GearUp({ config, difficulty, onComplete }: GearUpProps) 
         )}
       </div>
 
-      {/* Mesh button */}
+      {/* Mesh button - with explicit touch handling for mobile */}
       <button
         onClick={handleMesh}
+        onTouchEnd={(e) => {
+          e.preventDefault();
+          handleMesh();
+        }}
         disabled={phase !== "playing" || leftGearEngaged}
         aria-label="Mesh gears"
         className={`flex h-24 w-24 items-center justify-center rounded-full border-4 text-4xl transition-all ${
@@ -364,6 +368,7 @@ export default function GearUp({ config, difficulty, onComplete }: GearUpProps) 
             ? "border-[#f97316] bg-[#f97316]/20 hover:bg-[#f97316]/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f97316] focus-visible:ring-offset-2 focus-visible:ring-offset-[#1a1d21] active:scale-95"
             : "border-white/20 bg-white/5"
         }`}
+        style={{ touchAction: "manipulation" }}
       >
         ⚙️
       </button>

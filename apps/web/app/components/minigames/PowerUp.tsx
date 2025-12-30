@@ -267,15 +267,20 @@ export default function PowerUp({ config, difficulty, onComplete }: PowerUpProps
         )}
       </div>
 
-      {/* Tap area button */}
+      {/* Tap area button - sized for mobile touch and with explicit touch handling */}
       <button
         onClick={handleTap}
+        onTouchEnd={(e) => {
+          e.preventDefault();
+          handleTap();
+        }}
         disabled={phase !== "charging"}
         className={`flex h-24 w-24 items-center justify-center rounded-full border-4 text-4xl transition-all ${
           phase === "charging"
             ? "border-[#facc15] bg-[#facc15]/20 hover:bg-[#facc15]/30 active:scale-95"
             : "border-white/20 bg-white/5"
         }`}
+        style={{ touchAction: "manipulation" }}
       >
         ⚡
       </button>

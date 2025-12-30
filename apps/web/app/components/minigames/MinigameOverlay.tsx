@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { X } from "lucide-react";
+import { toast } from "sonner";
 import { useStore } from "../../store";
 import { SCORE_ACTIONS } from "@nightfall/config";
 import KitchenRush from "./KitchenRush";
@@ -134,11 +135,19 @@ export default function MinigameOverlay({ onClose }: MinigameOverlayProps) {
         addMinigameScore(baseScore + perfectBonus);
       } else {
         console.error("Minigame complete failed:", data.error);
+        toast.error("Activation failed", {
+          description: data.error === "duration_too_fast"
+            ? "Played too quickly - please try again"
+            : "Unable to activate building. Please try again."
+        });
         abandonMinigame();
         handleExit();
       }
     } catch (e) {
       console.error("Failed to complete minigame:", e);
+      toast.error("Connection error", {
+        description: "Unable to reach server. Please check your connection and try again."
+      });
       abandonMinigame();
       handleExit();
     }
@@ -197,7 +206,7 @@ export default function MinigameOverlay({ onClose }: MinigameOverlayProps) {
         exiting ? "opacity-0" : "opacity-100"
       }`}
       role="presentation"
-      style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none" }}
+      style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none", touchAction: "manipulation" }}
       onContextMenu={(e) => e.preventDefault()}
     >
       <div
@@ -210,11 +219,16 @@ export default function MinigameOverlay({ onClose }: MinigameOverlayProps) {
           exiting ? "scale-95 opacity-0" : "scale-100 opacity-100"
         }`}
       >
-        {/* Close button */}
+        {/* Close button - sized for mobile touch targets (48x48 min) */}
         <button
           onClick={handleQuitRequest}
-          className="absolute right-4 top-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/5 text-white/40 transition hover:bg-white/10 hover:text-white/80 focus:outline-none focus:ring-2 focus:ring-white/30"
+          onTouchEnd={(e) => {
+            e.preventDefault();
+            handleQuitRequest();
+          }}
+          className="absolute right-3 top-3 z-10 flex h-12 w-12 items-center justify-center rounded-full bg-white/5 text-white/40 transition hover:bg-white/10 hover:text-white/80 focus:outline-none focus:ring-2 focus:ring-white/30"
           aria-label="Close minigame"
+          style={{ touchAction: "manipulation" }}
         >
           <X className="h-5 w-5" />
         </button>
