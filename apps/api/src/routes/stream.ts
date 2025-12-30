@@ -21,6 +21,9 @@ export function registerStreamRoutes(app: FastifyInstance, ctx: RouteContext) {
 
     const once = request.headers["x-sse-once"] === "1";
 
+    // Support reconnection with Last-Event-ID for replay of missed events
+    const lastEventId = request.headers["last-event-id"] as string | undefined;
+
     // Manually set CORS headers for SSE (hijacked responses bypass @fastify/cors)
     const origin = request.headers.origin;
     if (origin) {
@@ -56,6 +59,15 @@ export function registerStreamRoutes(app: FastifyInstance, ctx: RouteContext) {
     try {
       await eventStream.start?.();
 
+      // Replay missed events if client reconnected with Last-Event-ID
+      if (lastEventId && eventStream.replayEvents) {
+        app.log.info({ lastEventId }, "Replaying missed events for reconnecting client");
+        await eventStream.replayEvents(lastEventId, (payload) => {
+          const seqId = (payload.data as Record<string, unknown>)?.seq_id as string | undefined;
+          writeSseEvent(reply.raw, payload.event, payload.data, seqId);
+        });
+      }
+
       // Send heartbeat events to detect dead connections on both desktop and mobile
       // SSE comments (: prefix) are ignored by EventSource but keep the connection alive
       // We also send a proper event so the client can track activity
@@ -75,7 +87,9 @@ export function registerStreamRoutes(app: FastifyInstance, ctx: RouteContext) {
         if ((payload.data as Record<string, unknown>)?.type === "rust_bulk") {
           app.log.info({ event: payload.event, data: payload.data }, "[SSE] Writing rust_bulk to client");
         }
-        writeSseEvent(reply.raw, payload.event, payload.data);
+        // Include seq_id in SSE message for client tracking
+        const seqId = (payload.data as Record<string, unknown>)?.seq_id as string | undefined;
+        writeSseEvent(reply.raw, payload.event, payload.data, seqId);
         if (once) {
           reply.raw.end();
         }

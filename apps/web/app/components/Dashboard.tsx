@@ -1049,12 +1049,20 @@ export default function Dashboard({
     }
 
     switch (payload.event) {
-    case "reconnected":
+    case "reconnected": {
       // SSE reconnected after visibility change or network recovery
-      // Refresh the region state to ensure we have latest data
-      console.debug("[SSE] Reconnected, refreshing state");
-      refreshRegionState();
+      const { lastEventId } = payload.data as { reason: string; lastEventId?: string };
+
+      // If we have a lastEventId, the server will replay missed events via Last-Event-ID header
+      // If not, we need to do a full state refresh to catch up
+      if (lastEventId) {
+        console.debug("[SSE] Reconnected with lastEventId, server will replay missed events");
+      } else {
+        console.debug("[SSE] Reconnected without lastEventId, doing full state refresh");
+        refreshRegionState();
+      }
       break;
+    }
     case "phase_change":
       pending.cycle = payload.data as Partial<CycleState>;
       pending.dirty = true;

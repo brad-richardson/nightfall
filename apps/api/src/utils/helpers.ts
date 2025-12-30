@@ -64,7 +64,10 @@ export function getNextReset(now: Date) {
   return next.toISOString();
 }
 
-export function writeSseEvent(stream: NodeJS.WritableStream, event: string, payload: unknown) {
+export function writeSseEvent(stream: NodeJS.WritableStream, event: string, payload: unknown, id?: string) {
+  if (id) {
+    stream.write(`id: ${id}\n`);
+  }
   stream.write(`event: ${event}\n`);
   stream.write(`data: ${JSON.stringify(payload)}\n\n`);
 }

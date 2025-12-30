@@ -12,9 +12,9 @@ export type EventPayload = {
 // Exported so Dashboard can use the same value for polling fallback
 export const SSE_STALE_THRESHOLD_MS = 30000;
 
-// Shorter threshold for visibility change - reconnect faster when returning to tab
-// Desktop browsers throttle/freeze background tabs, so reconnect immediately
-const VISIBILITY_STALE_THRESHOLD_MS = 5000;
+// Threshold for visibility change - matches heartbeat interval
+// Too aggressive causes unnecessary reconnections on tab switching
+const VISIBILITY_STALE_THRESHOLD_MS = 15000;
 
 export function useEventStream(
   baseUrl: string,
@@ -25,6 +25,7 @@ export function useEventStream(
   const retryTimeoutRef = useRef<number | null>(null);
   const retryCountRef = useRef(0);
   const lastEventTimeRef = useRef<number>(Date.now());
+  const lastEventIdRef = useRef<string | null>(null);
   onEventRef.current = onEvent;
 
   useEffect(() => {
@@ -62,6 +63,7 @@ export function useEventStream(
         "feature_delta",
         "task_delta",
         "resource_transfer",
+        "crew_delta",
         "reset_warning",
         "reset"
       ];
@@ -70,6 +72,10 @@ export function useEventStream(
         eventSource?.addEventListener(eventName, (e: MessageEvent) => {
           // Track last event time to detect stale connections
           lastEventTimeRef.current = Date.now();
+          // Track last event ID for replay on reconnection (native EventSource sends this header automatically)
+          if (e.lastEventId) {
+            lastEventIdRef.current = e.lastEventId;
+          }
           let data = {};
           try {
             data = JSON.parse(e.data);
@@ -90,17 +96,27 @@ export function useEventStream(
         // Don't forward heartbeats to the event handler - they're just for connection health
       });
 
-      eventSource.onerror = (err) => {
+      eventSource.onerror = () => {
         if (!active || eventSourceRef.current !== eventSource) return;
-        console.error("SSE error", err);
+        // EventSource errors don't provide useful info - check readyState instead
+        // 0 = CONNECTING, 1 = OPEN, 2 = CLOSED
+        const state = eventSource.readyState;
+        const stateNames = ['CONNECTING', 'OPEN', 'CLOSED'];
+        console.warn(`[SSE] Connection error (state: ${stateNames[state] || state}), will retry...`);
         eventSource.close();
         eventSourceRef.current = null;
 
         if (retryCountRef.current < maxRetries) {
           retryCountRef.current += 1;
-          const delay = Math.min(1000 * Math.pow(2, retryCountRef.current), 30000);
+          // Exponential backoff with jitter to prevent thundering herd
+          const baseDelay = Math.min(1000 * Math.pow(2, retryCountRef.current), 30000);
+          const jitter = Math.random() * 0.3 * baseDelay; // 0-30% jitter
+          const delay = baseDelay + jitter;
+          console.debug(`[SSE] Retry ${retryCountRef.current}/${maxRetries} in ${Math.round(delay)}ms`);
           clearRetryTimeout();
           retryTimeoutRef.current = window.setTimeout(connect, delay);
+        } else {
+          console.error(`[SSE] Max retries (${maxRetries}) reached, giving up`);
         }
       };
 
@@ -126,8 +142,9 @@ export function useEventStream(
 
         if (isConnectionMissing || isConnectionStale) {
           reconnect(isConnectionMissing ? "connection missing after visibility change" : "connection stale after visibility change");
-          // Emit reconnected event so Dashboard can refresh state
-          onEventRef.current({ event: "reconnected", data: { reason: "visibility_change" } });
+          // Emit reconnected event so Dashboard can refresh state if needed
+          // Include lastEventId so client knows if replay happened
+          onEventRef.current({ event: "reconnected", data: { reason: "visibility_change", lastEventId: lastEventIdRef.current } });
         }
       }
     };
@@ -139,7 +156,7 @@ export function useEventStream(
       const isConnectionMissing = !eventSourceRef.current;
       if (isConnectionMissing) {
         reconnect("network came online");
-        onEventRef.current({ event: "reconnected", data: { reason: "network_online" } });
+        onEventRef.current({ event: "reconnected", data: { reason: "network_online", lastEventId: lastEventIdRef.current } });
       }
     };
 

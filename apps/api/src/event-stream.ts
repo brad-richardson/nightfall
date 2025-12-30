@@ -10,6 +10,7 @@ export type EventStream = {
   subscribe: (handler: (payload: EventPayload) => void) => () => void;
   start?: () => Promise<void>;
   stop?: () => Promise<void>;
+  replayEvents?: (fromSeqId: string, handler: (payload: EventPayload) => void) => Promise<void>;
 };
 
 type Logger = {
@@ -178,9 +179,37 @@ export function createDbEventStream(
     return () => emitter.off("event", handler);
   }
 
+  /**
+   * Replay events that occurred after the given sequence ID.
+   * Used for client reconnection to catch up on missed events.
+   */
+  async function replayEvents(fromSeqId: string, handler: (payload: EventPayload) => void) {
+    try {
+      const result = await pool.query<{ seq_id: string; channel: string; payload: unknown }>(
+        `SELECT seq_id, channel, payload
+         FROM game_events
+         WHERE seq_id > $1 AND channel = ANY($2)
+         ORDER BY seq_id ASC
+         LIMIT 1000`,
+        [fromSeqId, channels]
+      );
+
+      for (const row of result.rows) {
+        const payload = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;
+        handler({
+          event: row.channel,
+          data: { seq_id: row.seq_id, ...(payload as object) }
+        });
+      }
+    } catch (error) {
+      logger.error({ err: error, fromSeqId }, "failed to replay events");
+    }
+  }
+
   return {
     subscribe,
     start,
-    stop
+    stop,
+    replayEvents
   };
 }
