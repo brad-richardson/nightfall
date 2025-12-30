@@ -15,16 +15,16 @@ test("map renders and features are selectable", async ({ page }) => {
   // (Simulating a map click that successfully hits a feature)
   await page.evaluate(() => {
     window.dispatchEvent(new CustomEvent("nightfall:feature_selected", {
-      detail: { 
-        gers_id: "test-feature-id", 
-        type: "building",
+      detail: {
+        gers_id: "test-feature-id",
+        type: "road",
         position: { x: 200, y: 200 }
       }
     }));
   });
 
   // 3. Verify selection modal (FeaturePanel) appears
-  const panelHeading = page.getByRole("heading", { name: "Building" });
+  const panelHeading = page.getByRole("heading", { name: "Road Segment" });
   await expect(panelHeading).toBeVisible();
   await expect(page.getByText("test-feature-id")).toBeVisible();
 
