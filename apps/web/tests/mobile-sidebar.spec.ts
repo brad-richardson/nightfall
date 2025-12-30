@@ -64,6 +64,28 @@ test.describe("Mobile sidebar", () => {
     await expect(resourcePoolsHeading).toBeVisible();
   });
 
+  test("drawer shows region health with radial stats matching desktop", async ({ page, isMobile }) => {
+    test.skip(!isMobile, "Mobile-only test");
+
+    await page.goto("/");
+
+    // Open the drawer
+    const trigger = page.getByRole("button", { name: /region status/i });
+    await trigger.click();
+
+    const drawer = page.getByRole("dialog");
+    await expect(drawer).toBeVisible({ timeout: 10000 });
+
+    // Verify Region Health section is present
+    const regionHealthHeading = drawer.getByText("Region Health", { exact: true });
+    await expect(regionHealthHeading).toBeVisible();
+
+    // Verify RadialStat labels match desktop sidebar (Degraded, Workers, Active)
+    await expect(drawer.getByText("Degraded")).toBeVisible();
+    await expect(drawer.getByText("Workers")).toBeVisible();
+    await expect(drawer.getByText("Active")).toBeVisible();
+  });
+
   test("drawer content has safe area padding", async ({ page, isMobile }) => {
     test.skip(!isMobile, "Mobile-only test");
 
