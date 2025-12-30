@@ -1489,7 +1489,8 @@ export default function DemoMap({
         startTime,
         duration,
         waypoints: waypoints && waypoints.length > 0 ? waypoints : null,
-        boostMultiplier: transfer.boost_multiplier ?? null
+        boostMultiplier: transfer.boost_multiplier ?? null,
+        amount: transfer.amount
       }];
     });
   }, [featuresByGersId, features, fallbackCenter, isLoaded, roadFeaturesForPath]);
@@ -1562,12 +1563,12 @@ export default function DemoMap({
           if (rawProgress >= 1 && !completedPackageIds.current.has(pkg.id)) {
             completedPackageIds.current.add(pkg.id);
             const screenPoint = mapInstance.project(finalPosition);
-            const amount = Math.round(100 * (pkg.boostMultiplier ?? 1));
+            // Use actual amount from server (boost already applied server-side)
             setArrivalParticles(prev => [...prev, {
               id: pkg.id,
               x: screenPoint.x,
               y: screenPoint.y,
-              amount,
+              amount: pkg.amount,
               resourceType: pkg.type,
               createdAt: now
             }]);
@@ -1588,12 +1589,12 @@ export default function DemoMap({
           if (rawProgress >= 1 && !completedPackageIds.current.has(pkg.id)) {
             completedPackageIds.current.add(pkg.id);
             const screenPoint = mapInstance.project(finalPosition);
-            const amount = Math.round(100 * (pkg.boostMultiplier ?? 1));
+            // Use actual amount from server (boost already applied server-side)
             setArrivalParticles(prev => [...prev, {
               id: pkg.id,
               x: screenPoint.x,
               y: screenPoint.y,
-              amount,
+              amount: pkg.amount,
               resourceType: pkg.type,
               createdAt: now
             }]);

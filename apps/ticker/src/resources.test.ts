@@ -67,7 +67,11 @@ describe("resource transfers", () => {
 
   it("applies arrived transfers to region pools", async () => {
     const query = vi.fn()
+      // 1. Table existence check
       .mockResolvedValueOnce({ rows: [{ exists: "resource_transfers" }] })
+      // 2. Debug query to check pending arrivals
+      .mockResolvedValueOnce({ rows: [{ count: "2", region_ids: ["region-1", "region-2"] }] })
+      // 3. Main CTE query
       .mockResolvedValueOnce({
         rows: [{ region_id: "region-1" }, { region_id: "region-2" }]
       });
@@ -75,8 +79,8 @@ describe("resource transfers", () => {
     const result = await applyArrivedResourceTransfers({ query });
 
     expect(result.regionIds.sort()).toEqual(["region-1", "region-2"]);
-    expect(query).toHaveBeenCalledTimes(2);
-    expect(String(query.mock.calls[1][0])).toContain("resource_transfers");
+    expect(query).toHaveBeenCalledTimes(3);
+    expect(String(query.mock.calls[2][0])).toContain("resource_transfers");
   });
 
   it("skips enqueuing transfers when the table is missing", async () => {

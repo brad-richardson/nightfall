@@ -420,25 +420,25 @@ export const PHASE_MULTIPLIERS: Record<PhaseName, PhaseMultipliers> = {
   dawn: {
     rust_spread: 0.1,
     decay: 0.12, // -20% from 0.15
-    generation: 12,
+    generation: 130,
     repair_speed: 1.0
   },
   day: {
     rust_spread: 0.05,
     decay: 0.08, // -20% from 0.1
-    generation: 15,
+    generation: 150,
     repair_speed: 1.25
   },
   dusk: {
     rust_spread: 0.25,
     decay: 0.2, // -33% from 0.3
-    generation: 8,
+    generation: 105,
     repair_speed: 1.0
   },
   night: {
     rust_spread: 0.5,
     decay: 0.35, // -30% from 0.5
-    generation: 3,
+    generation: 80,
     repair_speed: 0.75
   }
 };

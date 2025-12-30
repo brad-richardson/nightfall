@@ -43,7 +43,9 @@ describe("runWithAdvisoryLock", () => {
 
     expect(runTick).toHaveBeenCalledTimes(1);
     expect(connect).toHaveBeenCalledTimes(1);
-    expect(query).toHaveBeenCalledTimes(4);
+    // Only 2 queries now: lock check and unlock (no more BEGIN/COMMIT wrapper)
+    // Each operation group in runTick manages its own transaction
+    expect(query).toHaveBeenCalledTimes(2);
     expect(release).toHaveBeenCalledTimes(1);
   });
 });

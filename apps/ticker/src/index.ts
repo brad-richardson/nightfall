@@ -193,81 +193,192 @@ async function publishCrewDeltas(client: PoolLike, crewEvents: { crew_id: string
   }
 }
 
-async function runTick(client: PoolLike) {
-  const now = Date.now();
-  await checkAndPerformReset(client);
+/**
+ * Helper to run operations in a transaction.
+ * Returns null if any operation fails (transaction rolled back).
+ */
+async function runInTransaction<T>(
+  pool: PoolLike,
+  groupName: string,
+  operations: (client: PoolLike) => Promise<T>
+): Promise<T | null> {
+  if (!pool.connect) {
+    logger.error({ group: groupName }, "pool.connect required for transactions");
+    return null;
+  }
 
-  const demoConfig = await getDemoConfig(client);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await operations(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    logger.error({ err: error, group: groupName }, "transaction group failed");
+    return null;
+  } finally {
+    if (typeof client.release === "function") {
+      await client.release();
+    }
+  }
+}
+
+async function runTick(pool: PoolLike) {
+  const now = Date.now();
+
+  // Pre-tick: Reset check and config (uses pool directly for simple queries)
+  await checkAndPerformReset(pool);
+  const demoConfig = await getDemoConfig(pool);
   const cycleSpeed = demoConfig.enabled ? demoConfig.cycle_speed : 1;
   const tickMultiplier = demoConfig.enabled ? demoConfig.tick_multiplier : 1;
-
-  const cycle = await syncCycleState(client, logger, cycleSpeed);
+  const cycle = await syncCycleState(pool, logger, cycleSpeed);
   const baseMultipliers = getPhaseMultipliers(cycle.phase);
   const multipliers = applyDemoMultiplier(baseMultipliers, tickMultiplier);
 
-  const rustHexes = await applyRustSpread(client, multipliers);
-  const decayFeatureDeltas = await applyRoadDecay(client, multipliers);
-  const newTransfers = await enqueueResourceTransfers(client, multipliers);
-  const arrivalResult = await applyArrivedResourceTransfers(client);
+  // Initialize result collectors
+  let rustHexes: HexUpdate[] = [];
+  let decayFeatureDeltas: FeatureDelta[] = [];
+  let newTransfers: ResourceTransfer[] = [];
+  let arrivalResult = { regionIds: [] as string[] };
+  let spawnedTasks: TaskDelta[] = [];
+  let priorityUpdates: TaskDelta[] = [];
+  let dispatchResult = { taskDeltas: [] as TaskDelta[], featureDeltas: [] as FeatureDelta[], regionIds: [] as string[], crewEvents: [] as { crew_id: string; region_id: string; event_type: string; waypoints?: unknown; task_id?: string | null }[] };
+  let crewArrivalResult = { featureDeltas: [] as FeatureDelta[], regionIds: [] as string[], crewEvents: [] as { crew_id: string; region_id: string; event_type: string; position?: unknown; task_id?: string | null }[] };
+  let hubArrivalEvents: { crew_id: string; region_id: string; event_type: string }[] = [];
+  let completionResult = { taskDeltas: [] as TaskDelta[], featureDeltas: [] as FeatureDelta[], regionIds: [] as string[], crewEvents: [] as { crew_id: string; region_id: string; event_type: string }[], feedItems: [] as { event_type: string; region_id: string | null; message: string; ts: string }[], rustHexes: [] as HexUpdate[] };
+  let lamplighterResult = { regionActivities: 0, contributions: 0, votes: 0, warnings: 0, observations: 0 };
 
-  const spawnedTasks = await spawnDegradedRoadTasks(client);
-  const priorityUpdates = await updateTaskPriorities(client);
-  const dispatchResult = await dispatchCrews(client);
-  const crewArrivalResult = await arriveCrews(client, multipliers);
-  const hubArrivalEvents = await arriveCrewsAtHub(client);
-  const completionResult = await completeFinishedTasks(client, multipliers);
+  // ====== GROUP 1: World State (rust spread, road decay) ======
+  const worldResult = await runInTransaction(pool, "world_state", async (client) => {
+    const rust = await applyRustSpread(client, multipliers);
+    const decay = await applyRoadDecay(client, multipliers);
+    return { rustHexes: rust, decayFeatureDeltas: decay };
+  });
+  if (worldResult) {
+    rustHexes = worldResult.rustHexes;
+    decayFeatureDeltas = worldResult.decayFeatureDeltas;
+  }
 
-  await simulateBots(client, demoConfig.enabled);
+  // ====== GROUP 2: Resources (enqueue transfers, apply arrivals) ======
+  // This is the CRITICAL path - pool updates must persist
+  const resourceResult = await runInTransaction(pool, "resources", async (client) => {
+    const transfers = await enqueueResourceTransfers(client, multipliers);
 
-  // The Lamplighter makes the world feel alive with per-region activity
-  const lamplighterResult = await runLamplighter(client, demoConfig.enabled, cycle.phase);
+    // Debug: Log pool values before arrivals
+    const poolBefore = await client.query<{ region_id: string; pool_food: number; pool_equipment: number; pool_energy: number; pool_materials: number }>(
+      "SELECT region_id, pool_food::float, pool_equipment::float, pool_energy::float, pool_materials::float FROM regions"
+    );
+
+    const arrivals = await applyArrivedResourceTransfers(client);
+
+    // Debug: Log pool values after arrivals
+    if (arrivals.regionIds.length > 0) {
+      const poolAfter = await client.query<{ region_id: string; pool_food: number; pool_equipment: number; pool_energy: number; pool_materials: number }>(
+        "SELECT region_id, pool_food::float, pool_equipment::float, pool_energy::float, pool_materials::float FROM regions WHERE region_id = ANY($1)",
+        [arrivals.regionIds]
+      );
+      logger.info({
+        before: poolBefore.rows.filter(r => arrivals.regionIds.includes(r.region_id)),
+        after: poolAfter.rows
+      }, "pool values before/after arrivals");
+    }
+
+    return { transfers, arrivals };
+  });
+  if (resourceResult) {
+    newTransfers = resourceResult.transfers;
+    arrivalResult = resourceResult.arrivals;
+    logger.info({ arrivals: arrivalResult.regionIds.length, transfers: newTransfers.length }, "resources group committed");
+  }
+
+  // ====== GROUP 3: Tasks (spawn degraded road tasks, update priorities) ======
+  const taskResult = await runInTransaction(pool, "tasks", async (client) => {
+    const spawned = await spawnDegradedRoadTasks(client);
+    const priorities = await updateTaskPriorities(client);
+    return { spawnedTasks: spawned, priorityUpdates: priorities };
+  });
+  if (taskResult) {
+    spawnedTasks = taskResult.spawnedTasks;
+    priorityUpdates = taskResult.priorityUpdates;
+  }
+
+  // ====== GROUP 4: Crews (dispatch, arrive, hub arrival, complete tasks) ======
+  const crewResult = await runInTransaction(pool, "crews", async (client) => {
+    const dispatch = await dispatchCrews(client);
+    const arrival = await arriveCrews(client, multipliers);
+    const hubArrivals = await arriveCrewsAtHub(client);
+    const completion = await completeFinishedTasks(client, multipliers);
+    return { dispatch, arrival, hubArrivals, completion };
+  });
+  if (crewResult) {
+    dispatchResult = crewResult.dispatch;
+    crewArrivalResult = crewResult.arrival;
+    hubArrivalEvents = crewResult.hubArrivals;
+    completionResult = crewResult.completion;
+  }
+
+  // ====== GROUP 5: NPCs (bots, lamplighter) ======
+  const npcResult = await runInTransaction(pool, "npcs", async (client) => {
+    await simulateBots(client, demoConfig.enabled);
+    const lamplighter = await runLamplighter(client, demoConfig.enabled, cycle.phase);
+    return { lamplighter };
+  });
+  if (npcResult) {
+    lamplighterResult = npcResult.lamplighter;
+  }
+
+  // ====== PUBLISH DELTAS (outside transactions - pg_notify is autocommit) ======
+  // Collect all region IDs from successful operations, filtering out undefined values
+  const allRegionIds = [
+    ...arrivalResult.regionIds,
+    ...dispatchResult.regionIds,
+    ...crewArrivalResult.regionIds,
+    ...completionResult.regionIds,
+    ...decayFeatureDeltas.map(d => d.region_id),
+    ...rustHexes.map(h => h.region_id)
+  ].filter((id): id is string => id != null);
 
   await publishWorldDelta(
-    client,
+    pool,
     [...rustHexes, ...completionResult.rustHexes],
-    [
-      ...arrivalResult.regionIds,
-      ...dispatchResult.regionIds,
-      ...crewArrivalResult.regionIds,
-      ...completionResult.regionIds,
-      ...decayFeatureDeltas.map(d => d.region_id),
-      ...rustHexes.map(h => h.region_id)
-    ]
+    allRegionIds
   );
 
-  await publishFeatureDeltas(client, [
+  await publishFeatureDeltas(pool, [
     ...decayFeatureDeltas,
     ...dispatchResult.featureDeltas,
     ...crewArrivalResult.featureDeltas,
     ...completionResult.featureDeltas
   ]);
 
-  await publishTaskDeltas(client, [
+  await publishTaskDeltas(pool, [
     ...spawnedTasks,
     ...priorityUpdates,
     ...dispatchResult.taskDeltas,
     ...completionResult.taskDeltas
   ]);
 
-  await publishFeedItems(client, completionResult.feedItems);
+  await publishFeedItems(pool, completionResult.feedItems);
 
-  await publishResourceTransfers(client, newTransfers);
+  await publishResourceTransfers(pool, newTransfers);
 
   // Publish crew state changes for real-time animation updates
-  await publishCrewDeltas(client, [
+  await publishCrewDeltas(pool, [
     ...dispatchResult.crewEvents,
     ...crewArrivalResult.crewEvents,
     ...hubArrivalEvents.map(e => ({ ...e, event_type: e.event_type })),
     ...completionResult.crewEvents
   ]);
 
+  // ====== MAINTENANCE (isolated, non-critical) ======
   if (
     Number.isFinite(cleanupIntervalMs) &&
     cleanupIntervalMs > 0 &&
     now - lastCleanupMs >= cleanupIntervalMs
   ) {
     try {
-      const stats = await cleanupOldData(client);
+      const stats = await cleanupOldData(pool);
       lastCleanupMs = now;
       logger.info({ ...stats }, "cleanup complete");
     } catch (error) {
@@ -282,7 +393,7 @@ async function runTick(client: PoolLike) {
     now - lastWorkerSyncMs >= workerSyncIntervalMs
   ) {
     try {
-      await syncRegionWorkers(client);
+      await syncRegionWorkers(pool);
       lastWorkerSyncMs = now;
     } catch (error) {
       logger.error({ err: error }, "worker sync failed");

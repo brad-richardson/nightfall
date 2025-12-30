@@ -125,12 +125,12 @@ describe("completeFinishedTasks integration", () => {
     expect(events.rows[0].payload.task_id).toBe(taskId);
   });
 
-  it("fully heals road to 100% health when repair completes", async () => {
+  it("fully heals road to 100% health when repair_amount is sufficient", async () => {
     const { regionId, gersId, crewId } = await insertTestFixtures(tx);
 
     const taskResult = await tx.query<{ task_id: string }>(
       `INSERT INTO tasks (region_id, target_gers_id, task_type, cost_food, cost_equipment, cost_energy, cost_materials, duration_s, repair_amount, status)
-       VALUES ($1, $2, 'repair', 10, 5, 5, 10, 60, 20, 'active')
+       VALUES ($1, $2, 'repair', 10, 5, 5, 10, 60, 85, 'active')
        RETURNING task_id`,
       [regionId, gersId]
     );
@@ -141,7 +141,7 @@ describe("completeFinishedTasks integration", () => {
       [crewId, taskId]
     );
 
-    // Health at 15, should heal to 100 and become 'normal'
+    // Health at 15 + repair_amount 85 = 100
     await tx.query(`UPDATE feature_state SET health = 15, status = 'degraded' WHERE gers_id = $1`, [
       gersId
     ]);

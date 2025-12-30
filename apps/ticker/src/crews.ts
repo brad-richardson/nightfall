@@ -366,7 +366,9 @@ export async function dispatchCrews(pool: PoolLike): Promise<DispatchResult> {
       });
     } catch (error) {
       await pool.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
-      throw error;
+      logger.error({ err: error, crewId: crew.crew_id, regionId: crew.region_id }, "dispatchCrews: crew dispatch failed, skipping");
+      // Don't throw - continue with next crew so other operations aren't affected
+      continue;
     }
   }
 
@@ -494,7 +496,9 @@ export async function arriveCrews(
       });
     } catch (error) {
       await pool.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
-      throw error;
+      logger.error({ err: error, crewId: crew.crew_id, regionId: crew.region_id }, "arriveCrews: crew arrival failed, skipping");
+      // Don't throw - continue with next crew so other operations aren't affected
+      continue;
     }
   }
 
@@ -675,8 +679,8 @@ export async function completeFinishedTasks(
     updated_features AS (
       UPDATE feature_state AS fs
       SET
-        health = 100,
-        status = 'normal',
+        health = LEAST(100, fs.health + due.repair_amount),
+        status = CASE WHEN LEAST(100, fs.health + due.repair_amount) >= 30 THEN 'normal' ELSE 'degraded' END,
         updated_at = now()
       FROM due
       WHERE fs.gers_id = due.target_gers_id

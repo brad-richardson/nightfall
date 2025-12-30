@@ -507,6 +507,20 @@ export async function applyArrivedResourceTransfers(pool: PoolLike): Promise<Arr
     return { regionIds: [] };
   }
 
+  // Debug: Check for pending arrivals before the query
+  const pendingCheck = await pool.query<{ count: string; region_ids: string[] }>(
+    `SELECT COUNT(*)::text as count, array_agg(DISTINCT region_id) as region_ids
+     FROM resource_transfers
+     WHERE status = 'in_transit' AND arrive_at <= now()`
+  );
+  const pendingCount = parseInt(pendingCheck.rows[0]?.count ?? "0", 10);
+  if (pendingCount > 0) {
+    logger.info({
+      pendingArrivals: pendingCount,
+      regionIds: pendingCheck.rows[0]?.region_ids
+    }, "applyArrivedResourceTransfers: found pending arrivals");
+  }
+
   const result = await pool.query<{ region_id: string }>(
     `
     WITH arrived AS (
@@ -546,5 +560,14 @@ export async function applyArrivedResourceTransfers(pool: PoolLike): Promise<Arr
   );
 
   const regionIds = Array.from(new Set(result.rows.map((row) => row.region_id)));
+
+  // Debug: Log what was processed
+  if (result.rows.length > 0) {
+    logger.info({
+      processedCount: result.rows.length,
+      uniqueRegions: regionIds
+    }, "applyArrivedResourceTransfers: processed arrivals");
+  }
+
   return { regionIds };
 }

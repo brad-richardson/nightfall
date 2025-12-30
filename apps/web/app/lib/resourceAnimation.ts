@@ -26,6 +26,7 @@ export type ResourcePackage = {
   duration: number; // ms
   waypoints?: PathWaypoint[] | null; // Server-provided waypoints for time-based animation
   boostMultiplier?: number | null; // Multiplier if source building is boosted
+  amount: number; // Actual resource amount from the transfer
 };
 
 /**

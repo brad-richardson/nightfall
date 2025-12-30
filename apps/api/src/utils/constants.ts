@@ -74,22 +74,24 @@ export const ENERGY_MINIGAMES = ["power_up"];
 export const MATERIALS_MINIGAMES = ["crane_drop"];
 
 // Max possible scores by minigame type (for anti-cheat)
+// Target: 10-15s for boost (full game), 2-6s for activation (1 round)
 export const MINIGAME_CONFIG: Record<string, { maxScore: number; expectedDurationMs: number; baseRounds: number }> = {
-  kitchen_rush: { maxScore: 1000, expectedDurationMs: 30000, baseRounds: 6 },
-  fresh_check: { maxScore: 1000, expectedDurationMs: 25000, baseRounds: 20 },
-  gear_up: { maxScore: 1000, expectedDurationMs: 20000, baseRounds: 5 },
-  patch_job: { maxScore: 1000, expectedDurationMs: 25000, baseRounds: 3 },
-  power_up: { maxScore: 1000, expectedDurationMs: 20000, baseRounds: 3 },
-  crane_drop: { maxScore: 1000, expectedDurationMs: 25000, baseRounds: 8 },
+  kitchen_rush: { maxScore: 1000, expectedDurationMs: 12000, baseRounds: 3 },
+  fresh_check: { maxScore: 1000, expectedDurationMs: 12000, baseRounds: 5 },
+  gear_up: { maxScore: 1000, expectedDurationMs: 12000, baseRounds: 3 },
+  patch_job: { maxScore: 1000, expectedDurationMs: 12000, baseRounds: 3 },
+  power_up: { maxScore: 1000, expectedDurationMs: 12000, baseRounds: 3 },
+  crane_drop: { maxScore: 1000, expectedDurationMs: 15000, baseRounds: 5 },
 };
 
 // Road repair minigame configuration
 export const REPAIR_MINIGAME_TYPES = ["pothole_patrol", "road_roller", "traffic_director"] as const;
 
+// Target: 10-15s for full repair minigame
 export const REPAIR_MINIGAME_CONFIG: Record<string, { maxScore: number; expectedDurationMs: number; baseRounds: number }> = {
-  pothole_patrol: { maxScore: 1000, expectedDurationMs: 20000, baseRounds: 5 },
-  road_roller: { maxScore: 1000, expectedDurationMs: 25000, baseRounds: 3 },
-  traffic_director: { maxScore: 1000, expectedDurationMs: 25000, baseRounds: 8 },
+  pothole_patrol: { maxScore: 1000, expectedDurationMs: 12000, baseRounds: 4 },
+  road_roller: { maxScore: 1000, expectedDurationMs: 12000, baseRounds: 3 },
+  traffic_director: { maxScore: 1000, expectedDurationMs: 15000, baseRounds: 5 },
 };
 
 // Minimum performance required to successfully repair (60% = decent but not perfect)

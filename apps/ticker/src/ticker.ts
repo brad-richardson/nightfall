@@ -16,7 +16,7 @@ export type Logger = {
 type RunWithLockArgs = {
   pool: PoolLike;
   lockId: number;
-  runTick: (client: PoolLike) => Promise<void>;
+  runTick: (pool: PoolLike) => Promise<void>;
   logger: Logger;
 };
 
@@ -25,15 +25,19 @@ type LoopArgs = RunWithLockArgs & {
   shouldContinue: () => boolean;
 };
 
+/**
+ * Acquire an advisory lock and run the tick.
+ * Each operation group within runTick manages its own transaction.
+ */
 export async function runWithAdvisoryLock({
   pool,
   lockId,
   runTick,
   logger
 }: RunWithLockArgs) {
-  const client = pool.connect ? await pool.connect() : null;
+  const lockClient = pool.connect ? await pool.connect() : null;
 
-  if (!client) {
+  if (!lockClient) {
     logger.error("[ticker] pool.connect() required for advisory locks");
     return;
   }
@@ -42,7 +46,7 @@ export async function runWithAdvisoryLock({
   const startedAt = Date.now();
 
   try {
-    const lockResult = await client.query<{ locked: boolean }>(
+    const lockResult = await lockClient.query<{ locked: boolean }>(
       "SELECT pg_try_advisory_lock($1) AS locked",
       [lockId]
     );
@@ -53,23 +57,17 @@ export async function runWithAdvisoryLock({
       return;
     }
 
-    try {
-      await client.query("BEGIN");
-      await runTick(client);
-      await client.query("COMMIT");
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    }
+    // Pass the pool to runTick - each operation group manages its own transaction
+    await runTick(pool);
   } finally {
     if (locked) {
-      await client.query("SELECT pg_advisory_unlock($1)", [lockId]);
+      await lockClient.query("SELECT pg_advisory_unlock($1)", [lockId]);
       const durationMs = Date.now() - startedAt;
       logger.info({ durationMs }, "tick complete");
     }
 
-    if (typeof client.release === "function") {
-      await client.release();
+    if (typeof lockClient.release === "function") {
+      await lockClient.release();
     }
   }
 }
