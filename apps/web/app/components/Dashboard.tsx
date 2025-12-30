@@ -13,7 +13,6 @@ import { useStore, type Region, type Feature, type Hex, type CycleState } from "
 import { BAR_HARBOR_DEMO_BBOX, CRITICAL_HEALTH_THRESHOLD, calculateCityScore } from "@nightfall/config";
 import { fetchWithRetry } from "../lib/retry";
 import { ResourcePoolsPanel } from "./sidebar/ResourcePoolsPanel";
-import { RegionHealthPanel } from "./sidebar/RegionHealthPanel";
 import { OnboardingOverlay } from "./OnboardingOverlay";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { recordResourceValues, clearResourceHistory } from "../lib/resourceHistory";
@@ -303,7 +302,8 @@ function RadialStat({
   label,
   color,
   emoji,
-  format = "percent"
+  format = "percent",
+  variant = "dark"
 }: {
   value: number;
   max: number;
@@ -311,6 +311,7 @@ function RadialStat({
   color: string;
   emoji?: string;
   format?: "percent" | "fraction" | "number";
+  variant?: "light" | "dark";
 }) {
   const percent = max > 0 ? (value / max) * 100 : 0;
   const circumference = 2 * Math.PI * 18; // radius = 18
@@ -322,6 +323,8 @@ function RadialStat({
       ? `${value}/${max}`
       : `${value}`;
 
+  const isLight = variant === "light";
+
   return (
     <div className="flex flex-col items-center gap-1">
       <div className="relative h-12 w-12">
@@ -331,7 +334,7 @@ function RadialStat({
             cy="20"
             r="18"
             fill="none"
-            stroke="rgba(255,255,255,0.1)"
+            stroke={isLight ? "rgba(0,0,0,0.1)" : "rgba(255,255,255,0.1)"}
             strokeWidth="3"
           />
           <circle
@@ -347,11 +350,11 @@ function RadialStat({
             className="transition-all duration-500"
           />
         </svg>
-        <div className="absolute inset-0 flex items-center justify-center text-xs font-bold text-white">
+        <div className={`absolute inset-0 flex items-center justify-center text-xs font-bold ${isLight ? "text-[var(--night-ink)]" : "text-white"}`}>
           {displayValue}
         </div>
       </div>
-      <span className="flex items-center gap-1 text-[9px] uppercase tracking-wider text-white/50">
+      <span className={`flex items-center gap-1 text-[9px] uppercase tracking-wider ${isLight ? "text-[var(--night-ash)]" : "text-white/50"}`}>
         {emoji && <span className="text-sm">{emoji}</span>}
         {label}
       </span>
@@ -1531,20 +1534,42 @@ export default function Dashboard({
         </div>
       </div>
 
-      <ActiveEvents deltas={resourceFeed} activeTasks={activeTasks} travelingCrews={travelingCrews} features={features} />
-
       <div className="rounded-3xl border border-[var(--night-outline)] bg-white/60 p-5 shadow-[0_18px_40px_rgba(24,20,14,0.12)]">
         <p className="text-xs uppercase tracking-[0.4em] text-[color:var(--night-ash)]">
           Region Health
         </p>
-        <div className="mt-4">
-          <RegionHealthPanel
-            healthAvg={region.stats.health_avg}
-            rustAvg={region.stats.rust_avg}
+        <div className="mt-4 flex items-center justify-around">
+          <RadialStat
+            value={counts.degraded}
+            max={counts.roads}
+            label="Degraded"
+            color="#ef4444"
+            emoji="🛣️"
+            format="percent"
+            variant="light"
+          />
+          <RadialStat
+            value={busyCrews}
+            max={totalCrews}
+            label="Workers"
+            color="var(--night-teal)"
+            emoji="👷"
+            format="fraction"
+            variant="light"
+          />
+          <RadialStat
+            value={counts.activatedBuildings}
+            max={Math.max(counts.activatedBuildings, 1)}
+            label="Active"
+            color="#fbbf24"
+            emoji="🏢"
+            format="number"
             variant="light"
           />
         </div>
       </div>
+
+      <ActiveEvents deltas={resourceFeed} activeTasks={activeTasks} travelingCrews={travelingCrews} features={features} />
     </>
   );
 
