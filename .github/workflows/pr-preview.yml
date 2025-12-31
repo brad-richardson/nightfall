@@ -1,0 +1,47 @@
+name: PR Preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'apps/web/**'
+      - 'packages/config/**'
+      - 'pnpm-lock.yaml'
+
+concurrency:
+  group: pr-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  deploy-preview:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build static site for PR preview
+        run: pnpm --filter @nightfall/web build
+        env:
+          NEXT_EXPORT: "1"
+          NEXT_PUBLIC_API_BASE_URL: https://nightfall.fly.dev
+          NEXT_PUBLIC_BASE_PATH: /${{ github.event.repository.name }}/pr-${{ github.event.pull_request.number }}
+
+      - name: Deploy to PR subdirectory
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./apps/web/out
+          destination_dir: pr-${{ github.event.pull_request.number }}
+          keep_files: true
+
+      # Preview URL: https://<owner>.github.io/<repo>/pr-<number>/
